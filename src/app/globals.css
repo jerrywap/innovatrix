@@ -1,0 +1,207 @@
+@import "tailwindcss";
+
+/* next-themes writes class="dark" on <html>, so the dark variant keys off a
+   class rather than prefers-color-scheme. System preference still wins by
+   default — the provider resolves it and sets the class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────────────
+   Innovatrix — Meridian
+   Editorial and structural, but warm. Paper and ink, not grey and blue.
+   Every colour is declared in both themes; nothing is defined only inside
+   a dark block, or the light theme inherits a hole.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* Surfaces — warm paper, never pure white */
+  --background: #fbfaf7;
+  --surface: #ffffff;
+  --surface-muted: #f3f0e9;
+  --surface-inverse: #0b0b0c;
+
+  /* Text */
+  --foreground: #14130f;
+  --foreground-inverse: #f4f1ea;
+  --muted: #6b675e;
+  --subtle: #8f8b81;
+
+  /* Lines */
+  --border: rgb(20 19 15 / 0.1);
+  --border-strong: rgb(20 19 15 / 0.2);
+
+  /* Brand. `signal` is the fill; `signal-text` is the accessible variant for
+     small type — the fill colour alone doesn't clear AA on paper. */
+  --signal: #e0521f;
+  --signal-text: #b8431a;
+  --signal-contrast: #ffffff;
+  --signal-soft: rgb(224 82 31 / 0.1);
+
+  --ring: rgb(224 82 31 / 0.4);
+  --shadow-color: 30 25 20;
+}
+
+.dark {
+  --background: #0b0b0c;
+  --surface: #141416;
+  --surface-muted: #1b1b1e;
+  --surface-inverse: #f4f1ea;
+
+  --foreground: #f4f1ea;
+  --foreground-inverse: #0b0b0c;
+  --muted: #9d998f;
+  --subtle: #78746c;
+
+  --border: rgb(244 241 234 / 0.12);
+  --border-strong: rgb(244 241 234 / 0.24);
+
+  --signal: #ff6a3d;
+  --signal-text: #ff8a62;
+  --signal-contrast: #14130f;
+  --signal-soft: rgb(255 106 61 / 0.14);
+
+  --ring: rgb(255 106 61 / 0.45);
+  --shadow-color: 0 0 0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-inverse: var(--surface-inverse);
+
+  --color-foreground: var(--foreground);
+  --color-foreground-inverse: var(--foreground-inverse);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-signal: var(--signal);
+  --color-signal-text: var(--signal-text);
+  --color-signal-contrast: var(--signal-contrast);
+  --color-signal-soft: var(--signal-soft);
+
+  --font-display: var(--font-archivo);
+  --font-mono: var(--font-jetbrains);
+
+  /* Softened geometry. Meridian keeps its structure in the grid and the rules,
+     not in sharp corners. */
+  --radius-xs: 0.5rem;
+  --radius-sm: 0.75rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --radius-2xl: 2.25rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "kern", "liga", "cv11";
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--signal);
+    color: var(--signal-contrast);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Structural grid — the Swiss bones, dialled down so they read as texture. */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, var(--border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+    background-size: 72px 72px;
+  }
+
+  /* Film grain. Keeps large flat areas from looking like flat digital fills. */
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.5;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+  }
+
+  .shadow-lift {
+    box-shadow:
+      0 1px 2px rgb(var(--shadow-color) / 0.04),
+      0 8px 24px -8px rgb(var(--shadow-color) / 0.1),
+      0 24px 48px -24px rgb(var(--shadow-color) / 0.14);
+  }
+
+  .shadow-float {
+    box-shadow:
+      0 2px 4px rgb(var(--shadow-color) / 0.05),
+      0 16px 40px -12px rgb(var(--shadow-color) / 0.16),
+      0 40px 80px -32px rgb(var(--shadow-color) / 0.2);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  .animate-marquee {
+    animation: marquee 42s linear infinite;
+  }
+
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 var(--signal-soft);
+    }
+    70% {
+      box-shadow: 0 0 0 10px transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+
+  .animate-pulse-ring {
+    animation: pulse-ring 2.4s ease-out infinite;
+  }
+}

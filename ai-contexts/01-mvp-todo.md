@@ -1,0 +1,423 @@
+# Innovatrix — MVP Task Bucket List
+
+Derived from `ai-contexts/00-techinical.md` (the product spec — **always read it for full context**), cross-checked
+against the **current state of the repo**: a bare `create-next-app` (Next.js 16.3.1, React 19.2, Tailwind v4,
+TypeScript) with a single `app/page.tsx`. Everything below is greenfield.
+
+Detailed tickets live in `ai-contexts/tickets/NN-*.md`. Every row here maps to a ticket; every ticket maps back here.
+
+Status key: `[x]` Done · `[~]` Skeleton/partial (UI or stub exists, real behaviour missing) · `[ ]` Not started
+
+Column meaning: **FE** = Next.js route/page/component work (RSC + client islands). **BE** = server actions, services,
+repositories, Mongoose models, jobs, webhooks, real business logic.
+
+---
+
+## Stack decisions (locked — do not re-litigate)
+
+| Area | Decision | Why |
+|------|----------|-----|
+| Framework | **Next.js 16.3.1, App Router** | Spec §80. Note: this version renames `middleware.ts` → **`proxy.ts`**. Read `node_modules/next/dist/docs/` before writing routing/caching code. |
+| Database | **MongoDB + Mongoose** (Atlas) | Catalog (§8, §42–43) and AI conversations (§72) are document-shaped. Integrity for money lives in the service layer + transactions. |
+| Auth | **Better Auth** (MongoDB adapter, organization plugin) | Maps directly onto §76 organizations and §77 staff roles. |
+| Payments | **Provider abstraction: Paystack + Stripe + PayPal**, selectable per-currency in admin | §62. Webhook is the source of truth (§13, §103). |
+| Object storage | **S3-compatible** (Cloudflare R2 or AWS S3), signed URLs only | §44, §66, §85. |
+| AI | **OpenRouter** (OpenAI-compatible gateway) via the `openai` SDK, model `anthropic/claude-opus-4.1` | §71–73. One gateway, swappable models, one bill. AI is a layer, never the source of truth (§104). |
+| Money | **Integer minor units + ISO-4217 currency code**, BSON `Int32`/`Int64` — never `Double` | §84. |
+| UI | Tailwind v4 + shadcn/ui, RSC-first | §81. |
+
+---
+
+## MVP scope boundary
+
+**In scope** — the full revenue loop, both entry doors, and the staff side that services them:
+
+```
+Marketplace → Product → Cart → Checkout → Payment → Entitlement → Download
+Product     → Request Customization → AI Assistant → Request → Staff → Quote → Payment
+Landing     → Build Custom Software → AI Assistant → Request → Staff → Quote → Payment
+```
+
+**Explicitly deferred to post-MVP** (spec Phases 3–5). Do not build these; do leave seams where noted:
+
+* Projects, milestones, tasks, deliverables (§53–54)
+* Customer testing / UAT sessions and approvals (§55)
+* Change Requests (§56–57)
+* Full ticketing system with SLA (§35–37) — MVP uses Requests + threaded messaging instead
+* Tech Assistant hours and time tracking (§59–60)
+* Maintenance plans, subscriptions, renewals (§67–68)
+* Dynamic sandboxes and deployment automation (§10, §58)
+* Semantic/vector search (§74) — MVP is keyword + facets, Atlas Search index left in place to grow into
+* Product comparison, ratings/reviews (§6)
+* Refunds beyond a manual admin-recorded refund (§62)
+
+---
+
+## 0. Foundation & Infrastructure
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 0.1 | Next.js 16 App Router skeleton: `src/` layout, route groups, path aliases, strict TS | [x] | [x] | 00 |
+| 0.2 | Feature-folder architecture (`features/`, `services/`, `repositories/`, `validators/`) per §80/§82 | [x] | [x] | 00 | ← folders scaffolded; populated per feature ticket |
+| 0.3 | Env config module — typed, validated at boot, server-only secrets | — | [x] | 00 | ← `src/config/env.ts` (+`public-env.ts`); `server-only` leak guard verified against a real build |
+| 0.4 | Money primitives (`Money` type, minor units, formatting, arithmetic) — §84 | [x] | [x] | 00 | ← incl. `allocate()` for deposit splits (ticket 23) |
+| 0.5 | Business reference generator (`REQ-2026-0148`, `ORD-…`, `INV-…`) — §26 | — | [x] | 00/01 | ← pure logic + port (00); Mongo atomic `$inc` store (01), proven at 500-way concurrency |
+| 0.6 | Error handling: `error.tsx`, `not-found.tsx`, typed `ActionResult<T>` for server actions | [x] | [x] | 00 | ← incl. `global-error.tsx`, domain error taxonomy, `withAction`/`parseInput` |
+| 0.6b | Tooling gate: `npm run verify` (lint → typecheck → test), Prettier, lint-staged + husky | — | [x] | 00 | ← 40 unit tests passing |
+| 0.7 | Tailwind v4 + shadcn/ui installed, theme tokens, dark mode | [ ] | — | 04 |
+| 0.8 | **MongoDB connection** (HMR-safe singleton), Mongoose base schema conventions, index strategy | — | [x] | 01 | ← `defineModel()` makes registration idempotent across HMR |
+| 0.9 | **Transaction helper** (`withTransaction`) + replica-set local dev via Docker/Atlas | — | [x] | 01 | ← delegates to the driver's documented retry loop; `docker-compose.yml` + `npm run db:up` |
+| 0.10 | Seed script — categories, industries, technologies, demo products, staff users, org | — | [x] | 02 | ← `npm run db:seed`, idempotent; also syncs indexes
+| 0.11 | **Object storage service** — S3 client, signed upload + signed download, key namespacing | — | [ ] | 05 |
+| 0.12 | **Background job runner** — queue, retries, scheduled jobs | — | [ ] | 25 |
+| 0.13 | **AI service wrapper** — Anthropic client, streaming, structured output, cost logging | — | [ ] | 16 |
+
+---
+
+## 1. Domain Model
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 1.1 | ERD for the MVP subset of §78 (~28 of the ~45 conceptual entities) | — | [x] | 02 | ← `src/lib/db/ERD.md`, 26 collections, Mermaid + embed/reference rationale
+| 1.2 | Collections: `users`, `organizations`, `organizationMembers`, `staffProfiles` | — | [x] | 02 |
+| 1.3 | Collections: `products`, `productVersions`, `productFiles`, `taxonomies` | — | [x] | 02 |
+| 1.4 | Collections: `carts`, `orders`, `entitlements`, `licences`, `downloads` | — | [x] | 02 | ← +`payments`, `webhookEvents`, `paymentSettings`
+| 1.5 | Collections: `aiConversations`, `customerRequests`, `quotes`, `invoices`, `payments` | — | [x] | 02 | ← +`followUps`
+| 1.6 | Collections: `conversations`, `messages`, `followUps`, `notifications`, `activityEvents`, `auditLogs` | — | [x] | 02 |
+| 1.7 | Referential-integrity rules documented + enforced in services (no FKs in Mongo) | — | [~] | 01/02 | ← `INTEGRITY.md` complete; per-service enforcement lands with each feature ticket
+| 1.8 | Index plan: unique refs, licence keys, slug uniqueness, staff-queue compound indexes | — | [x] | 02 | ← 120 indexes, `npm run db:indexes`; faceted search via a flattened `facets` array (Mongo can't index parallel arrays)
+
+---
+
+## 2. Identity, Organizations & Permissions
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 2.1 | Better Auth setup — email/password, email verification, password reset, sessions | [ ] | [ ] | 03 |
+| 2.2 | Organizations + members with roles (Owner/Admin/Billing/Technical/Member) — §76 | [ ] | [ ] | 03 |
+| 2.3 | Staff roles + permission matrix (§77) — permissions, not one admin flag | [ ] | [ ] | 03 |
+| 2.4 | **DAL** (`verifySession`, `requireOrg`, `requireStaff`, `requirePermission`) with React `cache` | — | [ ] | 03 |
+| 2.5 | `proxy.ts` optimistic route guards (cookie-only, no DB reads) | — | [ ] | 03 |
+| 2.6 | Auth pages: register, login, verify, forgot/reset password | [ ] | [ ] | 03 |
+| 2.7 | Tenant isolation: every org-scoped query filtered by `organizationId` at the repository layer | — | [ ] | 03 |
+| 2.8 | Optional OAuth (Google) — behind a config flag | [ ] | [ ] | 03 |
+
+---
+
+## 3. Application Shells & Design System
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 3.1 | Route groups: `(public)`, `(auth)`, `dashboard`, `staff`, `admin` with distinct layouts | [ ] | [ ] | 04 |
+| 3.2 | Public site chrome — header, mega-nav, footer, marketing landing (§4.1) | [ ] | — | 04 |
+| 3.3 | Customer dashboard shell — sidebar per §28 (MVP modules only), mobile nav | [ ] | — | 04 |
+| 3.4 | Staff portal shell — queue-first navigation (§30) | [ ] | — | 04 |
+| 3.5 | Admin portal shell (§4.4) | [ ] | — | 04 |
+| 3.6 | Shared primitives: DataTable, EmptyState, StatusBadge, Timeline, MoneyDisplay, FileDropzone | [ ] | — | 04 |
+| 3.7 | Loading/streaming conventions — `loading.tsx`, Suspense boundaries, skeletons | [ ] | — | 04 |
+
+---
+
+## 4. Marketplace — Administration
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 4.1 | Taxonomy admin: categories, industries, technologies (§7) | [ ] | [ ] | 06 |
+| 4.2 | Product create/edit wizard — the §42 step sequence, save-per-step draft | [ ] | [ ] | 06 |
+| 4.3 | Product configuration fields (§43) incl. licence type, support/update duration | [ ] | [ ] | 06 |
+| 4.4 | Media: screenshots + video, ordering, alt text | [ ] | [ ] | 06 |
+| 4.5 | Pricing: per-currency prices (GBP/USD/NGN/…), licence packages, add-ons (§49) | [ ] | [ ] | 06 |
+| 4.6 | Publishing lifecycle: Draft → Internal Review → Ready → Published → Deprecated → Archived (§46) | [ ] | [ ] | 06 |
+| 4.7 | Product versions + changelog + release notes (§45) | [ ] | [ ] | 07 |
+| 4.8 | Product file uploads to object storage, per version (§44) — never public paths | [ ] | [ ] | 07 |
+| 4.9 | Demo configuration + **encrypted** demo credentials, exposure rules (§9) | [ ] | [ ] | 07 |
+| 4.10 | Customization configuration — availability, suggested areas, AI workflow toggle (§50) | [ ] | [ ] | 06 |
+| 4.11 | Internal product testing checklist before publish (§47) | [ ] | [ ] | 07 |
+
+---
+
+## 5. Marketplace — Public Experience
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 5.1 | `/marketplace` listing — grid, pagination, sort (popular/latest/price) | [ ] | [ ] | 08 |
+| 5.2 | Faceted filters: category, industry, technology, product type, price range | [ ] | [ ] | 08 |
+| 5.3 | Keyword search (Mongo text index or Atlas Search) — §74 | [ ] | [ ] | 08 |
+| 5.4 | Category / industry landing pages (SEO surfaces) | [ ] | [ ] | 08 |
+| 5.5 | Featured / latest / recommended rails on the marketplace home | [ ] | [ ] | 08 |
+| 5.6 | Recently viewed (cookie) + saved/favourites (account) | [ ] | [ ] | 08 |
+| 5.7 | Product detail page — full §8 layout, gallery, features, requirements, changelog | [ ] | [ ] | 09 |
+| 5.8 | Demo panel — public/customer/admin demo URLs + credentials per exposure rules (§9) | [ ] | [ ] | 09 |
+| 5.9 | Primary CTAs: Buy As-Is · Request Customization · Try Demo · Save for Later | [ ] | [ ] | 09 |
+| 5.10 | Related products | [ ] | [ ] | 09 |
+
+---
+
+## 6. Commerce — Cart, Checkout, Orders
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 6.1 | Cart model (guest cookie cart + user cart, merge on login), single currency per cart | [ ] | [ ] | 10 |
+| 6.2 | Add/remove/update, licence-package selection, service add-ons (§11, §12) | [ ] | [ ] | 10 |
+| 6.3 | Discount codes, tax lines, totals computed **server-side only** | [ ] | [ ] | 10 |
+| 6.4 | Checkout flow: account → billing → review → pay → confirm (§13) | [ ] | [ ] | 11 |
+| 6.5 | Order creation with **frozen price snapshot** per line (§61) | [ ] | [ ] | 11 |
+| 6.6 | Order states: Pending → AwaitingPayment → Paid → Fulfilled → Cancelled/Refunded | [ ] | [ ] | 11 |
+| 6.7 | Order confirmation page + emailed receipt | [ ] | [ ] | 11 |
+
+---
+
+## 7. Payments
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 7.1 | `PaymentProvider` interface — initiate, verify, webhook-parse, refund | — | [ ] | 12 |
+| 7.2 | **Stripe** driver (Checkout Session + webhook) | [ ] | [ ] | 12 |
+| 7.3 | **Paystack** driver (initialize transaction + webhook) | [ ] | [ ] | 12 |
+| 7.4 | **PayPal** driver (Orders v2 + webhook) | [ ] | [ ] | 12 |
+| 7.5 | **Admin payment settings** — enable/disable providers, keys, per-currency routing, test mode | [ ] | [ ] | 12 |
+| 7.6 | Webhook endpoints with **signature verification + idempotency + raw-body handling** (§87) | — | [ ] | 13 |
+| 7.7 | Payment records, state machine, reconciliation against provider | — | [ ] | 13 |
+| 7.8 | **Fulfilment on verified payment only** — never trust the browser redirect (§13) | — | [ ] | 13 |
+| 7.9 | Manual/offline payment recording (bank transfer) for staff | [ ] | [ ] | 13 |
+
+---
+
+## 8. Entitlements, Licensing & Downloads
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 8.1 | Order → OrderItem → Entitlement chain on payment (§64) | — | [ ] | 14 |
+| 8.2 | Licence issuance: key generation, type, activation limit, expiry, support expiry (§65) | — | [ ] | 14 |
+| 8.3 | Entitlement gates: which versions, updates until, support until | — | [ ] | 14 |
+| 8.4 | Signed, expiring download URLs + download log + rate limit (§66) | [ ] | [ ] | 14 |
+| 8.5 | Licence view/verify page for the customer | [ ] | [ ] | 14 |
+
+---
+
+## 9. Customer Portal
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 9.1 | Dashboard — **action-oriented**: Needs Your Attention first, then counts (§27, §102) | [ ] | [ ] | 15 |
+| 9.2 | **My Software** — owned products, versions, updates, licence, support window (§29) | [ ] | [ ] | 15 |
+| 9.3 | Per-product actions: Download · Licence · Changelog · Docs · Request Customization · Request Support | [ ] | [ ] | 15 |
+| 9.4 | Orders list + order detail | [ ] | [ ] | 15 |
+| 9.5 | Requests list + request detail (AI summary, status, timeline, messages) | [ ] | [ ] | 19 |
+| 9.6 | Quotes list + quote detail with Accept / Reject / Ask Question | [ ] | [ ] | 22 |
+| 9.7 | Invoices list + pay-invoice flow | [ ] | [ ] | 23 |
+| 9.8 | Organization settings, members, billing details; account/profile settings | [ ] | [ ] | 15 |
+| 9.9 | Notifications centre + unread badge | [ ] | [ ] | 24 |
+
+---
+
+## 10. AI — Requirements Assistants
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 10.1 | Anthropic client wrapper: streaming, retries, typed errors, prompt caching, usage logging | — | [ ] | 16 |
+| 10.2 | `aiConversations` persistence — resumable, org-scoped, full transcript retained (§72) | — | [ ] | 16 |
+| 10.3 | Chat UI: streaming, one-question-at-a-time, suggested-option chips, free text (§17) | [ ] | [ ] | 16 |
+| 10.4 | **Structured requirement extraction** via Zod schema — confirmed vs assumed, never fabricated (§17) | — | [ ] | 16 |
+| 10.5 | AI guardrails: no pricing, no dates, no feasibility promises, no cross-tenant leakage (§73) | — | [ ] | 16 |
+| 10.6 | Graceful degradation when the AI provider is down — manual form fallback (§104) | [ ] | [ ] | 16 |
+| 10.7 | **Customization assistant** — product-context aware, uses the product's suggested areas (§16, §50) | [ ] | [ ] | 17 |
+| 10.8 | Requirements summary screen — editable, Edit / Continue / Submit (§18) | [ ] | [ ] | 17 |
+| 10.9 | Submission → `CustomizationRequest` linked to product + version (§19, §20) | [ ] | [ ] | 17 |
+| 10.10 | **Custom-build assistant** — business-first discovery, no tech jargon (§22) | [ ] | [ ] | 18 |
+| 10.11 | AI feature suggestions — accept/reject, never silently become requirements (§23) | [ ] | [ ] | 18 |
+| 10.12 | **Marketplace recommendation** during custom build — "we may already have this" (§24) | [ ] | [ ] | 18 |
+| 10.13 | Submission → `CustomerRequest` + reference + dashboard access (§25) | [ ] | [ ] | 18 |
+
+---
+
+## 11. Requests, State Machines & Activity
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 11.1 | Unified `CustomerRequest` model with `kind: custom_build | customization` | — | [ ] | 19 |
+| 11.2 | **Server-validated state machine** with explicit allowed transitions (§91) | — | [ ] | 19 |
+| 11.3 | Domain events (`RequestSubmitted`, `QuoteIssued`, `PaymentReceived`, …) — in-process bus (§92) | — | [ ] | 19 |
+| 11.4 | `activityEvents` → chronological timeline on every request/order/quote (§70) | [ ] | [ ] | 19 |
+| 11.5 | Customer-confirmed requirements immutable to staff; internal interpretation kept separate (§34) | [ ] | [ ] | 19 |
+| 11.6 | Context preservation — base product, version, AI transcript all reachable from the request (§101) | [ ] | [ ] | 19 |
+
+---
+
+## 12. Customer Service / Operations Portal
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 12.1 | Staff dashboard — the §31 counters, all clickable into filtered queues | [ ] | [ ] | 20 |
+| 12.2 | Work queues (§32): New Requests · Awaiting Staff · Waiting for Customer · Quotes Awaiting Response · Overdue Follow-ups · Unassigned | [ ] | [ ] | 20 |
+| 12.3 | Request workspace — AI transcript, structured requirements, attachments, internal notes | [ ] | [ ] | 20 |
+| 12.4 | Assignment + assignment history (§40) | [ ] | [ ] | 20 |
+| 12.5 | **Customer 360** — profile, products owned, orders, requests, quotes, balance, timeline (§33) | [ ] | [ ] | 20 |
+| 12.6 | Follow-ups: owner, due date, related record, status; overdue surfaced prominently (§39) | [ ] | [ ] | 20 |
+| 12.7 | Request-customer-action ("waiting on customer") with a customer-facing prompt | [ ] | [ ] | 20 |
+
+---
+
+## 13. Communication
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 13.1 | Reusable `Conversation` + `Message` model, polymorphic subject (§38) | — | [ ] | 21 |
+| 13.2 | Visibility: `customer` vs `internal` — internal notes **never** reach the customer (§37) | [ ] | [ ] | 21 |
+| 13.3 | Threaded UI on both sides, attachments via signed uploads | [ ] | [ ] | 21 |
+| 13.4 | System-generated state-change entries interleaved in the thread | [ ] | [ ] | 21 |
+| 13.5 | Email notification on new counterpart message, with reply-in-app link | — | [ ] | 24 |
+
+---
+
+## 14. Quotes & Invoices
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 14.1 | Quote builder — scope, deliverables, exclusions, line items, tax, discount, terms, expiry (§51) | [ ] | [ ] | 22 |
+| 14.2 | Quote states: Draft → Issued → Accepted / Rejected / Expired / Superseded | [ ] | [ ] | 22 |
+| 14.3 | Customer actions: Accept · Reject · Ask Question (§51) | [ ] | [ ] | 22 |
+| 14.4 | Quote PDF generation + email delivery | [ ] | [ ] | 22 |
+| 14.5 | Acceptance is audited (user, timestamp, quote version) (§90) | — | [ ] | 22 |
+| 14.6 | Quote → Invoice conversion, deposit vs full (§52) | [ ] | [ ] | 23 |
+| 14.7 | Invoice states: Draft → Issued → Partially Paid → Paid → Overdue → Cancelled (§63) | [ ] | [ ] | 23 |
+| 14.8 | Pay-invoice through the same provider abstraction as checkout | [ ] | [ ] | 23 |
+| 14.9 | On payment: request → `Approved`/`Converted`, work-order seam left for post-MVP projects | — | [ ] | 23 |
+
+---
+
+## 15. Notifications
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 15.1 | Notification model + in-app centre + unread count (§69) | [ ] | [ ] | 24 |
+| 15.2 | Transactional email (React Email + Resend/SES), all templates | — | [ ] | 24 |
+| 15.3 | Event → notification mapping for the §69 event list | — | [ ] | 24 |
+| 15.4 | Per-user notification preferences | [ ] | [ ] | 24 |
+| 15.5 | Channel seam for SMS/WhatsApp (interface only, no implementation) | — | [ ] | 24 |
+
+---
+
+## 16. Background Jobs
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 16.1 | Job runner + queue with retries, backoff, dead-letter, observability (§86) | — | [ ] | 25 |
+| 16.2 | Jobs: send email, generate PDF, process webhook follow-up, expire quotes, expire carts | — | [ ] | 25 |
+| 16.3 | Scheduled jobs (cron): quote-expiry sweep, follow-up reminders, abandoned-cart cleanup | — | [ ] | 25 |
+| 16.4 | Admin job monitor (queue depth, failures, retry) | [ ] | [ ] | 25 |
+
+---
+
+## 17. Security, Audit & Compliance
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 17.1 | Authorization enforced in **every** server action and route handler (§88) | — | [ ] | 26 |
+| 17.2 | Zod validation at every trust boundary | — | [ ] | 26 |
+| 17.3 | Rate limiting: auth, AI endpoints, downloads, webhooks | — | [ ] | 26 |
+| 17.4 | Security headers + CSP; secure cookies; CSRF posture documented for server actions | — | [ ] | 26 |
+| 17.5 | Secrets management; **no server secret ever reaches the client bundle** | — | [ ] | 26 |
+| 17.6 | Field-level encryption for demo credentials and any stored secret (§89) | — | [ ] | 26 |
+| 17.7 | `auditLogs` for the §90 action list, append-only | [ ] | [ ] | 26 |
+| 17.8 | Tenant-isolation test suite (cross-org access must fail) | — | [ ] | 26 |
+| 17.9 | Upload safety: type/size limits, no executable rendering, virus-scan seam | — | [ ] | 26 |
+
+---
+
+## 18. SEO, Performance & Observability
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 18.1 | Metadata API per route, canonical URLs, Open Graph, JSON-LD Product schema (§93) | [ ] | [ ] | 27 |
+| 18.2 | `sitemap.ts` + `robots.ts`, published products only | [ ] | [ ] | 27 |
+| 18.3 | Caching strategy — decide on Cache Components (`use cache` + `cacheLife`/`cacheTag`) and apply consistently | [ ] | [ ] | 27 |
+| 18.4 | Image optimization, pagination everywhere, no unbounded queries (§94) | [ ] | [ ] | 27 |
+| 18.5 | Error tracking (Sentry), structured logs, payment + job monitoring (§95) | — | [ ] | 27 |
+
+---
+
+## 19. Testing & CI/CD
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 19.1 | Vitest unit tests — money, references, state machines, entitlement rules | — | [ ] | 28 |
+| 19.2 | Integration tests against ephemeral Mongo (`mongodb-memory-server` or a test Atlas db) | — | [ ] | 28 |
+| 19.3 | Playwright E2E — the four §96 critical journeys | [ ] | [ ] | 28 |
+| 19.4 | Payment webhook tests with fixture payloads per provider | — | [ ] | 28 |
+| 19.5 | CI: lint → typecheck → test → build → security audit (§97) | — | [ ] | 28 |
+| 19.6 | Environments: local / staging / production, migration & seed strategy | — | [ ] | 28 |
+
+---
+
+## Suggested implementation order
+
+Ordered so that each block is independently demoable and nothing is blocked waiting on a later block.
+
+### Phase A — Skeleton you can log into (tickets 00–04)
+1. **00 Foundation** — structure, config, money, references, error handling.
+2. **01 MongoDB** — connection, conventions, transactions.
+3. **02 Domain model** — all MVP collections + indexes + seed. *Do this before any feature; retrofitting a 28-collection model is the most expensive mistake available here.*
+4. **03 Auth + orgs + permissions** — everything downstream gates on the DAL.
+5. **04 Shells + design system** — four layouts, shared primitives.
+
+### Phase B — Something to sell (tickets 05–09)
+6. **05 Object storage** → **06 Admin product management** → **07 Versions, files, demos**.
+7. **08 Marketplace browse/search** → **09 Product detail**.
+   *Milestone: an admin can publish a real product and the public can find and evaluate it.*
+
+### Phase C — Money in (tickets 10–15)
+8. **10 Cart** → **11 Checkout & orders**.
+9. **12 Payment providers** → **13 Webhooks & fulfilment** → **14 Entitlements, licences, downloads**.
+10. **15 Customer dashboard + My Software**.
+    *Milestone: the §99 "Marketplace — As-Is" journey works end to end with real money.*
+
+### Phase D — The differentiator (tickets 16–19)
+11. **16 AI foundation** → **17 Customization assistant** → **18 Custom-build assistant**.
+12. **19 Requests, state machines, activity**.
+    *Milestone: both AI doors produce structured, tracked requests.*
+
+### Phase E — Servicing it (tickets 20–23)
+13. **20 Staff portal, queues, customer 360** → **21 Conversations & messaging**.
+14. **22 Quotes** → **23 Invoices & payment collection**.
+    *Milestone: a customization request can be reviewed, quoted, accepted, invoiced and paid — the revenue loop closes.*
+
+### Phase F — Production-ready (tickets 24–28)
+15. **24 Notifications** and **25 Background jobs** (start earlier if email is blocking a demo).
+16. **26 Security hardening & audit** — schedule a dedicated pass, don't leave it as cleanup.
+17. **27 SEO, performance, observability**.
+18. **28 Testing & CI/CD** — write tests alongside each phase; this ticket is the harness and the gate.
+
+---
+
+## Cross-cutting enablers (unblock multiple sections — track explicitly)
+
+| SN | Enabler | Ticket | Blocks |
+|----|---------|--------|--------|
+| X.1 | Money type + per-currency pricing | 00 | §6, §7, §14 |
+| X.2 | Business reference generator | 00 | §6, §10, §14 |
+| X.3 | Mongo transactions (replica set required) | 01 | §6.5, §7.8, §8.1 |
+| X.4 | Signed object storage URLs | 05 | §4.8, §8.4, §13.3 |
+| X.5 | DAL + permission checks | 03 | Everything |
+| X.6 | Domain event bus | 19 | §11.3, §15.3, §17.7 |
+| X.7 | Background jobs | 25 | §14.4, §15.2, §16 |
+| X.8 | Anthropic client wrapper | 16 | §10 |
+| X.9 | PDF generation | 22 | §14.4, §14.6 |
+| X.10 | Payment provider abstraction | 12 | §7, §14.8 |
+
+---
+
+## Architectural rules that apply to every ticket
+
+Violating these is a bug even when the feature works:
+
+1. **Business logic lives in services, not in components, route handlers, or server actions** (§82). Actions validate input, call a service, and shape the response.
+2. **Every server action re-checks authentication and authorization.** Server actions are reachable by direct POST — the UI hiding a button is not a permission check.
+3. **The database is the source of truth** — not the payment provider, not the AI, not the client (§103).
+4. **State transitions are validated server-side** against an explicit allowed-transition map (§91).
+5. **Money is integer minor units + a currency code.** Never a float, never a bare number.
+6. **Historical prices are frozen on the order.** Never recompute an old total from current prices (§61).
+7. **AI output is a suggestion until a human confirms it** (§104). Confirmed requirements and AI assumptions are distinct fields.
+8. **Never expose an unsigned, permanent URL to a paid artefact** (§66).
+9. **Progressive complexity** — a non-technical customer should never see framework, database, or infrastructure vocabulary unless it's relevant to them (§100).
+10. **Context flows with the request** — staff must always see the base product, version, and AI transcript that produced a request (§101).
