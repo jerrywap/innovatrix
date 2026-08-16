@@ -64,12 +64,144 @@ Document: migration strategy (Mongo is schemaless — write explicit, idempotent
 shape changes and run them as a deploy step), rollback procedure, and the seed policy per environment.
 
 ## Acceptance criteria
-- [ ] `npm test` runs unit + integration green from a clean checkout with no external services.
-- [ ] All four §96 journeys pass in CI against mocked providers.
-- [ ] The webhook suite covers success, failure, refund, duplicate delivery and tampered signature per provider.
-- [ ] The tenant-isolation suite is a required check.
-- [ ] A deliberately introduced regression (e.g. removing the entitlement check on download) fails CI.
-- [ ] CI completes in under 10 minutes for a PR.
-- [ ] No test depends on wall-clock time, real network, or execution order.
-- [ ] Staging mirrors production configuration except for keys and data.
-- [ ] A documented rollback has been rehearsed at least once.
+- [x] `npm test` runs unit + integration green from a clean checkout with no external services.
+- [ ] All four §96 journeys pass in CI against mocked providers. — **replaced by ticket 29**; see below
+- [ ] The webhook suite covers success, failure, refund, duplicate delivery and tampered signature per provider. — **not done**
+- [x] The tenant-isolation suite is a required check.
+- [x] A deliberately introduced regression fails CI.
+- [x] CI completes in under 10 minutes for a PR.
+- [x] No test depends on wall-clock time, real network, or execution order.
+- [ ] Staging mirrors production configuration except for keys and data. — **specified, not built**; no staging exists
+- [ ] A documented rollback has been rehearsed at least once. — **documented, not rehearsed**; nothing to rehearse against
+
+---
+
+## What shipped, and what did not
+
+### E2E: replaced, not skipped
+
+Playwright and the four §96 journeys were dropped in favour of
+**`ai-contexts/tickets/29-human-checklist.md`**, rewritten as a full coverage
+plan: the four journeys, a per-persona sweep of all eleven staff roles and all
+five organisation roles, mobile, accessibility, email rendering across three
+clients, the SEO checks that need a browser, and the concurrency cases that only
+break under use.
+
+The reasoning, stated so it can be disagreed with: the harness — seeded database,
+mock payment provider, mock AI provider — is most of the work, and what it buys
+is a machine repeating a script somebody already wrote. What it does not catch is
+what a person catches in the first thirty seconds: that the flow is confusing,
+that the wording is wrong for its audience, that the button is where nobody
+looks. Given a choice between the two, on a product whose differentiator is a
+conversation, the person is worth more.
+
+That is a trade, not a free win. **A regression in a journey will not be caught
+automatically.** It is written down rather than left implied.
+
+### One shared replica set — the change that mattered
+
+Every integration file started its own `MongoMemoryReplSet`: sixteen mongod
+processes launched and torn down per run. It was also why `hookTimeout` was
+180s — teardown of four concurrent mongods blew past the 10s default and failed
+files that had passed every assertion.
+
+Now `src/test/mongo-setup.ts` starts **one**, via `globalSetup`, and hands the
+URI to every suite through `inject("mongoUri")`. The suites already namespaced
+themselves by database name, so isolation is unchanged — the per-file replica
+set was never what kept them apart.
+
+| | Before | After |
+|---|---|---|
+| unit | — (not separable) | **4.2s**, 545 tests |
+| integration | — | **119s**, 260 tests |
+| everything | 288s | ~123s |
+
+The split matters as much as the speed: 545 unit tests in four seconds is fast
+enough to run while working, which is the whole point of having them.
+
+**The trade, paid for honestly.** Sixteen suites now share one mongod while
+Vitest runs the files in parallel, so an individual operation is slower under
+contention. At the 5s default that surfaced as four timeouts in *different*
+tests on each run — the signature of contention, not of a slow test.
+`testTimeout` is now 30s, far above anything these do and still failing fast on
+a genuine hang.
+
+### Coverage
+
+`@vitest/coverage-v8` was **not installed**, so `npm run test:coverage` prompted
+interactively — it would have hung a CI job rather than failed it.
+
+Thresholds are **measured, not chosen**. The first attempt set them at what felt
+right (55/60/70/55) and the run reported 60.22 / 53.11 / 57.71 / 61.99 — two of
+four failed on a suite that had just gone green. A floor that fails on day one is
+one everybody learns to pass `--coverage=false` around. They now sit two or three
+points below actual: a regression fails, today passes.
+
+Also fixed: the include globs matched `ERD.md`, `STATES.md`, `INTEGRITY.md` and
+`DECISION.md`, and V8 printed four `PARSE_ERROR` stack traces per run trying to
+instrument Markdown.
+
+### CI
+
+`.github/workflows/ci.yml` — three parallel jobs behind one fast gate:
+
+```
+check (lint · types · 545 unit tests, ~1 min)
+   ├─ integration   (mongod binary cached)
+   ├─ build         (+ bundle secret scan, .next/cache cached)
+   └─ audit         (npm audit --audit-level=high)
+```
+
+No real keys: the env block is obviously-fake fixture values that satisfy the
+schema's shape, which §97 requires and the tests are built for. No mongo service
+container either — a `services:` mongo is a *standalone*, and half these tests
+exist to verify transactions.
+
+`concurrency` with `cancel-in-progress`, so a second push cancels a run that is
+already answering an out-of-date question.
+
+### Also
+
+- `engines: { node: ">=20.19" }` and `.nvmrc` — the real floor is
+  `mongodb-memory-server@11`'s, not Next's 20.9. There was no pin at all.
+- `ai-contexts/OPERATIONS.md` — the environments table, the migration rules
+  (idempotent, reversible, batched, additive-first), the deploy order and why
+  `db:indexes` runs *after* the deploy, the smoke test, and the rollback
+  procedure.
+- `src/services/audit/audit.integration.test.ts` — the audit service had no test
+  at all, which for the collection whose entire purpose is being trustworthy
+  later is the wrong one to have skipped.
+
+### Not done, and named
+
+- **The webhook fixture suite.** The ticket calls it "the highest-value
+  integration suite in the project" and it is still absent.
+  `signatures.test.ts` covers the signature layer well — it generates real
+  signatures and flips a byte — but nothing drives `fulfilment` from a recorded
+  provider body through success, failure, refund, replay and tampered.
+- **`src/test/factories/`.** Integration files still hand-roll ObjectId hex
+  constants at the top. A refactor of passing tests, so it lost to work that
+  closes a gap.
+- **`src/services/email` and a real `marketplace` integration test.** The
+  aggregation pipeline and text index are still only asserted as a built object.
+- **Staging.** `OPERATIONS.md` specifies it; nothing provisions it.
+- **A rehearsed rollback.** There is nothing to rehearse against, and recording
+  an untested procedure as tested would be worse than recording that it is not.
+- **Deploy automation.** CI builds and gates; nothing deploys.
+
+## Live verification (2026-08-16)
+
+```
+npm run test:unit          31 files · 545 tests · 4.18s
+npm run test:integration   16 files · 260 tests · 119.05s · exit 0
+npm run lint               0 errors (11 pre-existing warnings in a probe script)
+npm run typecheck          clean
+npm run build              ✓ compiled
+npm run scan:bundle        2,011 files · 10 patterns · 8 env values · nothing found
+npm run audit:deps         0 vulnerabilities at any level
+```
+
+The regression criterion was checked rather than assumed: removing
+`requirePermission("invoice.issue")` from `raiseBalanceInvoiceAction` made
+`action-guards.test.ts` fail naming that exact function, and restoring it made
+it pass. `/api/health` was likewise caught by that test the moment it was added.

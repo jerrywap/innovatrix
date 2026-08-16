@@ -16,6 +16,14 @@ export type ActionResult<T = void> =
       error: string;
       code?: DomainError["code"];
       fieldErrors?: Record<string, string[]>;
+      /**
+       * Set only for an *unmodelled* failure, and echoed into the log line.
+       *
+       * The generic message alone is untraceable: a customer reports "something
+       * went wrong", and there is nothing tying that report to any of the
+       * afternoon's log entries. This is the thread between the two.
+       */
+      reference?: string;
     };
 
 export function ok<T>(data: T): ActionResult<T> {
@@ -24,7 +32,11 @@ export function ok<T>(data: T): ActionResult<T> {
 
 export function fail(
   error: string,
-  options: { code?: DomainError["code"]; fieldErrors?: Record<string, string[]> } = {},
+  options: {
+    code?: DomainError["code"];
+    fieldErrors?: Record<string, string[]>;
+    reference?: string;
+  } = {},
 ): ActionResult<never> {
   return { ok: false, error, ...options };
 }
@@ -54,9 +66,47 @@ export async function withAction<T>(
       return fail(error.message, { code: error.code });
     }
 
-    logUnexpected(error);
-    return fail(GENERIC_ERROR_MESSAGE, { code: "INTERNAL" });
+    const reference = failureReference();
+    logUnexpected(error, reference);
+    return fail(`${GENERIC_ERROR_MESSAGE} (ref ${reference})`, {
+      code: "INTERNAL",
+      reference,
+    });
   }
+}
+
+/** Short, quotable, and not a database id. */
+function failureReference(): string {
+  return `E-${crypto.randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+}
+
+/**
+ * Name the *class* of unexpected failure in the log.
+ *
+ * A Mongoose `ValidationError` is not a random crash — it means our data and
+ * our schema disagree, which is always our bug and is usually one field. It
+ * arrives here rather than as a `DomainError` because Mongoose has its own
+ * error hierarchy, and it reads identically to every other unhandled throw once
+ * it reaches the customer.
+ *
+ * Detected by shape rather than by importing Mongoose, so this module stays
+ * free of a database dependency it otherwise has no need for.
+ *
+ * This exists because a mistyped enum in a seed script made a thousand products
+ * unbuyable, and the only symptom anywhere was "Something went wrong on our
+ * side" on the last click of the checkout funnel.
+ */
+function classifyUnexpected(error: unknown): string {
+  if (!(error instanceof Error)) return "action.unhandled";
+
+  if (error.name === "ValidationError" && "errors" in error) return "action.data_integrity";
+  if (error.name === "CastError") return "action.data_integrity";
+  if (error.name === "MongoServerError" || error.name === "MongoBulkWriteError") {
+    return "action.database";
+  }
+  if (error.name === "TimeoutError" || error.name === "AbortError") return "action.timeout";
+
+  return "action.unhandled";
 }
 
 /**
@@ -85,8 +135,11 @@ function isNextControlFlow(error: unknown): boolean {
  * non-enumerable, so an unstructured logger would record nothing for the one
  * field anybody wanted.
  */
-function logUnexpected(error: unknown): void {
-  log.exception("Unhandled error in a server action", error, { code: "action.unhandled" });
+function logUnexpected(error: unknown, reference?: string): void {
+  log.exception("Unhandled error in a server action", error, {
+    code: classifyUnexpected(error),
+    ...(reference ? { reference } : {}),
+  });
 }
 
 /**

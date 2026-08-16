@@ -116,12 +116,12 @@ function buildTestAuth(database: Db, mongoClient: MongoClient) {
 }
 
 beforeAll(async () => {
-  const uri = replSet.getUri();
+  const uri = inject("mongoUri");
   client = new MongoClient(uri);
   await client.connect();
-  db = client.db("test");
+  db = client.db("auth_test");
 
-  await mongoose.connect(uri, { dbName: "test" });
+  await mongoose.connect(uri, { dbName: "auth_test" });
   // Registers every model, then builds their indexes — including the ones the
   // Better Auth adapter would never create.
   await import("@/lib/db/models");

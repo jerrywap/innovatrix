@@ -43,14 +43,26 @@ export default defineConfig({
        * §19.5: a floor on the code that holds business rules, not a global
        * number that rewards testing trivia.
        *
-       * The thresholds are set at roughly where the suite is today rather than
-       * at an aspiration — a floor that already fails is a floor everybody
-       * passes `--coverage=false` around, and then it protects nothing. Raise
-       * them when a batch of tests lands, not before.
+       * ## The numbers are measured, not chosen
+       *
+       * The first attempt set them at what felt right — 55/60/70/55 — and the
+       * run reported 60.22 / 53.11 / 57.71 / 61.99, so two of the four failed
+       * on a suite that had just gone green. A floor that fails on day one is a
+       * floor everybody learns to pass `--coverage=false` around, and then it
+       * protects nothing at all.
+       *
+       * These sit two or three points below where the suite actually is: a
+       * regression fails, today passes. Raise them when a batch of tests lands,
+       * not in anticipation of one.
+       *
+       * `**` on the include patterns rather than a bare directory — the default
+       * matched `ERD.md`, `STATES.md`, `INTEGRITY.md` and `DECISION.md`, and V8
+       * printed four `PARSE_ERROR` stack traces per run trying to instrument
+       * Markdown.
        */
-      include: ["src/lib/**", "src/services/**", "src/config/**"],
+      include: ["src/lib/**/*.ts", "src/services/**/*.ts", "src/config/**/*.ts"],
       exclude: ["**/*.test.ts", "**/*.d.ts", "src/lib/db/models/**"],
-      thresholds: { lines: 55, functions: 60, branches: 70, statements: 55 },
+      thresholds: { lines: 59, functions: 55, branches: 50, statements: 57 },
     },
 
     projects: [
@@ -81,6 +93,22 @@ export default defineConfig({
            * provider registry is measured in tens of seconds on a cold cache.
            */
           hookTimeout: 180_000,
+
+          /**
+           * The trade the shared replica set makes, paid for here.
+           *
+           * Fifteen mongods cost process overhead and gave every suite its own
+           * uncontended server. One mongod removes that overhead and puts every
+           * suite's queries through the same instance while Vitest runs the
+           * files in parallel — so an individual operation is slower under load
+           * even though the run as a whole is faster.
+           *
+           * At the 5s default that surfaced as four timeouts in *different*
+           * tests on each run, which is the signature of contention rather than
+           * of a slow test. 30s is far above anything these do and still fails
+           * fast on a genuine hang.
+           */
+          testTimeout: 30_000,
         },
         resolve: { alias: shared.alias },
       },

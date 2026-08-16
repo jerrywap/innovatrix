@@ -27,8 +27,24 @@
 import "dotenv/config";
 import mongoose from "mongoose";
 import { buildProductFacets } from "../src/lib/db/models/catalog";
+import { LICENCE_TYPES, type LicenceType } from "../src/lib/db/enums";
 
 const TOTAL = Number(process.argv[2] ?? 1000);
+
+/**
+ * Typed, because it was once `"single_site"` — which is not a `LicenceType`.
+ *
+ * `bulkWrite` does not run document validators, so the bad value wrote cleanly
+ * and sat there. It only surfaced at *checkout*, where `Order.create()` does
+ * validate, as a Mongoose `ValidationError` — which is not one of our
+ * `DomainError`s, so `withAction` reported it as "Something went wrong on our
+ * side" with no field information. A thousand products were unbuyable and the
+ * only symptom was a generic error on the last click of the funnel.
+ *
+ * The annotation is the fix that lasts: a typo here is now a compile error
+ * rather than a support ticket.
+ */
+const BULK_LICENCE_TYPE: LicenceType = "single_installation";
 
 /** Zipf-ish weights: the head is genuinely popular, the tail genuinely thin. */
 const CATEGORY_WEIGHTS: Array<[string, number]> = [
@@ -294,7 +310,7 @@ async function main() {
               {
                 key: "standard",
                 name: "Standard",
-                licenceType: "single_site",
+                licenceType: BULK_LICENCE_TYPE,
                 activationLimit: 1,
                 supportMonths: 12,
                 updateMonths: 12,
@@ -323,6 +339,22 @@ async function main() {
     process.stdout.write(".");
   }
   console.log(`\ndone in ${Date.now() - started}ms`);
+
+  /*
+   * `bulkWrite` bypasses document validators, so this is the only thing
+   * standing between a mistyped enum and a thousand products that cannot be
+   * bought. Checked here rather than trusted, because the failure surfaces
+   * three screens away — at checkout, as a generic error.
+   */
+  const invalidLicenceTypes = await M.Product.distinct("licencePackages.licenceType", {
+    "licencePackages.licenceType": { $nin: LICENCE_TYPES },
+  });
+  if (invalidLicenceTypes.length > 0) {
+    throw new Error(
+      `Seeded an invalid licenceType: ${invalidLicenceTypes.join(", ")}. ` +
+        `Valid values are ${LICENCE_TYPES.join(", ")}. These products would fail at checkout.`,
+    );
+  }
 
   const published = await M.Product.countDocuments({ status: "published", deletedAt: null });
   console.log(`\npublished products:      ${published}`);

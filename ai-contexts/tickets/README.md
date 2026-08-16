@@ -38,6 +38,21 @@ architectural rules. Every ticket maps back to a section of that todo.
 Demoable milestones: **09** (a real product, publicly evaluable) → **15** (money in, software delivered) →
 **19** (both AI doors produce tracked requests) → **23** (the revenue loop closes on custom work).
 
+Two more sit outside that table because they are not implementation tickets:
+**29** [Human test checklist](29-human-checklist.md) — the coverage plan for what a test cannot assert — and
+**30** [User testing results v1](30-user-testing-results-v1.md), the raw notes from the first run against it.
+
+## Ticket sets
+
+| Set | What it covers |
+|---|---|
+| `NN-*.md` (this directory) | The MVP, tickets 00–28, plus the checklist and its results |
+| [`user-smoke-tests/`](user-smoke-tests/README.md) | Ten follow-ups triaged from ticket 30 — four of them close a journey that currently cannot be completed |
+| [`vendor/`](vendor/README.md) | Third-party vendors. Post-MVP, and outside the spec |
+
+Both sub-directories restart their numbering, so cite them as "smoke ticket 05" and
+"vendor ticket 05"; a bare "ticket 05" always means this directory.
+
 ---
 
 ## Decisions still needed from the business

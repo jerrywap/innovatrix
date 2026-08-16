@@ -5,6 +5,8 @@ import {
   ProviderError,
   SignatureError,
   fromProviderAmount,
+  providerFetch,
+  readProviderJson,
   toProviderAmount,
   type InitiateInput,
   type InitiateResult,
@@ -62,6 +64,17 @@ export class PaystackDriver implements PaymentProviderDriver {
         },
       },
     });
+
+    // A 200 that carries no `data` is not a success we can act on. Checked
+    // rather than assumed, because `as T` is an assertion: reaching straight
+    // into `result.data.authorization_url` turns a malformed success into
+    // "Cannot read properties of undefined", which is unmodelled and reaches
+    // the customer as a generic failure.
+    if (!result.data?.authorization_url) {
+      throw new ProviderError("paystack", "Paystack returned no authorization URL.", {
+        path: "transaction/initialize",
+      });
+    }
 
     return {
       redirectUrl: result.data.authorization_url,
@@ -138,7 +151,7 @@ export class PaystackDriver implements PaymentProviderDriver {
       throw new ProviderError("paystack", "Paystack is not configured (PAYSTACK_SECRET_KEY).");
     }
 
-    const response = await fetch(`${API}/${path}`, {
+    const response = await providerFetch(this.key, `${API}/${path}`, {
       method: options.method,
       headers: {
         authorization: `Bearer ${secret}`,
@@ -147,10 +160,10 @@ export class PaystackDriver implements PaymentProviderDriver {
       ...(options.body ? { body: JSON.stringify(options.body) } : {}),
     });
 
-    const payload = (await response.json().catch(() => ({}))) as {
+    const payload = await readProviderJson<{
       status?: boolean;
       message?: string;
-    };
+    }>(this.key, response);
 
     // Paystack returns HTTP 200 with `status: false` for business failures, so
     // checking `response.ok` alone treats a declined card as a success.

@@ -48,8 +48,11 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 * Maintenance plans, subscriptions, renewals (§67–68)
 * Dynamic sandboxes and deployment automation (§10, §58)
 * Semantic/vector search (§74) — MVP is keyword + facets, Atlas Search index left in place to grow into
-* Product comparison, ratings/reviews (§6)
+* Product comparison (§6)
+* Ratings/reviews (§6) — **un-deferred**; the third-party vendor system needs them, see vendor ticket 10
 * Refunds beyond a manual admin-recorded refund (§62)
+* **Third-party vendors** — outside the MVP *and* outside the spec, which never mentions a second
+  seller. Tracked as its own set in `tickets/vendor/`; summarised as bucket 20 below.
 
 ---
 
@@ -232,8 +235,8 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 | 9.2 | **My Software** — owned products, versions, updates, licence, support window (§29) | [x] | [x] | 15 |
 | 9.3 | Per-product actions: Download · Licence · Changelog · Demo · Request Customization. **Docs** (no field on `ProductDoc`), **Request Support** (17) and **Request Installation** (needs a standalone cart service line) are not shipped | [x] | [x] | 15 |
 | 9.4 | Orders list + order detail | [x] | [x] | 15 |
-| 9.5 | Requests list + request detail (AI summary, status, timeline, messages) | [ ] | [ ] | 19 |
-| 9.6 | Quotes list + quote detail with Accept / Reject / Ask Question | [ ] | [ ] | 22 |
+| 9.5 | Requests list + request detail (AI summary, status, timeline, messages) | [x] | [x] | 19 | ← both pages shipped with ticket 19; this row was never updated. Timeline entries lose their time (smoke ticket 07) and stop at `converted` (smoke ticket 10)
+| 9.6 | Quotes list + quote detail with Accept / Reject / Ask Question | [x] | [x] | 22 | ← shipped; **Ask Question** is still unwired, per 14.3
 | 9.7 | Invoices list + pay-invoice flow. Gated on the billing org roles at the page **and** the action, not only in the nav | [x] | [x] | 23 |
 | 9.8 | Organization settings, members, billing details; account/profile settings — **assigned to tickets 03 and 24 by ticket 15's own scope**; the routes exist as stubs | [ ] | [ ] | 03, 24 |
 | 9.9 | Notifications centre + unread badge, customer and staff | [x] | [x] | 24 |
@@ -320,7 +323,7 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
 | 15.1 | Notification model + in-app centre + unread count (§69). Bell in both shells, counted server-side per render — no polling, correct across devices because nothing is stored per device | [x] | [x] | 24 |
-| 15.2 | Transactional email. **One** template, plain-text-first, through the existing `EmailTransport` port. **No React Email and no Resend** — the dev transport still writes to `.dev-emails/`; production delivery is a `resolveTransport()` change | — | [~] | 24 |
+| 15.2 | Transactional email. **One** template, plain-text-first, through the existing `EmailTransport` port. **No React Email and no Resend** — the dev transport still writes to `.dev-emails/`. Production delivery needs a **driver to be written**, not merely selected: `resolveTransport()` has its production branch commented out and there is no SMTP or Resend implementation in the repo (smoke ticket 04) | — | [~] | 24 |
 | 15.3 | Event → notification mapping, as a **data table** in `services/notifications/catalog.ts`. 12 of 14 rows; `OrderCompleted`/`LicenceIssued` need ticket 13 to emit after its transaction | — | [~] | 24 |
 | 15.4 | Per-user notification preferences, per category, per channel. Essentials shown, locked and explained rather than hidden; refused server-side too | [x] | [x] | 24 |
 | 15.5 | Channel seam — `NotificationChannelDriver` + a registry, with `in_app` and `email` registered and nothing else. A stub that pretends to send is worse than an absent channel | — | [x] | 24 |
@@ -370,12 +373,76 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 19.1 | Vitest unit tests — money, references, state machines, entitlement rules | — | [ ] | 28 |
-| 19.2 | Integration tests against ephemeral Mongo (`mongodb-memory-server` or a test Atlas db) | — | [ ] | 28 |
-| 19.3 | Playwright E2E — the four §96 critical journeys | [ ] | [ ] | 28 |
-| 19.4 | Payment webhook tests with fixture payloads per provider | — | [ ] | 28 |
-| 19.5 | CI: lint → typecheck → test → build → security audit (§97) | — | [ ] | 28 |
-| 19.6 | Environments: local / staging / production, migration & seed strategy | — | [ ] | 28 |
+| 19.1 | Vitest unit tests — money, references, state machines, entitlement rules | — | [x] | 28 |
+| 19.2 | Integration tests against ephemeral Mongo — one shared replica set, `unit`/`integration` projects | — | [x] | 28 |
+| 19.3 | ~~Playwright E2E~~ → replaced by the ticket-29 human checklist (all 4 journeys + personas) | [x] | [x] | 29 |
+| 19.4 | Payment webhook tests with fixture payloads per provider — **not done**, signatures only | — | [ ] | 28 |
+| 19.5 | CI: lint → typecheck → test → build → secret scan → npm audit (§97) | — | [x] | 28 |
+| 19.6 | Environments, migration, rollback & seed strategy — `ai-contexts/OPERATIONS.md` (specified, not provisioned) | — | [x] | 28 |
+
+---
+
+## 20. Third-Party Vendors
+
+> **Post-MVP, and outside the spec.** `00-techinical.md` never mentions a second
+> seller — §107's vision is "one coherent operating system through which
+> **Innovatrix** sells software" — so these rows have no `§` behind them and cite
+> the sections they extend instead. Detailed tickets live in `tickets/vendor/`;
+> the `Ticket` column below refers to that set, not to `tickets/NN-*.md`.
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 20.1 | Vendor model, onboarding, state machine, `/vendor` shell, `requireVendor()` | [ ] | [ ] | vendor 01 |
+| 20.2 | Identity and business verification, document handling, trust badge | [ ] | [ ] | vendor 02 |
+| 20.3 | Vendor team members, roles and invitations | [ ] | [ ] | vendor 03 |
+| 20.4 | Product ownership (`vendorId`), vendor authoring workspace, vendor facet | [ ] | [ ] | vendor 04 |
+| 20.5 | Submission, staff review, rejection reasons, resubmission | [ ] | [ ] | vendor 05 |
+| 20.6 | Delivery: platform archive, vendor-hosted mirror, repository-pulled release | [ ] | [ ] | vendor 06 |
+| 20.7 | Configurable commission, resolution order, snapshot on the order line | [ ] | [ ] | vendor 07 |
+| 20.8 | Append-only earnings ledger, clearance, refund clawback | [ ] | [ ] | vendor 08 |
+| 20.9 | Payouts, `PayoutProvider` interface, batches, self-billed statements | [ ] | [ ] | vendor 09 |
+| 20.10 | Purchase-gated ratings and reviews, moderation, `AggregateRating` | [ ] | [ ] | vendor 10 |
+| 20.11 | Public vendor storefront, attribution, dynamic JSON-LD `seller` | [ ] | [ ] | vendor 11 |
+| 20.12 | Vendor analytics; suspension, offboarding, emergency delisting | [ ] | [ ] | vendor 12 |
+| 20.13 | Vendor support threads, SLA, refund requests, takedown | [ ] | [ ] | vendor 13 |
+
+---
+
+## 21. Smoke-Test Follow-Ups
+
+> Findings from the first human run against ticket 29's checklist. Raw notes are
+> `tickets/30-user-testing-results-v1.md`; the triaged tickets live in
+> `tickets/user-smoke-tests/` and the `Ticket` column refers to that set.
+>
+> These are **not** new scope. Every row is either a defect in something already
+> ticked above, or content and configuration a shipped feature was waiting on.
+> Four of them close a §99 journey that currently cannot be completed.
+
+| SN | Task | FE | BE | Ticket |
+|----|------|:--:|:--:|--------|
+| 21.1 | Public content: `/services`, `/pricing`, `/terms`, `/privacy`; drop the `/concepts` footer link | [ ] | — | smoke 01 |
+| 21.2 | Landing hero — a real search input and real counts; ~100-item suggestion pool sampled 4 at a time | [ ] | [ ] | smoke 02 |
+| 21.3 | **Signed-out visitors cannot use the assistant** — owner-less conversations are persisted and then refused | [ ] | [ ] | smoke 03 |
+| 21.4 | Google sign-in UI; **an SMTP driver** — neither is a config-only change | [ ] | [ ] | smoke 04 |
+| 21.5 | **Per-account currency support**; stop leaking provider error text; validate routing writes | — | [ ] | smoke 05 |
+| 21.6 | **`/dashboard/orders/[reference]` — never built**; post-checkout destinations for pending orders | [ ] | [ ] | smoke 06 |
+| 21.7 | `src/lib/dates.ts` — timestamps keep their time; adopt the orphaned `Timeline` | [ ] | [ ] | smoke 07 |
+| 21.8 | Staff ↔ admin sidebar links; a real messages inbox; hide `/dashboard/organization` | [ ] | [ ] | smoke 08 |
+| 21.9 | Headline figures on `/staff` and `/admin`; make the `/…/dashboard` URLs resolve | [ ] | [ ] | smoke 09 |
+| 21.10 | **Delivery progress tracking** — states past `converted`, staff progress updates on the customer timeline | [ ] | [ ] | smoke 10 |
+| 21.11 | **Card payment initiation fails** — no driver wraps `fetch`, so a transport failure escapes as an unmodelled exception | — | [ ] | smoke 11 |
+
+> **21.11** is the one blocking money: with a real Paystack test key configured, card
+> payment fails with the generic message. `ProviderUnavailableError` exists in the error
+> taxonomy and has **zero usages** — no driver wraps its `fetch`, so a network failure
+> arrives as a bare `TypeError` and bypasses every specific branch of `withAction`. Rows
+> 7.1–7.5 have flagged since ticket 12 that no provider was ever verified against a live
+> account; this is the first time one was tried.
+>
+> **21.10** is the substantive one. `converted` is terminal and only a state change can
+> write to a customer-visible timeline, so a customer who has paid a deposit hears nothing
+> further — permanently. Scoped to extend the existing state machine and activity feed;
+> §53–54 projects stay deferred and `WorkReadyToStart` remains the seam.
 
 ---
 

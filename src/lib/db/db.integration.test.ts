@@ -15,14 +15,10 @@ import { MoneySchema, orgScoped, schemaOptions, softDeletable } from "./base";
  */
 
 beforeAll(async () => {
-  replSet = await MongoMemoryReplSet.create({
-    replSet: { count: 1, storageEngine: "wiredTiger" },
-    // The default 10s launch timeout is fine once the mongod binary is cached,
-    // but the first run on a machine (or a cold CI cache) downloads and
-    // extracts it first, which blows straight through 10s.
-    instanceOpts: [{ launchTimeout: 120_000 }],
-  });
-  await mongoose.connect(replSet.getUri(), { dbName: "test" });
+  // The replica set is started once for the whole run by
+  // `src/test/mongo-setup.ts`; this suite gets its own *database* inside it,
+  // which is how the suites were always isolated from one another.
+  await mongoose.connect(inject("mongoUri"), { dbName: "db_test" });
 }, 180_000);
 
 afterAll(async () => {

@@ -5,6 +5,8 @@ import {
   ProviderError,
   SignatureError,
   fromProviderAmount,
+  providerFetch,
+  readProviderJson,
   toProviderAmount,
   type InitiateInput,
   type InitiateResult,
@@ -220,7 +222,7 @@ export class PaypalDriver implements PaymentProviderDriver {
       `${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`,
     ).toString("base64");
 
-    const response = await fetch(`${this.base()}/v1/oauth2/token`, {
+    const response = await providerFetch(this.key, `${this.base()}/v1/oauth2/token`, {
       method: "POST",
       headers: {
         authorization: `Basic ${credentials}`,
@@ -233,7 +235,10 @@ export class PaypalDriver implements PaymentProviderDriver {
       throw new ProviderError("paypal", `PayPal token request failed (${response.status}).`);
     }
 
-    const payload = (await response.json()) as { access_token: string; expires_in: number };
+    const payload = await readProviderJson<{ access_token: string; expires_in: number }>(
+      this.key,
+      response,
+    );
     cachedToken = {
       token: payload.access_token,
       // A minute early, so a token never expires mid-request.
@@ -249,7 +254,7 @@ export class PaypalDriver implements PaymentProviderDriver {
   ): Promise<T> {
     const token = await this.accessToken();
 
-    const response = await fetch(`${this.base()}/${path}`, {
+    const response = await providerFetch(this.key, `${this.base()}/${path}`, {
       method: options.method,
       headers: {
         authorization: `Bearer ${token}`,
@@ -259,10 +264,10 @@ export class PaypalDriver implements PaymentProviderDriver {
       ...(options.body ? { body: JSON.stringify(options.body) } : {}),
     });
 
-    const payload = (await response.json().catch(() => ({}))) as {
+    const payload = await readProviderJson<{
       message?: string;
       name?: string;
-    };
+    }>(this.key, response);
 
     if (!response.ok) {
       throw new ProviderError(

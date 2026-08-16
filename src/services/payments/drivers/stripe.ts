@@ -5,6 +5,8 @@ import {
   ProviderError,
   SignatureError,
   fromProviderAmount,
+  providerFetch,
+  readProviderJson,
   toProviderAmount,
   type InitiateInput,
   type InitiateResult,
@@ -169,7 +171,7 @@ export class StripeDriver implements PaymentProviderDriver {
       throw new ProviderError("stripe", "Stripe is not configured (STRIPE_SECRET_KEY).");
     }
 
-    const response = await fetch(`${API}/${path}`, {
+    const response = await providerFetch(this.key, `${API}/${path}`, {
       method: options.method,
       headers: {
         authorization: `Bearer ${secret}`,
@@ -179,7 +181,7 @@ export class StripeDriver implements PaymentProviderDriver {
       ...(options.body ? { body: options.body } : {}),
     });
 
-    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const payload = await readProviderJson<Record<string, unknown>>(this.key, response);
 
     if (!response.ok) {
       const error = payload.error as { message?: string; code?: string } | undefined;

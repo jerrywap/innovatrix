@@ -1,7 +1,7 @@
 import "server-only";
 import type { PaymentProvider as ProviderKey } from "@/lib/db/enums";
 import type { PaymentDoc } from "@/lib/db/models/commerce";
-import { DomainError } from "@/lib/errors";
+import { DomainError, ProviderUnavailableError } from "@/lib/errors";
 import { formatPlain, type CurrencyCode, type Money } from "@/lib/money";
 
 /**
@@ -113,6 +113,64 @@ export class SignatureError extends DomainError {
   ) {
     super("FORBIDDEN", message, { context: { provider } });
     this.name = "SignatureError";
+  }
+}
+
+/* ────────────────────────────────────────────── the transport boundary */
+
+/** How long to wait on a provider before calling it unreachable. */
+const PROVIDER_TIMEOUT_MS = 15_000;
+
+/**
+ * `fetch`, with the two failures every driver used to let escape.
+ *
+ * A driver models "the provider said no" as a `ProviderError`. It said nothing
+ * about "we could not reach the provider at all" — DNS, TLS, a proxy, no
+ * network, a request that never returns. Those reject with a bare `TypeError`,
+ * which is not a `DomainError`, so `withAction` reported them as
+ * "Something went wrong on our side" with nothing to act on.
+ *
+ * `ProviderUnavailableError` already existed for exactly this and had no
+ * callers. This is the caller.
+ *
+ * The timeout matters as much as the wrapper: without one a hung request holds
+ * the server action open until the platform kills it, and the customer watches
+ * a spinner with no idea anything is wrong.
+ */
+export async function providerFetch(
+  provider: ProviderKey,
+  url: string,
+  init: RequestInit,
+  timeoutMs = PROVIDER_TIMEOUT_MS,
+): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (cause) {
+    throw new ProviderUnavailableError(provider, cause);
+  }
+}
+
+/**
+ * Read a provider's JSON body, treating "not JSON" as a transport failure.
+ *
+ * The old shape was `await response.json().catch(() => ({}))`, which turns an
+ * HTML error page from a proxy into `{}`. A `{}` then passes every
+ * `payload.status === false` style guard, is returned as `T`, and the caller
+ * finally throws `Cannot read properties of undefined` several lines later —
+ * far from the cause, and unmodelled.
+ *
+ * A provider that is not speaking JSON is not a provider that declined us.
+ */
+export async function readProviderJson<T>(
+  provider: ProviderKey,
+  response: Response,
+): Promise<T> {
+  const text = await response.text();
+
+  try {
+    return (text ? JSON.parse(text) : {}) as T;
+  } catch (cause) {
+    throw new ProviderUnavailableError(provider, cause);
   }
 }
 
