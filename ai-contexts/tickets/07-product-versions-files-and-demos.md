@@ -45,12 +45,103 @@ integrations. Stored as `{ item, status, checkedBy, checkedAt, notes }[]` on the
 until every item is `pass` or explicitly `n/a` with a note.
 
 ## Acceptance criteria
-- [ ] Uploading a 500MB package succeeds via presigned PUT without passing through the Next.js server.
-- [ ] A released version's artefacts cannot be swapped; only its notes are editable.
-- [ ] Demo passwords are ciphertext in MongoDB — verified by reading the raw document.
-- [ ] With `exposure: owners_only`, an anonymous visitor's product-page payload contains no credential fields
+- [~] Uploading a 500MB package succeeds via presigned PUT without passing through the Next.js server —
+  **the server half is proven**, the browser half is blocked by ticket 05's missing bucket CORS. See below.
+- [x] A released version's artefacts cannot be swapped; only its notes are editable.
+- [x] Demo passwords are ciphertext in MongoDB — verified by reading the raw document.
+- [x] With `exposure: owners_only`, an anonymous visitor's product-page payload contains no credential fields
       at all (not merely hidden in the UI).
-- [ ] Publish is blocked with a clear list of unchecked testing items.
-- [ ] A customer entitled to v2.4.0 does not see a v2.5.0 download when their update window has expired
-      (rule declared here, enforced in ticket 14).
-- [ ] Checksums shown on the download page match the stored artefact.
+- [x] Publish is blocked with a clear list of unchecked testing items.
+- [x] A customer entitled to v2.4.0 does not see a v2.5.0 download when their update window has expired
+      (rule declared here, enforced in ticket 14) — `isFreeUpgrade()` in `src/lib/semver.ts`, with the
+      *window* left to ticket 14 because it is a date comparison against the entitlement.
+- [x] Checksums shown on the download page match the stored artefact.
+
+---
+
+## Implementation notes
+
+### The 500MB criterion, split honestly
+
+The **signature, TTL, ownership check and post-upload verification are all
+server-side and all verified against the real bucket**: a 12MB PUT round-trips,
+the URL carries a 3600s TTL (ticket 05 signed 300s, which expires mid-upload at
+500MB), `content-length`, `content-type` and `x-amz-checksum-sha256` are all
+inside the signature, and S3 returns **403** for a 12MB body sent against a 1KB
+signature — the size cap is enforced by S3, not by the uploader's goodwill.
+
+What cannot be verified is the *browser* half, because the bucket has no CORS
+configuration and the credential is denied `GetBucketCors`. The preflight fails
+before a byte moves. `FileUploader` is written and will work unchanged once CORS
+is set; its error handler names CORS explicitly, because that is what the
+failure will actually be.
+
+The probe left two objects under `innovatrix/development/products/6a80…aa/` that
+**cannot be removed** — `s3:DeleteObject` is denied for this credential.
+
+### Why XMLHttpRequest
+
+`fetch` has no upload progress event, and there is no workaround short of a
+`ReadableStream` body (HTTP/2 only, unsupported in Safari, needs `duplex`). At
+500MB a spinner with no number is indistinguishable from a hang, and people
+cancel and retry — which makes it worse.
+
+### Checksums are two-tier, and §44 says so
+
+`crypto.subtle.digest` needs an `ArrayBuffer` — the whole file in memory. Fine
+for a 40MB documentation bundle, fatal for a 2GB package: the tab dies having
+already read the file once. So the split is at **100MB**; below it the digest
+goes into the signature so S3 rejects a corrupted upload itself, above it §44's
+"compute on first download" applies. An absent checksum means *not yet
+computed*, not *unverified forever*.
+
+### The demo credentials guarantee is structural
+
+Two functions with two return types, and the public one **cannot** carry a
+secret because its type has no field for it:
+
+- `publicDemoView()` — roles and a `hasPassword` boolean. Safe for any payload
+  or cache. Built key by key, because a spread would carry `credentials`.
+- `revealCredentials()` — the only thing in the codebase that decrypts.
+  Uncached, `server-only`, and it takes the viewer as an *argument* so the
+  authorisation is visible at the call site.
+
+That matters because conditional **rendering** is not conditional
+**serialisation**: `{canSee && <Password value={p} />}` still ships `p` in the
+RSC payload. The test asserts it by walking the serialised view for the strings,
+not by checking named properties — a stray `credentials` array would pass the
+narrow check and fail this one.
+
+Also structural: **AAD is the product id**, so a ciphertext copied between
+products does not decrypt; and `customerUrl`/`adminUrl` are withheld alongside
+the passwords, because a back-office link is itself a hint.
+
+### Blank password means "keep it"
+
+The form never pre-fills a password — there is nothing to pre-fill it with that
+would not mean decrypting and sending the plaintext on every page load. So blank
+is ambiguous, and the alternative reading wipes every other credential the
+moment somebody corrects a typo in one row's label, silently. Rows are matched
+by `role`; clearing is an explicit act (delete the row).
+
+### Two bugs the tests caught
+
+1. **`saveDemo` had two `$set` keys in one object literal.** The second
+   overwrote the first, so exposure and URLs would save and the credentials
+   would silently not — the worst possible partial write for this section.
+2. **The audit redactor stripped the demo row's own fields.**
+   `redactAuditPayload` matches `/password|credential|.../` on key names, so
+   `credentialRoles` and `passwordsChanged` both logged as `"[redacted]"` and
+   the row said nothing. The redactor is right to be blunt; the fields are now
+   `roles` and `rotated`, named for what they hold.
+
+### The current-version pointer only moves forward
+
+A backported 1.9.1 released after 2.0.0 is a real release and is **not** the
+current version — `supersedes()` is the whole rule. Deprecating the current
+version falls back to the next newest released one rather than leaving customers
+pointed at something we have just withdrawn. Neither failure throws, which is
+why both have tests.
+
+19 integration tests against a single-node replica set, plus 22 unit tests for
+`semver` and 13 for the exposure rule.

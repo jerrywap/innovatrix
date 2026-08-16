@@ -1,7 +1,10 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { SHOT, placeholder } from "@/lib/placeholder-images";
+
+// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
+// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
+export const instant = false;
 
 /* ────────────────────────────────────────────────────────── data */
 
@@ -34,7 +37,10 @@ const DOORS = [
     meta: "Services",
     href: "/services",
   },
-];
+  // `as const` so each href stays a string *literal*. Widened to `string` it
+  // would fail typedRoutes, and — worse — a typo in one of them would stop
+  // being a compile error.
+] as const;
 
 const PRODUCTS = [
   { name: "Atlas CRM", cat: "Sales", price: "£299", img: SHOT.dashboard, adapted: 23 },
@@ -55,13 +61,6 @@ const LIFECYCLE = [
   "Maintain",
 ];
 
-const NAV = [
-  { label: "Marketplace", href: "/marketplace" },
-  { label: "Custom build", href: "/custom-software" },
-  { label: "Services", href: "/services" },
-  { label: "Pricing", href: "/pricing" },
-] as const;
-
 const INDUSTRIES = [
   "Healthcare",
   "Property",
@@ -80,63 +79,14 @@ const INDUSTRIES = [
 export default function Home() {
   return (
     <>
-      <SiteHeader />
-      <main className="flex-1">
-        <Hero />
-        <IndustryMarquee />
-        <Doors />
-        <Marketplace />
-        <Assistant />
-        <Lifecycle />
-        <ClosingCta />
-      </main>
-      <SiteFooter />
+      <Hero />
+      <IndustryMarquee />
+      <Doors />
+      <Marketplace />
+      <Assistant />
+      <Lifecycle />
+      <ClosingCta />
     </>
-  );
-}
-
-/* ────────────────────────────────────────────────────────── header */
-
-function SiteHeader() {
-  return (
-    <header className="border-border bg-background/80 sticky top-0 z-50 border-b backdrop-blur-xl">
-      <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-6 px-5 py-3.5 lg:px-10">
-        <Link href="/" className="flex items-center gap-2.5">
-          <span className="bg-signal text-signal-contrast grid h-8 w-8 place-items-center rounded-xl text-[15px] font-bold">
-            i
-          </span>
-          <span className="text-[15px] font-semibold tracking-[-0.03em]">INNOVATRIX</span>
-        </Link>
-
-        <nav className="hidden items-center gap-1 md:flex">
-          {NAV.map(({ label, href }) => (
-            <Link
-              key={label}
-              href={href}
-              className="text-muted hover:bg-surface-muted hover:text-foreground rounded-full px-3.5 py-2 text-[13.5px] font-medium transition"
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="flex items-center gap-2">
-          <ThemeToggle className="hidden sm:flex" />
-          <Link
-            href="/login"
-            className="text-muted hover:text-foreground hidden rounded-full px-3.5 py-2 text-[13.5px] font-medium transition sm:block"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/custom-software"
-            className="bg-foreground text-background rounded-full px-5 py-2.5 text-[13.5px] font-medium transition hover:opacity-90"
-          >
-            Get started
-          </Link>
-        </div>
-      </div>
-    </header>
   );
 }
 
@@ -161,7 +111,7 @@ function Hero() {
           <div className="lg:col-span-6 xl:col-span-6">
             <div className="border-border bg-surface/70 inline-flex items-center gap-2.5 rounded-full border py-1.5 pr-4 pl-2 backdrop-blur">
               <span className="animate-pulse-ring bg-signal inline-block h-2 w-2 rounded-full" />
-              <span className="text-muted font-mono text-[10.5px] tracking-[0.16em] uppercase">
+              <span className="text-muted-foreground font-mono text-[10.5px] tracking-[0.16em] uppercase">
                 Software acquisition &amp; delivery
               </span>
             </div>
@@ -174,7 +124,7 @@ function Hero() {
               <span className="text-signal-text">Build it.</span>
             </h1>
 
-            <p className="text-muted mt-7 max-w-[46ch] text-[17px] leading-[1.65] lg:text-[18.5px]">
+            <p className="text-muted-foreground mt-7 max-w-[46ch] text-[17px] leading-[1.65] lg:text-[18.5px]">
               Most companies don’t need a folder of code. They need the software found, adapted,
               delivered, installed and kept alive. Innovatrix is the one system that does all of
               it.
@@ -214,7 +164,7 @@ function Hero() {
                   (chip) => (
                     <button
                       key={chip}
-                      className="border-border bg-surface/60 text-muted hover:border-border-strong hover:text-foreground rounded-full border px-3.5 py-1.5 text-[12.5px] transition"
+                      className="border-border bg-surface/60 text-muted-foreground hover:border-border-strong hover:text-foreground rounded-full border px-3.5 py-1.5 text-[12.5px] transition"
                     >
                       {chip}
                     </button>
@@ -240,7 +190,7 @@ function Hero() {
                   </span>
                 ))}
               </div>
-              <p className="text-muted text-[13.5px]">
+              <p className="text-muted-foreground text-[13.5px]">
                 <span className="text-foreground font-medium">148 products</span> across 31
                 industries · median quote in{" "}
                 <span className="text-foreground font-medium">4.2 days</span>
@@ -293,7 +243,9 @@ function HeroSurface() {
                 <div className="truncate text-[14px] font-medium">{p.name}</div>
                 <div className="text-subtle font-mono text-[10.5px]">{p.cat}</div>
               </div>
-              <span className="text-muted shrink-0 font-mono text-[12.5px]">{p.price}</span>
+              <span className="text-muted-foreground shrink-0 font-mono text-[12.5px]">
+                {p.price}
+              </span>
             </div>
           ))}
         </div>
@@ -327,7 +279,7 @@ function HeroSurface() {
             {["Properties", "Landlords", "Tenants", "Rent reminders"].map((t) => (
               <span
                 key={t}
-                className="border-border bg-background text-muted rounded-full border px-2.5 py-1 text-[11.5px]"
+                className="border-border bg-background text-muted-foreground rounded-full border px-2.5 py-1 text-[11.5px]"
               >
                 {t}
               </span>
@@ -386,7 +338,7 @@ function IndustryMarquee() {
         {[...INDUSTRIES, ...INDUSTRIES].map((industry, i) => (
           <span
             key={`${industry}-${i}`}
-            className="border-border bg-surface/60 text-muted flex items-center gap-3 rounded-full border px-5 py-2 text-[13px] whitespace-nowrap"
+            className="border-border bg-surface/60 text-muted-foreground flex items-center gap-3 rounded-full border px-5 py-2 text-[13px] whitespace-nowrap"
           >
             <span className="bg-signal h-1 w-1 rounded-full" />
             {industry}
@@ -424,14 +376,14 @@ function Doors() {
             <h3 className="col-span-10 text-[clamp(1.15rem,2.5vw,1.75rem)] leading-[1.15] font-medium tracking-[-0.03em] lg:col-span-5">
               {d.title}
             </h3>
-            <p className="text-muted col-span-12 text-[14.5px] leading-relaxed lg:col-span-4">
+            <p className="text-muted-foreground col-span-12 text-[14.5px] leading-relaxed lg:col-span-4">
               {d.body}
             </p>
             <div className="col-span-12 flex items-center justify-between gap-3 lg:col-span-2 lg:justify-end">
-              <span className="bg-surface-muted text-muted rounded-full px-3 py-1.5 font-mono text-[10px] tracking-[0.14em] uppercase">
+              <span className="bg-surface-muted text-muted-foreground rounded-full px-3 py-1.5 font-mono text-[10px] tracking-[0.14em] uppercase">
                 {d.meta}
               </span>
-              <span className="border-border text-muted group-hover:border-signal group-hover:bg-signal group-hover:text-signal-contrast grid h-8 w-8 place-items-center rounded-full border transition">
+              <span className="border-border text-muted-foreground group-hover:border-signal group-hover:bg-signal group-hover:text-signal-contrast grid h-8 w-8 place-items-center rounded-full border transition">
                 <svg
                   width="14"
                   height="14"
@@ -497,7 +449,7 @@ function Marketplace() {
               <div className="p-4 lg:p-5">
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="text-[16px] font-medium tracking-[-0.02em]">{p.name}</h3>
-                  <span className="text-muted font-mono text-[13px]">{p.price}</span>
+                  <span className="text-muted-foreground font-mono text-[13px]">{p.price}</span>
                 </div>
                 <div className="border-border mt-4 flex items-center justify-between border-t pt-3.5">
                   <span className="text-subtle font-mono text-[10px] tracking-[0.12em] uppercase">
@@ -529,9 +481,9 @@ function Assistant() {
           <h2 className="mt-4 text-[clamp(1.9rem,4.5vw,3.2rem)] leading-[0.98] font-semibold tracking-[-0.04em]">
             You describe the business.
             <br />
-            <span className="text-muted">We handle the technical.</span>
+            <span className="text-muted-foreground">We handle the technical.</span>
           </h2>
-          <p className="text-muted mt-6 max-w-[46ch] text-[16.5px] leading-[1.65]">
+          <p className="text-muted-foreground mt-6 max-w-[46ch] text-[16.5px] leading-[1.65]">
             No forty-field brief. A conversation that asks one sensible question at a time, then
             hands you a structured requirement document you can edit before anyone at Innovatrix
             reads it.
@@ -575,7 +527,7 @@ function Assistant() {
               <span className="text-subtle font-mono text-[10px] tracking-[0.14em] uppercase">
                 Requirements summary
               </span>
-              <span className="bg-surface-muted text-muted rounded-full px-2.5 py-1 font-mono text-[9.5px] tracking-[0.14em] uppercase">
+              <span className="bg-surface-muted text-muted-foreground rounded-full px-2.5 py-1 font-mono text-[9.5px] tracking-[0.14em] uppercase">
                 Editable
               </span>
             </div>
@@ -726,61 +678,5 @@ function ClosingCta() {
         </div>
       </div>
     </section>
-  );
-}
-
-/* ────────────────────────────────────────────────────────── footer */
-
-function SiteFooter() {
-  return (
-    <footer className="border-border border-t">
-      <div className="mx-auto max-w-[1400px] px-5 py-14 lg:px-10">
-        <div className="border-border grid gap-10 border-b pb-11 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="lg:col-span-2">
-            <div className="flex items-center gap-2.5">
-              <span className="bg-signal text-signal-contrast grid h-8 w-8 place-items-center rounded-xl text-[15px] font-bold">
-                i
-              </span>
-              <span className="text-[15px] font-semibold tracking-[-0.03em]">INNOVATRIX</span>
-            </div>
-            <p className="text-muted mt-4 max-w-[34ch] text-[13.5px] leading-relaxed">
-              Find, customise, build, deploy and maintain software — in one place.
-            </p>
-            <ThemeToggle className="mt-6 sm:hidden" />
-          </div>
-
-          {[
-            ["Platform", ["Marketplace", "Custom build", "Services", "Pricing"]],
-            ["Company", ["About", "Work", "Careers", "Contact"]],
-            ["Legal", ["Terms", "Privacy", "Licences", "Security"]],
-          ].map(([heading, items]) => (
-            <div key={heading as string}>
-              <div className="text-subtle font-mono text-[9.5px] tracking-[0.16em] uppercase">
-                {heading as string}
-              </div>
-              <ul className="mt-4 space-y-2.5">
-                {(items as string[]).map((item) => (
-                  <li key={item}>
-                    <Link
-                      href="#"
-                      className="text-muted hover:text-foreground text-[13.5px] transition"
-                    >
-                      {item}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-
-        <div className="text-subtle flex flex-col gap-3 pt-6 font-mono text-[10px] tracking-[0.14em] uppercase sm:flex-row sm:justify-between">
-          <span>© 2026 Innovatrix Ltd</span>
-          <Link href="/concepts" className="hover:text-foreground transition">
-            Design concepts
-          </Link>
-        </div>
-      </div>
-    </footer>
   );
 }

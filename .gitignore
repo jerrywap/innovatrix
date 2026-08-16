@@ -30,6 +30,9 @@ yarn-error.log*
 .env*.local
 .env.production
 
+# development email outbox (ticket 03) — contains live verification/reset links
+/.dev-emails/
+
 # vercel
 .vercel
 

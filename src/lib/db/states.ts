@@ -4,6 +4,7 @@ import type {
   OrderStatus,
   PaymentStatus,
   ProductStatus,
+  ProductVersionStatus,
   QuoteStatus,
   RequestStatus,
 } from "./enums";
@@ -31,6 +32,23 @@ export const PRODUCT_TRANSITIONS: TransitionMap<ProductStatus> = {
   published: ["deprecated", "archived"],
   deprecated: ["published", "archived"],
   archived: [],
+};
+
+/**
+ * §45 — a product version's life.
+ *
+ * Deliberately one-way. Releasing stamps `releasedAt`, which anchors the
+ * entitlement update window (ticket 14) — so a version that could return to
+ * `draft` would let an administrator silently change what a customer is
+ * entitled to download. Release notes stay editable; the artefacts do not.
+ *
+ * `deprecated` is terminal rather than reversible: un-deprecating a version
+ * would resurrect a download we have already told customers not to use.
+ */
+export const PRODUCT_VERSION_TRANSITIONS: TransitionMap<ProductVersionStatus> = {
+  draft: ["released"],
+  released: ["deprecated"],
+  deprecated: [],
 };
 
 /**
@@ -133,6 +151,7 @@ export function isTerminal<S extends string>(map: TransitionMap<S>, state: S): b
 /** Registry so tooling (docs, tests, the staff UI) can enumerate every machine. */
 export const STATE_MACHINES = {
   product: PRODUCT_TRANSITIONS,
+  productVersion: PRODUCT_VERSION_TRANSITIONS,
   order: ORDER_TRANSITIONS,
   payment: PAYMENT_TRANSITIONS,
   request: REQUEST_TRANSITIONS,

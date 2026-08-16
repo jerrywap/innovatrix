@@ -3,6 +3,7 @@ import { MoneySchema, ORG_SCOPE_FIELD, referenceField, schemaOptions } from "../
 import { defineModel } from "../client";
 import {
   CART_ITEM_KINDS,
+  DISCOUNT_KINDS,
   ENTITLEMENT_STATUSES,
   LICENCE_STATUSES,
   LICENCE_TYPES,
@@ -10,6 +11,9 @@ import {
   PAYMENT_PROVIDERS,
   PAYMENT_STATUSES,
   PAYMENT_SUBJECT_TYPES,
+  TAX_RULE_KINDS,
+  type CartItemKind,
+  type DiscountKind,
   type EntitlementStatus,
   type LicenceStatus,
   type LicenceType,
@@ -17,6 +21,7 @@ import {
   type PaymentProvider,
   type PaymentStatus,
   type PaymentSubjectType,
+  type TaxRuleKind,
 } from "../enums";
 
 /**
@@ -28,6 +33,90 @@ import {
  * looked up at render time. If a product is re-priced, delisted or deleted, a
  * two-year-old invoice must still reconcile to the penny.
  */
+
+/* ────────────────────────────────────────────── embedded shapes */
+
+/**
+ * The line shapes, exported rather than left as `unknown[]`.
+ *
+ * These were `unknown[]` on `CartDoc` and `OrderDoc`, which is the same hole
+ * ticket 06 closed in `catalog.ts` — and it is worse here. For a cart it means
+ * TypeScript cannot stop a **client-supplied `unitPrice`** being written
+ * straight through. For an order it means the §61 snapshot, the thing an
+ * invoice reconciles against two years later, has no compile-time shape at all.
+ *
+ * `MoneyDocument` rather than `Money`: the stored `currency` is a plain string,
+ * because the *document* is not the money type. Services convert at the edge.
+ */
+
+export interface MoneyDocument {
+  amount: number;
+  currency: string;
+}
+
+export interface CartItem {
+  lineId: string;
+  kind: CartItemKind;
+  productId: Types.ObjectId;
+  licencePackageKey?: string;
+  addonKey?: string;
+  /** Which product line an add-on hangs off. Absent on a product line. */
+  parentLineId?: string;
+  quantity: number;
+  /**
+   * What the price **was** when this was added.
+   *
+   * Deliberately not what the customer is charged. `recalculate()` compares it
+   * against the live product on every read and surfaces a change as a notice;
+   * nothing downstream reads this as an amount to bill.
+   */
+  unitPrice: MoneyDocument;
+  displayName: string;
+  displaySummary?: string;
+}
+
+/** §61's snapshot. Everything an invoice or a support agent needs, copied in. */
+export interface OrderItem {
+  lineId: string;
+  kind: CartItemKind;
+  productId: Types.ObjectId;
+  productName: string;
+  productSlug: string;
+  versionId?: Types.ObjectId;
+  versionNumber?: string;
+  licencePackageKey?: string;
+  licencePackageName?: string;
+  licenceType?: LicenceType;
+  activationLimit?: number;
+  supportMonths?: number;
+  updateMonths?: number;
+  addonKey?: string;
+  addonName?: string;
+  parentLineId?: string;
+  quantity: number;
+  unitPrice: MoneyDocument;
+  lineTotal: MoneyDocument;
+}
+
+/**
+ * Billing details as they stood at purchase.
+ *
+ * Stored as `Mixed`, but typed here because this is what an invoice renders and
+ * what a tax authority reads years later. The organisation's current address is
+ * not an answer to "where was this sold" — it may have moved twice since.
+ */
+export interface BillingSnapshot {
+  organizationName?: string;
+  contactName?: string;
+  email?: string;
+  line1?: string;
+  line2?: string;
+  city?: string;
+  region?: string;
+  postcode?: string;
+  country?: string;
+  taxId?: string;
+}
 
 /* ────────────────────────────────────────────── Cart */
 
@@ -56,7 +145,7 @@ export interface CartDoc {
   userId?: Types.ObjectId;
   organizationId?: Types.ObjectId;
   currency: string;
-  items: unknown[];
+  items: CartItem[];
   discountCode?: string;
   expiresAt: Date;
 }
@@ -109,6 +198,8 @@ const orderItemSchema = new Schema(
 
     addonKey: String,
     addonName: String,
+    /** Mirrors the cart, so an order line knows which product it was bought with. */
+    parentLineId: String,
 
     quantity: { type: Number, required: true, min: 1 },
     unitPrice: { type: MoneySchema, required: true },
@@ -123,13 +214,23 @@ export interface OrderDoc {
   organizationId: Types.ObjectId;
   userId: Types.ObjectId;
   currency: string;
-  items: unknown[];
-  subtotal: { amount: number; currency: string };
+  items: OrderItem[];
+  subtotal: MoneyDocument;
   discount?: { code?: string; amount: number; currency: string };
+  /**
+   * The rule **id and rate**, not a reference to a live rule. A rate change
+   * must never rewrite an order that was already placed (§61) — so the number
+   * that was charged is stored, and `ruleId` says which rule produced it.
+   */
   tax?: { ruleId?: string; basisPoints?: number; amount: number; currency: string };
-  total: { amount: number; currency: string };
+  total: MoneyDocument;
   status: OrderStatus;
-  billingSnapshot: Record<string, unknown>;
+  billingSnapshot: BillingSnapshot;
+  /**
+   * Derived from the cart id and a hash of its contents. Two rapid submissions
+   * of one cart find the same order rather than creating two (ticket 11).
+   */
+  idempotencyKey?: string;
   paymentId?: Types.ObjectId;
   paidAt?: Date;
   fulfilledAt?: Date;
@@ -171,6 +272,7 @@ const orderSchema = new Schema<OrderDoc>(
       index: true,
     },
     billingSnapshot: { type: Schema.Types.Mixed, default: {} },
+    idempotencyKey: String,
     paymentId: { type: Schema.Types.ObjectId, ref: "Payment" },
     paidAt: Date,
     fulfilledAt: Date,
@@ -180,6 +282,11 @@ const orderSchema = new Schema<OrderDoc>(
 
 orderSchema.index({ organizationId: 1, createdAt: -1 });
 orderSchema.index({ status: 1, createdAt: -1 });
+/**
+ * Sparse and unique: only orders created through checkout carry a key, and two
+ * submissions of the same cart must collide here rather than both inserting.
+ */
+orderSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 
 export const Order = defineModel<OrderDoc>("Order", orderSchema);
 
@@ -483,3 +590,129 @@ export const PaymentSettings = defineModel<PaymentSettingsDoc>(
   "PaymentSettings",
   paymentSettingsSchema,
 );
+
+/* ────────────────────────────────────────────── DiscountCode */
+
+/**
+ * A discount code — ticket 10.
+ *
+ * ## `usedCount` is a counter, not a derived number
+ *
+ * Counting orders that carry the code would be the "clean" answer and it is
+ * wrong under concurrency: two customers redeeming the hundredth use of a
+ * hundred-use code both count 99 and both succeed. The counter is incremented
+ * with `$inc` **inside the checkout transaction**, guarded by a filter on the
+ * limit, so the database decides who gets the last one.
+ *
+ * ## Deactivated, never deleted
+ *
+ * A code on a two-year-old order must still resolve when support looks at it.
+ * `isActive: false` stops new redemptions; nothing removes the row.
+ */
+export interface DiscountCodeDoc {
+  _id: Types.ObjectId;
+  code: string;
+  description?: string;
+  kind: DiscountKind;
+  /** Minor units for `fixed`, basis points for `percentage`. */
+  value: number;
+  /** Required for `fixed` — a fixed amount has no meaning without one. */
+  currency?: string;
+  minSpend?: MoneyDocument;
+  /** Empty means "any product". Both lists are OR'd, then AND'd with min spend. */
+  productIds: Types.ObjectId[];
+  categorySlugs: string[];
+  usageLimit?: number;
+  usedCount: number;
+  perCustomerLimit?: number;
+  startsAt?: Date;
+  expiresAt?: Date;
+  isActive: boolean;
+  createdByUserId?: Types.ObjectId;
+}
+
+const discountCodeSchema = new Schema<DiscountCodeDoc>(
+  {
+    code: { type: String, required: true, uppercase: true, trim: true },
+    description: String,
+    kind: { type: String, enum: DISCOUNT_KINDS, required: true },
+    value: { type: Number, required: true, min: 0, validate: Number.isInteger },
+    currency: { type: String, uppercase: true },
+    minSpend: { type: MoneySchema, default: undefined },
+    productIds: { type: [Schema.Types.ObjectId], ref: "Product", default: [] },
+    categorySlugs: { type: [String], default: [] },
+    usageLimit: Number,
+    usedCount: { type: Number, default: 0 },
+    perCustomerLimit: Number,
+    startsAt: Date,
+    expiresAt: Date,
+    isActive: { type: Boolean, default: true, index: true },
+    createdByUserId: { type: Schema.Types.ObjectId, ref: "User" },
+  },
+  schemaOptions({ collection: "discountCodes" }),
+);
+
+// The lookup is always by code, and two rows for one code is a pricing bug.
+discountCodeSchema.index({ code: 1 }, { unique: true });
+
+export const DiscountCode = defineModel<DiscountCodeDoc>("DiscountCode", discountCodeSchema);
+
+/* ────────────────────────────────────────────── TaxRule */
+
+/**
+ * A tax rule — ticket 10's "simple rule engine keyed on the organization's
+ * billing country and product type".
+ *
+ * ## Editable, and that is exactly why the order snapshots it
+ *
+ * A rate is a fact about a moment. When VAT changes, every rule here changes
+ * with it — and **not one existing order moves**, because `orders.tax` stores
+ * the `ruleId` *and* the `basisPoints` that were applied. Reading the rate back
+ * off a live rule at render time is the bug this design exists to prevent, and
+ * it is the one an "improvement" would reintroduce.
+ *
+ * ## `ruleId` is a slug, not an ObjectId
+ *
+ * It is written into every order and read by humans reconciling them.
+ * `uk-digital-vat-20` survives a database restore and says what it means;
+ * `6a80c46f…` does neither.
+ */
+export interface TaxRuleDoc {
+  _id: Types.ObjectId;
+  ruleId: string;
+  label: string;
+  /** ISO 3166-1 alpha-2, or `*` for the catch-all. */
+  country: string;
+  kind: TaxRuleKind;
+  basisPoints: number;
+  /** Highest wins. A country rule must beat the `*` fallback. */
+  priority: number;
+  isActive: boolean;
+  updatedByUserId?: Types.ObjectId;
+}
+
+const taxRuleSchema = new Schema<TaxRuleDoc>(
+  {
+    ruleId: { type: String, required: true, lowercase: true, trim: true },
+    label: { type: String, required: true },
+    country: { type: String, required: true, uppercase: true, trim: true },
+    kind: { type: String, enum: TAX_RULE_KINDS, required: true, default: "any" },
+    basisPoints: {
+      type: Number,
+      required: true,
+      min: 0,
+      max: 10_000,
+      validate: Number.isInteger,
+    },
+    priority: { type: Number, default: 0 },
+    isActive: { type: Boolean, default: true },
+    updatedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
+  },
+  schemaOptions({ collection: "taxRules" }),
+);
+
+taxRuleSchema.index({ ruleId: 1 }, { unique: true });
+// The resolution query: active rules for a country, best match first.
+taxRuleSchema.index({ isActive: 1, country: 1, priority: -1 });
+
+export const TaxRule = defineModel<TaxRuleDoc>("TaxRule", taxRuleSchema);

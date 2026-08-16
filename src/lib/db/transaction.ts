@@ -1,6 +1,6 @@
 import "server-only";
 import type { ClientSession } from "mongoose";
-import { connectToDatabase, mongoose } from "./client";
+import { connectToDatabase, mongoose, supportsTransactions } from "./client";
 
 /**
  * Multi-document transactions.
@@ -22,6 +22,17 @@ import { connectToDatabase, mongoose } from "./client";
 export async function withTransaction<T>(
   fn: (session: ClientSession) => Promise<T>,
 ): Promise<T> {
+  if (!supportsTransactions()) {
+    // Fail with the cause named. The driver's own error ("Transaction numbers
+    // are only allowed on a replica set member or mongos") is accurate but
+    // reads like a bug in our code rather than a deployment shape.
+    throw new Error(
+      "This MongoDB deployment does not support transactions — a replica set is required. " +
+        "Run `npm run db:up` for a single-node replica set, or set MONGODB_TRANSACTIONS=true " +
+        "if the derivation from MONGODB_URI is wrong.",
+    );
+  }
+
   await connectToDatabase();
   const session = await mongoose.startSession();
 

@@ -89,6 +89,39 @@ export type FileScanStatus = (typeof FILE_SCAN_STATUSES)[number];
 export const DEMO_EXPOSURES = values(["public", "authenticated", "owners_only"] as const);
 export type DemoExposure = (typeof DEMO_EXPOSURES)[number];
 
+export const PRODUCT_MEDIA_KINDS = values(["screenshot", "video"] as const);
+export type ProductMediaKind = (typeof PRODUCT_MEDIA_KINDS)[number];
+
+/**
+ * §47 — the internal testing checklist that gates `ready`.
+ *
+ * `na` is not "skip": publish requires every item to be `pass`, or `na` **with
+ * a note saying why**. An unexplained `na` is how a checklist becomes theatre.
+ */
+export const TESTING_CHECKLIST_STATUSES = values(["pending", "pass", "fail", "na"] as const);
+export type TestingChecklistStatus = (typeof TESTING_CHECKLIST_STATUSES)[number];
+
+/**
+ * §50 — the customization areas an admin can suggest for a product.
+ *
+ * An enum rather than free text because ticket 17's assistant reads these to
+ * open the conversation ("would you like the branding changed?"). Free prose
+ * would make that a parsing problem. The Mongoose field stays a permissive
+ * `[String]` so adding an area later cannot invalidate stored documents; the
+ * constraint lives in the Zod schema, where it can be relaxed per-release.
+ */
+export const CUSTOMIZATION_AREAS = values([
+  "branding",
+  "user_roles",
+  "reports",
+  "payment_methods",
+  "workflows",
+  "integrations",
+  "notifications",
+  "dashboard",
+] as const);
+export type CustomizationArea = (typeof CUSTOMIZATION_AREAS)[number];
+
 /** §49 — an add-on is not always a fixed price. */
 export const ADDON_PRICING_TYPES = values([
   "fixed",
@@ -145,6 +178,19 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 export const PAYMENT_SUBJECT_TYPES = values(["order", "invoice"] as const);
 export type PaymentSubjectType = (typeof PAYMENT_SUBJECT_TYPES)[number];
+
+/**
+ * A discount is either a flat amount off or a proportion off, and the two store
+ * `value` differently — minor units for `fixed`, basis points for
+ * `percentage`. Keeping them one field with a discriminating `kind` is what
+ * stops a "20" meaning 20p in one row and 20% in the next.
+ */
+export const DISCOUNT_KINDS = values(["fixed", "percentage"] as const);
+export type DiscountKind = (typeof DISCOUNT_KINDS)[number];
+
+/** What a tax rule applies to. `any` is the catch-all a country usually needs. */
+export const TAX_RULE_KINDS = values(["digital", "service", "any"] as const);
+export type TaxRuleKind = (typeof TAX_RULE_KINDS)[number];
 
 /* ────────────────────────────────────────────── requirements & requests */
 

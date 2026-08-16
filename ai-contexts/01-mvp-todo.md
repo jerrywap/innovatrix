@@ -64,11 +64,11 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 | 0.5 | Business reference generator (`REQ-2026-0148`, `ORD-…`, `INV-…`) — §26 | — | [x] | 00/01 | ← pure logic + port (00); Mongo atomic `$inc` store (01), proven at 500-way concurrency |
 | 0.6 | Error handling: `error.tsx`, `not-found.tsx`, typed `ActionResult<T>` for server actions | [x] | [x] | 00 | ← incl. `global-error.tsx`, domain error taxonomy, `withAction`/`parseInput` |
 | 0.6b | Tooling gate: `npm run verify` (lint → typecheck → test), Prettier, lint-staged + husky | — | [x] | 00 | ← 40 unit tests passing |
-| 0.7 | Tailwind v4 + shadcn/ui installed, theme tokens, dark mode | [ ] | — | 04 |
+| 0.7 | Tailwind v4 + shadcn/ui installed, theme tokens, dark mode | [x] | — | 04 | ← shadcn tokens are *aliases* onto Meridian, never literals — `init` overwrites literals. Dark-mode completeness + AA enforced by `theme-tokens.test.ts`; Lighthouse a11y 100
 | 0.8 | **MongoDB connection** (HMR-safe singleton), Mongoose base schema conventions, index strategy | — | [x] | 01 | ← `defineModel()` makes registration idempotent across HMR |
 | 0.9 | **Transaction helper** (`withTransaction`) + replica-set local dev via Docker/Atlas | — | [x] | 01 | ← delegates to the driver's documented retry loop; `docker-compose.yml` + `npm run db:up` |
 | 0.10 | Seed script — categories, industries, technologies, demo products, staff users, org | — | [x] | 02 | ← `npm run db:seed`, idempotent; also syncs indexes
-| 0.11 | **Object storage service** — S3 client, signed upload + signed download, key namespacing | — | [ ] | 05 |
+| 0.11 | **Object storage service** — S3 client, signed upload + signed download, key namespacing | — | [x] | 05 | ← code complete + live-probed (`npm run storage:probe`). ⚠️ **two env blockers**: bucket serves objects publicly (fails §66), and `s3:DeleteObject` is denied. Both need bucket/IAM changes — see ticket 05. |
 | 0.12 | **Background job runner** — queue, retries, scheduled jobs | — | [ ] | 25 |
 | 0.13 | **AI service wrapper** — Anthropic client, streaming, structured output, cost logging | — | [ ] | 16 |
 
@@ -93,14 +93,14 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 2.1 | Better Auth setup — email/password, email verification, password reset, sessions | [ ] | [ ] | 03 |
-| 2.2 | Organizations + members with roles (Owner/Admin/Billing/Technical/Member) — §76 | [ ] | [ ] | 03 |
-| 2.3 | Staff roles + permission matrix (§77) — permissions, not one admin flag | [ ] | [ ] | 03 |
-| 2.4 | **DAL** (`verifySession`, `requireOrg`, `requireStaff`, `requirePermission`) with React `cache` | — | [ ] | 03 |
-| 2.5 | `proxy.ts` optimistic route guards (cookie-only, no DB reads) | — | [ ] | 03 |
-| 2.6 | Auth pages: register, login, verify, forgot/reset password | [ ] | [ ] | 03 |
-| 2.7 | Tenant isolation: every org-scoped query filtered by `organizationId` at the repository layer | — | [ ] | 03 |
-| 2.8 | Optional OAuth (Google) — behind a config flag | [ ] | [ ] | 03 |
+| 2.1 | Better Auth setup — email/password, email verification, password reset, sessions | [x] | [x] | 03 | ← 1.6.29; adapter creates NO indexes (ours do); `transaction` derived from the URI, not assumed
+| 2.2 | Organizations + members with roles (Owner/Admin/Billing/Technical/Member) — §76 | [x] | [x] | 03 | ← `createAccessControl`; personal org auto-created at signup; invite/accept via the plugin
+| 2.3 | Staff roles + permission matrix (§77) — permissions, not one admin flag | — | [x] | 03 | ← 41 permissions × 11 roles, union semantics, no `isAdmin`; `assertMatrixIsComplete()` gates the build
+| 2.4 | **DAL** (`verifySession`, `requireOrg`, `requireStaff`, `requirePermission`) with React `cache` | — | [x] | 03 | ← memoization measured: 5 calls cost the same as 1 (2.05 vs 2.10 mongo ops/request)
+| 2.5 | `proxy.ts` optimistic route guards (cookie-only, no DB reads) | — | [x] | 03 | ← measured: **0 mongo ops across 20 requests**
+| 2.6 | Auth pages: register, login, verify, forgot/reset password | [x] | [x] | 03 | ← + accept-invite; server actions, no-JS forms, generic messages (§88). Reset tokens proven single-use
+| 2.7 | Tenant isolation: every org-scoped query filtered by `organizationId` at the repository layer | — | [x] | 03 | ← scope comes from the session, never from client input; cross-tenant suite asserts `FORBIDDEN`, not merely "threw"
+| 2.8 | Optional OAuth (Google) — behind a config flag | [ ] | [~] | 03 | ← wired behind `AUTH_GOOGLE_ENABLED`, off; untested (no credentials)
 
 ---
 
@@ -108,13 +108,13 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 3.1 | Route groups: `(public)`, `(auth)`, `dashboard`, `staff`, `admin` with distinct layouts | [ ] | [ ] | 04 |
-| 3.2 | Public site chrome — header, mega-nav, footer, marketing landing (§4.1) | [ ] | — | 04 |
-| 3.3 | Customer dashboard shell — sidebar per §28 (MVP modules only), mobile nav | [ ] | — | 04 |
-| 3.4 | Staff portal shell — queue-first navigation (§30) | [ ] | — | 04 |
-| 3.5 | Admin portal shell (§4.4) | [ ] | — | 04 |
-| 3.6 | Shared primitives: DataTable, EmptyState, StatusBadge, Timeline, MoneyDisplay, FileDropzone | [ ] | — | 04 |
-| 3.7 | Loading/streaming conventions — `loading.tsx`, Suspense boundaries, skeletons | [ ] | — | 04 |
+| 3.1 | Route groups: `(public)`, `(auth)`, `dashboard`, `staff`, `admin` with distinct layouts | [x] | [x] | 04 | ← each protected layout calls the DAL; layouts redirect, pages `forbidden()`, actions throw
+| 3.2 | Public site chrome — header, mega-nav, footer, marketing landing (§4.1) | [x] | — | 04 | ← session-aware header, no flash; every footer link resolves (15 `href="#"` removed)
+| 3.3 | Customer dashboard shell — sidebar per §28 (MVP modules only), mobile nav | [x] | — | 04 | ← role-filtered (billing sees invoices not deliverables); dashboard leads with actions (§102)
+| 3.4 | Staff portal shell — queue-first navigation (§30) | [x] | — | 04 | ← permission-filtered; verified live for 4 roles
+| 3.5 | Admin portal shell (§4.4) | [x] | — | 04 | ← gated on *management* permissions, not view — customer_service could otherwise reach catalogue management
+| 3.6 | Shared primitives: DataTable, EmptyState, StatusBadge, Timeline, MoneyDisplay, FileDropzone | [x] | — | 04 | ← +PageHeader, StatCard, Attention, Stepper, ConfirmDialog, RichText. DataTable is an RSC on URL state
+| 3.7 | Loading/streaming conventions — `loading.tsx`, Suspense boundaries, skeletons | [x] | — | 04 | ← per-segment `loading.tsx`/`error.tsx`; conventions written into `AGENTS.md`
 
 ---
 
@@ -122,17 +122,23 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 4.1 | Taxonomy admin: categories, industries, technologies (§7) | [ ] | [ ] | 06 |
-| 4.2 | Product create/edit wizard — the §42 step sequence, save-per-step draft | [ ] | [ ] | 06 |
-| 4.3 | Product configuration fields (§43) incl. licence type, support/update duration | [ ] | [ ] | 06 |
-| 4.4 | Media: screenshots + video, ordering, alt text | [ ] | [ ] | 06 |
-| 4.5 | Pricing: per-currency prices (GBP/USD/NGN/…), licence packages, add-ons (§49) | [ ] | [ ] | 06 |
-| 4.6 | Publishing lifecycle: Draft → Internal Review → Ready → Published → Deprecated → Archived (§46) | [ ] | [ ] | 06 |
-| 4.7 | Product versions + changelog + release notes (§45) | [ ] | [ ] | 07 |
-| 4.8 | Product file uploads to object storage, per version (§44) — never public paths | [ ] | [ ] | 07 |
-| 4.9 | Demo configuration + **encrypted** demo credentials, exposure rules (§9) | [ ] | [ ] | 07 |
-| 4.10 | Customization configuration — availability, suggested areas, AI workflow toggle (§50) | [ ] | [ ] | 06 |
-| 4.11 | Internal product testing checklist before publish (§47) | [ ] | [ ] | 07 |
+| 4.1 | Taxonomy admin: categories, industries, technologies (§7) | [x] | [x] | 06 |
+| 4.2 | Product create/edit wizard — the §42 step sequence, save-per-step draft | [x] | [x] | 06 |
+| 4.3 | Product configuration fields (§43) incl. licence type, support/update duration | [x] | [x] | 06 |
+| 4.4 | Media: screenshots + video, ordering, alt text | [~] | [x] | 06 |
+| 4.5 | Pricing: per-currency prices (GBP/USD/NGN/…), licence packages, add-ons (§49) | [x] | [x] | 06 |
+| 4.6 | Publishing lifecycle: Draft → Internal Review → Ready → Published → Deprecated → Archived (§46) | [x] | [x] | 06 |
+| 4.7 | Product versions + changelog + release notes (§45) | [x] | [x] | 07 |
+| 4.8 | Product file uploads to object storage, per version (§44) — never public paths | [~] | [x] | 07 |
+| 4.9 | Demo configuration + **encrypted** demo credentials, exposure rules (§9) | [x] | [x] | 07 |
+| 4.10 | Customization configuration — availability, suggested areas, AI workflow toggle (§50) | [x] | [x] | 06 |
+| 4.11 | Internal product testing checklist before publish (§47) | [x] | [x] | 07 |
+
+> **4.4, 4.8** — the *browser* half of uploading is blocked by ticket 05's environment issues (bucket
+> CORS unset, so a PUT fails preflight; `s3:DeleteObject` denied, so a file could never be removed).
+> The server half of 4.8 is verified against the real bucket: presigned PUT, a 3600s TTL, size and
+> type inside the signature, and `verifyUpload` afterwards. 4.4's form takes an image URL meanwhile;
+> `media[].storageKey` is already in the schema beside it.
 
 ---
 
@@ -140,16 +146,24 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 5.1 | `/marketplace` listing — grid, pagination, sort (popular/latest/price) | [ ] | [ ] | 08 |
-| 5.2 | Faceted filters: category, industry, technology, product type, price range | [ ] | [ ] | 08 |
-| 5.3 | Keyword search (Mongo text index or Atlas Search) — §74 | [ ] | [ ] | 08 |
-| 5.4 | Category / industry landing pages (SEO surfaces) | [ ] | [ ] | 08 |
-| 5.5 | Featured / latest / recommended rails on the marketplace home | [ ] | [ ] | 08 |
-| 5.6 | Recently viewed (cookie) + saved/favourites (account) | [ ] | [ ] | 08 |
-| 5.7 | Product detail page — full §8 layout, gallery, features, requirements, changelog | [ ] | [ ] | 09 |
-| 5.8 | Demo panel — public/customer/admin demo URLs + credentials per exposure rules (§9) | [ ] | [ ] | 09 |
-| 5.9 | Primary CTAs: Buy As-Is · Request Customization · Try Demo · Save for Later | [ ] | [ ] | 09 |
-| 5.10 | Related products | [ ] | [ ] | 09 |
+| 5.1 | `/marketplace` listing — grid, pagination, sort (popular/latest/price) | [x] | [x] | 08 |
+| 5.2 | Faceted filters: category, industry, technology, product type, price range | [x] | [x] | 08 |
+| 5.3 | Keyword search (Mongo text index or Atlas Search) — §74 | [x] | [x] | 08 |
+| 5.4 | Category / industry landing pages (SEO surfaces) | [x] | [x] | 08 |
+| 5.5 | Featured / latest / recommended rails on the marketplace home | [x] | [x] | 08 |
+| 5.6 | Recently viewed (cookie) + saved/favourites (account) | [~] | [x] | 08 |
+| 5.7 | Product detail page — full §8 layout, gallery, features, requirements, changelog | [x] | [x] | 09 |
+| 5.8 | Demo panel — public/customer/admin demo URLs + credentials per exposure rules (§9) | [x] | [x] | 09 |
+| 5.9 | Primary CTAs: Buy As-Is · Request Customization · Try Demo · Save for Later | [~] | [~] | 09 |
+| 5.10 | Related products | [x] | [x] | 09 |
+
+> **5.6** — complete. Saved/favourites at `/dashboard/saved`, keyed on the user rather than the
+> organisation. Recently-viewed is written in `proxy.ts` (a Server Component may not set a cookie)
+> with a `Sec-Fetch-Dest` guard so a prefetch is not mistaken for a visit.
+>
+> **5.9** — three of the four CTAs are live. **Buy As-Is** is rendered but disabled: the cart is
+> ticket 10. **Request Customization** is drawn and correctly hidden when customization is off; the
+> action behind it is ticket 17's.
 
 ---
 

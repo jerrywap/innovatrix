@@ -1,5 +1,9 @@
 import Link from "next/link";
 
+// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
+// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
+export const instant = false;
+
 const CONCEPTS = [
   {
     n: "02",
@@ -70,7 +74,7 @@ const CONCEPTS = [
     risk: "Implies bespoke pricing — may deter self-serve marketplace buyers.",
     dark: true,
   },
-];
+] as const;
 
 export default function ConceptIndex() {
   return (

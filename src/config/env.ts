@@ -14,6 +14,17 @@ import { z } from "zod";
 
 const bool = z.enum(["true", "false", "1", "0"]).transform((v) => v === "true" || v === "1");
 
+/**
+ * A flag that may legitimately be absent — including as the empty string, which
+ * is what `KEY=` in a `.env` file produces. `.optional()` alone does not cover
+ * that case: the variable *is* present, it is just blank, so the enum rejects
+ * it and boot fails on a line the author meant as "unset".
+ */
+const optionalBool = z.preprocess(
+  (v) => (v === "" || v === undefined ? undefined : v),
+  bool.optional(),
+);
+
 const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
@@ -28,25 +39,39 @@ const serverSchema = z.object({
       message: "MONGODB_URI must start with mongodb:// or mongodb+srv://",
     }),
   MONGODB_DB_NAME: z.string().min(1).default("innovatrix"),
+  /* Multi-document transactions need a replica set. Left unset this is derived
+     from the URI (`mongodb+srv` ⇒ Atlas ⇒ always a replica set; otherwise look
+     for `replicaSet=`). Set it explicitly to override the guess — getting it
+     wrong in the *optimistic* direction makes Better Auth fail every write
+     against a standalone mongod. See `supportsTransactions()`. */
+  MONGODB_TRANSACTIONS: optionalBool,
 
   /* ── Auth (ticket 03) ─────────────────────────────────── */
   AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters"),
   AUTH_GOOGLE_ENABLED: bool.default(false),
   AUTH_GOOGLE_CLIENT_ID: z.string().optional(),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().optional(),
+  /* §75 — verified email is required before checkout, not before browsing. */
+  AUTH_REQUIRE_EMAIL_VERIFICATION: bool.default(true),
+  /* Sessions live 30 days and are refreshed once a day (§75). */
+  AUTH_SESSION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
   /* ── Object storage (ticket 05) ─────────────────────────
      STORAGE_ENDPOINT is the provider switch: absent ⇒ AWS S3 (host derived
-     from region, virtual-hosted addressing); present ⇒ S3-compatible
-     (R2/MinIO, path-style addressing). An R2 endpoint left in place while the
-     bucket is on AWS sends every request to the wrong host, so an empty string
-     is normalised to undefined rather than failing URL validation. */
+     from region); present ⇒ S3-compatible (R2, MinIO). An endpoint left
+     pointing at the wrong provider sends every request to the wrong host, so
+     an empty string normalises to undefined rather than failing URL validation.
+
+     Note virtual-hosted addressing is correct for AWS *and* R2 — only MinIO
+     and LocalStack need path-style, hence the separate opt-in flag below. */
   STORAGE_ENDPOINT: z
     .string()
     .transform((v) => (v.trim() === "" ? undefined : v.trim()))
     .pipe(z.url().optional())
     .optional(),
   STORAGE_REGION: z.string().min(1).default("us-east-1"),
+  /* MinIO / LocalStack only. AWS and R2 both use virtual-hosted addressing. */
+  STORAGE_FORCE_PATH_STYLE: bool.default(false),
   STORAGE_BUCKET: z.string().min(1),
   STORAGE_ACCESS_KEY_ID: z.string().min(1),
   STORAGE_SECRET_ACCESS_KEY: z.string().min(1),
@@ -62,14 +87,44 @@ const serverSchema = z.object({
   ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-f]{64}$/i, "ENCRYPTION_KEY must be 64 hex characters (32 bytes)"),
+  /* Stamped into every value `seal()` writes, so a rotation can be told apart
+     from what came before. Bump it when ENCRYPTION_KEY changes. */
+  ENCRYPTION_KEY_VERSION: z.coerce.number().int().min(1).default(1),
+  /* Retired keys that must still open existing ciphertext: "1:<hex>,2:<hex>".
+     Without this, rotating the key is a migration over every stored secret
+     rather than a config change. */
+  ENCRYPTION_KEYS_PREVIOUS: z
+    .string()
+    .transform((v) => (v.trim() === "" ? undefined : v.trim()))
+    .optional(),
 
-  /* ── Payments (ticket 12) — keys live here, never in the database ── */
+  /* ── Payments (ticket 12) — keys live here, never in the database ──
+     Every one is optional: a provider with no key is simply not configured,
+     and `/admin/settings/payments` reports which variable is missing. Making
+     them required would stop the app booting because PayPal is not set up
+     yet, which is not a reason to be down. */
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYPAL_CLIENT_ID: z.string().optional(),
   PAYPAL_CLIENT_SECRET: z.string().optional(),
   PAYPAL_WEBHOOK_ID: z.string().optional(),
+  /**
+   * PayPal's API base differs between sandbox and live, and there is nothing
+   * in a client id that says which one it is. Defaults to sandbox: the failure
+   * mode of guessing wrong towards live is charging a real card in testing.
+   */
+  PAYPAL_ENV: z.enum(["sandbox", "live"]).default("sandbox"),
+
+  /**
+   * Authenticates `/api/cron/*` (ticket 13's reconciliation sweep).
+   *
+   * Not a session — the caller is a scheduler, not a person. Optional so local
+   * development boots without one; the route refuses to run when it is unset
+   * rather than running unauthenticated, because a reconciliation endpoint
+   * anyone can trigger is a way to hammer three payment providers.
+   */
+  CRON_SECRET: z.string().min(16).optional(),
 
   /* ── AI (ticket 16) — via OpenRouter ────────────────────
      OpenRouter is an OpenAI-compatible gateway, so ticket 16 uses the OpenAI
@@ -121,8 +176,19 @@ function loadServerEnv(): ServerEnv {
         "Unverified webhooks must never reach fulfilment (§87).",
     );
   }
-  if (env.NODE_ENV === "production" && env.APP_URL.startsWith("http://")) {
-    throw new Error("APP_URL must use https in production.");
+  // The point of this rule is "never ship an http URL to real users" — and
+  // localhost is never a real user. Without the exemption, `next start` (which
+  // always sets NODE_ENV=production) cannot run locally at all, which is
+  // exactly when you most want to smoke-test a production build.
+  if (
+    env.NODE_ENV === "production" &&
+    env.APP_URL.startsWith("http://") &&
+    !isLocalhost(env.APP_URL)
+  ) {
+    throw new Error(
+      `APP_URL must use https in production (got "${env.APP_URL}"). ` +
+        `http is permitted only for localhost.`,
+    );
   }
 
   return env;
@@ -152,6 +218,25 @@ export function configuredPaymentProviders(): Array<"stripe" | "paystack" | "pay
   if (env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET) providers.push("paypal");
   return providers;
 }
+
+function isLocalhost(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether cookies should carry the `Secure` flag.
+ *
+ * Derived from the **scheme actually being served**, not from `NODE_ENV`. A
+ * production build running on http://localhost would otherwise issue `Secure`
+ * cookies that the browser silently drops — every sign-in appearing to succeed
+ * and no session surviving the redirect.
+ */
+export const usesSecureCookies = () => serverEnv().APP_URL.startsWith("https://");
 
 export const isProduction = () => serverEnv().NODE_ENV === "production";
 export const isDevelopment = () => serverEnv().NODE_ENV === "development";

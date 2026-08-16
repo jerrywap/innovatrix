@@ -1,0 +1,383 @@
+import "server-only";
+import { cacheLife, cacheTag } from "next/cache";
+import { connectToDatabase } from "@/lib/db/client";
+import { Entitlement } from "@/lib/db/models/commerce";
+import { Product, parseFacet, type ProductDoc } from "@/lib/db/models/catalog";
+import type { LicenceType, TaxonomyKind } from "@/lib/db/enums";
+import type { RichTextDocument } from "@/lib/rich-text/schema";
+import { toObjectId } from "@/lib/db/base";
+import type { StorefrontCurrency } from "@/config/storefront";
+import { STOREFRONT_CURRENCIES } from "@/config/storefront";
+import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG, productTag } from "@/services/catalog/cache";
+import { listCustomerVersions } from "@/services/catalog/version-service";
+import { publicDemoView, type PublicDemoView } from "@/services/catalog/demo-service";
+import { getTaxonomyIndex, type ProductCard } from "./index";
+import { toCardsForRelated } from "./card-mapper";
+import { buildMarketplacePipeline } from "./pipeline";
+import type { PipelineStage } from "mongoose";
+
+/**
+ * The public product page's data — §8.
+ *
+ * ## Two functions, and the split is the security boundary
+ *
+ * `getProductDetail()` is **cached** and returns a type with **no credentials
+ * key at all**. `getDemoAccess()` is uncached, `server-only`, and is the single
+ * thing that decrypts.
+ *
+ * The reason it is two functions rather than one with a flag: a cached read
+ * whose result varies by viewer is a cache-poisoning bug waiting to happen —
+ * the first owner to load the page would put decrypted credentials into an
+ * entry the next anonymous visitor reads. Keeping the secret out of the cached
+ * function's *type* makes that impossible rather than merely unlikely.
+ *
+ * ## Prices for every storefront currency, computed on the server
+ *
+ * The purchase panel switches currency and licence package without a reload,
+ * which means it needs every combination up front. It is handed a **table**,
+ * not a rate: the client never does money arithmetic, because §84's integer
+ * minor units stop being safe the moment a float is involved.
+ */
+
+export interface DetailPrice {
+  currency: StorefrontCurrency;
+  amount: number;
+  compareAtAmount?: number;
+}
+
+export interface DetailLicencePackage {
+  key: string;
+  name: string;
+  description?: string;
+  licenceType: LicenceType;
+  activationLimit: number;
+  supportMonths: number;
+  updateMonths: number;
+  prices: DetailPrice[];
+}
+
+export interface DetailAddon {
+  key: string;
+  name: string;
+  description?: string;
+  pricingType: string;
+  prices: DetailPrice[];
+}
+
+export interface DetailVersion {
+  id: string;
+  version: string;
+  releasedAt?: string;
+  changelog?: string;
+  minimumRequirements?: string;
+  releaseNotes?: RichTextDocument;
+  updateNote?: string;
+  isCurrent: boolean;
+}
+
+export interface ProductDetail {
+  id: string;
+  slug: string;
+  name: string;
+  summary: string;
+  description?: RichTextDocument;
+  features: Array<{ title: string; detail?: string }>;
+  requirements?: string;
+  media: Array<{ kind: string; url: string; alt: string }>;
+  prices: DetailPrice[];
+  licencePackages: DetailLicencePackage[];
+  addons: DetailAddon[];
+  installation: { selfInstall: boolean; innovatrixInstall: boolean; managedHosting: boolean };
+  customization: {
+    available: boolean;
+    aiWorkflowEnabled: boolean;
+    typicalTurnaround?: string;
+    startingPrice?: DetailPrice;
+    suggestedAreas: string[];
+  };
+  taxonomy: {
+    categories: Array<{ slug: string; name: string }>;
+    industries: Array<{ slug: string; name: string }>;
+    technologies: Array<{ slug: string; name: string }>;
+    productType?: { slug: string; name: string };
+  };
+  versions: DetailVersion[];
+  /**
+   * Roles and a `hasPassword` flag. **Never** a username, a password or a
+   * gated URL — see `publicDemoView`.
+   */
+  demo: PublicDemoView;
+  seo: { title?: string; description?: string; ogImageUrl?: string };
+  publishedAt?: string;
+  updatedAt?: string;
+}
+
+/* ────────────────────────────────────────────── the cached read */
+
+export async function getProductDetail(slug: string): Promise<ProductDetail | null> {
+  "use cache";
+  cacheTag(CATALOG_TAG, TAXONOMY_TAG, productTag(slug));
+  cacheLife(CACHE_PROFILE.product);
+
+  await connectToDatabase();
+
+  const product = await Product.findOne({
+    slug,
+    status: "published",
+    deletedAt: null,
+  })
+    // Excluded at the query, not at the mapping. Belt and braces: even a future
+    // `...product` spread in a mapper cannot leak what was never fetched.
+    .select({ "demo.credentials.passwordCipher": 0 })
+    // `timestamps` is on in `schemaOptions`, but `ProductDoc` does not declare
+    // the fields it adds — widened here rather than in the shared interface,
+    // since only the SEO `lastModified` needs them.
+    .lean<ProductDoc & { updatedAt?: Date }>();
+
+  if (!product) return null;
+
+  const [taxonomy, versions] = await Promise.all([
+    getTaxonomyIndex(),
+    listCustomerVersions(String(product._id)),
+  ]);
+
+  const nameOf = (kind: TaxonomyKind, prefix: string) => {
+    const names = new Map(taxonomy[kind].map((term) => [term.slug, term.name]));
+    return (product.facets ?? [])
+      .map(parseFacet)
+      .filter((facet): facet is { prefix: string; slug: string } => facet?.prefix === prefix)
+      .map((facet) => ({ slug: facet.slug, name: names.get(facet.slug) ?? facet.slug }));
+  };
+
+  const currentVersionId = product.currentVersionId
+    ? String(product.currentVersionId)
+    : undefined;
+
+  return {
+    id: String(product._id),
+    slug: product.slug,
+    name: product.name,
+    summary: product.summary,
+    ...(product.description ? { description: product.description } : {}),
+    features: (product.features ?? []).map((feature) => ({
+      title: feature.title,
+      ...(feature.detail ? { detail: feature.detail } : {}),
+    })),
+    ...(product.requirements ? { requirements: product.requirements } : {}),
+    media: (product.media ?? [])
+      .filter((item) => Boolean(item.url))
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((item) => ({ kind: item.kind, url: item.url!, alt: item.alt ?? product.name })),
+    prices: storefrontPrices(product.prices),
+    licencePackages: (product.licencePackages ?? []).map((pkg) => ({
+      key: pkg.key,
+      name: pkg.name,
+      ...(pkg.description ? { description: pkg.description } : {}),
+      licenceType: pkg.licenceType,
+      activationLimit: pkg.activationLimit,
+      supportMonths: pkg.supportMonths,
+      updateMonths: pkg.updateMonths,
+      prices: storefrontPrices(pkg.prices),
+    })),
+    addons: (product.addons ?? []).map((addon) => ({
+      key: addon.key,
+      name: addon.name,
+      ...(addon.description ? { description: addon.description } : {}),
+      pricingType: addon.pricingType,
+      prices: storefrontPrices(addon.prices),
+    })),
+    installation: {
+      selfInstall: Boolean(product.installation?.selfInstall),
+      innovatrixInstall: Boolean(product.installation?.innovatrixInstall),
+      managedHosting: Boolean(product.installation?.managedHosting),
+    },
+    customization: {
+      available: Boolean(product.customization?.available),
+      aiWorkflowEnabled: Boolean(product.customization?.aiWorkflowEnabled),
+      ...(product.customization?.typicalTurnaround
+        ? { typicalTurnaround: product.customization.typicalTurnaround }
+        : {}),
+      ...(product.customization?.startingPrice
+        ? { startingPrice: storefrontPrices([product.customization.startingPrice])[0]! }
+        : {}),
+      suggestedAreas: product.customization?.suggestedAreas ?? [],
+    },
+    taxonomy: {
+      categories: nameOf("category", "cat"),
+      industries: nameOf("industry", "ind"),
+      technologies: nameOf("technology", "tech"),
+      ...(nameOf("product_type", "type")[0]
+        ? { productType: nameOf("product_type", "type")[0]! }
+        : {}),
+    },
+    versions: versions.map((version) => ({
+      id: String(version._id),
+      version: version.version,
+      ...(version.releasedAt ? { releasedAt: isoDay(version.releasedAt) } : {}),
+      ...(version.changelog ? { changelog: version.changelog } : {}),
+      ...(version.minimumRequirements
+        ? { minimumRequirements: version.minimumRequirements }
+        : {}),
+      ...(version.releaseNotes ? { releaseNotes: version.releaseNotes } : {}),
+      ...(version.updateEligibility?.note
+        ? { updateNote: version.updateEligibility.note }
+        : {}),
+      isCurrent: String(version._id) === currentVersionId,
+    })),
+    demo: publicDemoView(product),
+    seo: {
+      ...(product.seo?.title ? { title: product.seo.title } : {}),
+      ...(product.seo?.description ? { description: product.seo.description } : {}),
+      ...(product.seo?.ogImageUrl ? { ogImageUrl: product.seo.ogImageUrl } : {}),
+    },
+    ...(product.publishedAt ? { publishedAt: isoDay(product.publishedAt) } : {}),
+    ...(product.updatedAt ? { updatedAt: isoDay(product.updatedAt) } : {}),
+  };
+}
+
+/**
+ * A slug that used to belong to a product — §93's 301 path.
+ *
+ * Separate from `getProductDetail` because the answer is different in kind: a
+ * *redirect*, not a page. Returning "the product, but at a different address"
+ * from one function would put the responsibility for noticing on every caller.
+ */
+export async function getCurrentSlugFor(oldSlug: string): Promise<string | null> {
+  "use cache";
+  cacheTag(CATALOG_TAG);
+  cacheLife(CACHE_PROFILE.product);
+
+  await connectToDatabase();
+
+  const moved = await Product.findOne({
+    slugHistory: oldSlug,
+    status: "published",
+    deletedAt: null,
+  })
+    .select({ slug: 1 })
+    .lean<{ slug: string }>();
+
+  return moved?.slug ?? null;
+}
+
+/** Published slugs, for `generateStaticParams`. Bounded — the rest render on demand. */
+export async function getPrerenderSlugs(limit = 100): Promise<string[]> {
+  "use cache";
+  cacheTag(CATALOG_TAG);
+  cacheLife(CACHE_PROFILE.listing);
+
+  await connectToDatabase();
+
+  const rows = await Product.find({ status: "published", deletedAt: null })
+    // The most-bought products are the ones worth having warm.
+    .sort({ orderCount: -1, publishedAt: -1 })
+    .limit(limit)
+    .select({ slug: 1 })
+    .lean<Array<{ slug: string }>>();
+
+  return rows.map((row) => row.slug);
+}
+
+/* ────────────────────────────────────────────── related */
+
+/**
+ * Same category or industry — §5.10.
+ *
+ * Reuses the marketplace pipeline rather than writing a second product query,
+ * so the card shape, the price logic and the projection cannot drift from the
+ * grid. `$ne` on the id excludes the product being viewed, which is otherwise
+ * the most related product of all.
+ */
+export async function getRelatedProducts(
+  detail: ProductDetail,
+  currency: StorefrontCurrency,
+  limit = 3,
+): Promise<ProductCard[]> {
+  "use cache";
+  cacheTag(CATALOG_TAG, TAXONOMY_TAG, productTag(detail.slug));
+  cacheLife(CACHE_PROFILE.product);
+
+  const facets = [
+    ...detail.taxonomy.categories.map((term) => `cat:${term.slug}`),
+    ...detail.taxonomy.industries.map((term) => `ind:${term.slug}`),
+  ];
+  if (facets.length === 0) return [];
+
+  await connectToDatabase();
+
+  const [result] = await Product.aggregate<{ rows: Array<Record<string, unknown>> }>([
+    {
+      $match: {
+        status: "published",
+        deletedAt: null,
+        _id: { $ne: toObjectId(detail.id) },
+        facets: { $in: facets },
+      },
+    },
+    ...(buildMarketplacePipeline({
+      sort: "popular",
+      page: 1,
+      limit,
+      currency,
+    }).slice(1) as unknown as PipelineStage[]),
+  ] as PipelineStage[]);
+
+  return toCardsForRelated(result?.rows ?? [], await getTaxonomyIndex(), currency);
+}
+
+/* ────────────────────────────────────────────── ownership */
+
+/**
+ * Does this organisation own the product?
+ *
+ * Real today rather than a stub: `Entitlement` and its indexes exist from
+ * ticket 02 and the seed already creates one, so the owner path is testable
+ * now instead of being a branch nobody has run.
+ *
+ * `active` only — a refunded or revoked entitlement is a record that a purchase
+ * happened, not a licence to see the demo credentials.
+ */
+export async function viewerOwnsProduct(
+  organizationId: string | undefined,
+  productId: string,
+): Promise<boolean> {
+  if (!organizationId) return false;
+
+  await connectToDatabase();
+
+  const owned = await Entitlement.exists({
+    organizationId: toObjectId(organizationId),
+    productId: toObjectId(productId),
+    status: "active",
+  });
+
+  return owned !== null;
+}
+
+/* ────────────────────────────────────────────── internals */
+
+/** Drop any currency the storefront does not sell in, and keep a stable order. */
+function storefrontPrices(
+  prices:
+    ReadonlyArray<{ currency: string; amount: number; compareAtAmount?: number }> | undefined,
+): DetailPrice[] {
+  const byCurrency = new Map(
+    (prices ?? []).map((price) => [price.currency.toUpperCase(), price]),
+  );
+
+  return STOREFRONT_CURRENCIES.flatMap((currency) => {
+    const price = byCurrency.get(currency);
+    if (!price) return [];
+    return [
+      {
+        currency,
+        amount: price.amount,
+        ...(price.compareAtAmount ? { compareAtAmount: price.compareAtAmount } : {}),
+      },
+    ];
+  });
+}
+
+function isoDay(value: Date): string {
+  return new Date(value).toISOString().slice(0, 10);
+}

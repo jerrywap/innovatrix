@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 /* next-themes writes class="dark" on <html>, so the dark variant keys off a
    class rather than prefers-color-scheme. System preference still wins by
@@ -12,25 +14,52 @@
    a dark block, or the light theme inherits a hole.
    ───────────────────────────────────────────────────────────── */
 
+/* ─────────────────────────────────────────────────────────────
+   Token layer
+
+   Two vocabularies live here and they are NOT peers:
+
+   1. **Meridian** (`--background`, `--surface`, `--signal`, …) is the source of
+      truth. Every value is a literal, declared in both themes.
+   2. **shadcn** (`--card`, `--primary`, `--accent`, `--sidebar`, …) is an
+      *alias layer* pointing at Meridian. Not one shadcn token holds a literal
+      colour, except `--destructive`, which Meridian has no equivalent for.
+
+   That direction matters. `shadcn init` merges into this file in place, and it
+   will happily overwrite a literal — it replaced our warm `#fbfaf7` background
+   with `oklch(1 0 0)` and silently reset `--radius` while leaving the comment
+   that explained why it was 1rem. Aliases are the defence: re-running `init`
+   can add new tokens, but a token defined as `var(--surface)` cannot be
+   quietly turned into a different colour without the diff being obvious.
+   ───────────────────────────────────────────────────────────── */
+
 :root {
-  /* Surfaces — warm paper, never pure white */
+  /* ── Meridian: surfaces — warm paper, never pure white ── */
   --background: #fbfaf7;
   --surface: #ffffff;
   --surface-muted: #f3f0e9;
   --surface-inverse: #0b0b0c;
 
-  /* Text */
+  /* ── Meridian: text ── */
   --foreground: #14130f;
   --foreground-inverse: #f4f1ea;
-  --muted: #6b675e;
-  --subtle: #8f8b81;
+  --muted-foreground: #6b675e;
+  /* Darkened from #8f8b81, which measured 3.26:1 on the page background — a
+     real AA failure, not a rounding one. `--subtle` carries 9.5px uppercase
+     labels, so it is small text and needs 4.5:1; the value below clears it on
+     every surface it actually sits on (4.66:1 on the muted surface, the
+     hardest of them). The hierarchy against `--muted-foreground` now comes
+     from size, weight and letter-spacing rather than from colour alone —
+     which is where it should come from at that size anyway. */
+  --subtle: #6f6b62;
 
-  /* Lines */
+  /* ── Meridian: lines ── */
   --border: rgb(20 19 15 / 0.1);
   --border-strong: rgb(20 19 15 / 0.2);
 
-  /* Brand. `signal` is the fill; `signal-text` is the accessible variant for
-     small type — the fill colour alone doesn't clear AA on paper. */
+  /* ── Meridian: brand ──
+     `signal` is the fill; `signal-text` is the accessible variant for small
+     type — the fill colour alone doesn't clear AA on paper. */
   --signal: #e0521f;
   --signal-text: #b8431a;
   --signal-contrast: #ffffff;
@@ -38,9 +67,66 @@
 
   --ring: rgb(224 82 31 / 0.4);
   --shadow-color: 30 25 20;
+
+  /* shadcn derives its entire radius scale from this single value
+     (`calc(var(--radius) - 4px)` and friends). Its default of 0.625rem lands
+     every component roughly half as round as Meridian's geometry, so this is
+     pinned to --radius-md — a shadcn card and one of our surfaces then share a
+     corner. `init` resets this; check it after any re-run. */
+  --radius: 1rem;
+
+  /* ── shadcn alias layer ── */
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+
+  --primary: var(--signal);
+  --primary-foreground: var(--signal-contrast);
+  --secondary: var(--surface-muted);
+  --secondary-foreground: var(--foreground);
+
+  /* shadcn's `--muted` is a *surface*, not the text colour — the inverse of
+     what Meridian called `--muted` before this merge. That collision is why
+     ours was renamed to `--muted-foreground`. */
+  --muted: var(--surface-muted);
+
+  /* Menu-item and row hovers. Deliberately neutral rather than signal-tinted:
+     §107 asks for restrained and business-first, and an orange wash on every
+     dropdown row is neither. Selected states use `signal` explicitly. */
+  --accent: var(--surface-muted);
+  --accent-foreground: var(--foreground);
+
+  /* The one shadcn token with no Meridian equivalent. Warmed towards the
+     brand's red rather than the stock magenta-leaning default. */
+  --destructive: oklch(0.55 0.2 27);
+  --destructive-foreground: #ffffff;
+
+  --input: var(--border-strong);
+
+  /* Sequential, brand-anchored: signal first, then progressively cooler and
+     quieter, so a chart legend reads in a deliberate order. */
+  --chart-1: #e0521f;
+  --chart-2: #c2803f;
+  --chart-3: #8f8b81;
+  --chart-4: #5f6b6a;
+  --chart-5: #3b4a52;
+
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--signal);
+  --sidebar-primary-foreground: var(--signal-contrast);
+  --sidebar-accent: var(--surface-muted);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
+  /* Only the Meridian literals are redeclared — every shadcn alias above
+     resolves through them automatically, which is the point of the indirection.
+     A shadcn token redefined here would be a token that silently stopped
+     tracking the palette. */
   --background: #0b0b0c;
   --surface: #141416;
   --surface-muted: #1b1b1e;
@@ -48,8 +134,9 @@
 
   --foreground: #f4f1ea;
   --foreground-inverse: #0b0b0c;
-  --muted: #9d998f;
-  --subtle: #78746c;
+  --muted-foreground: #9d998f;
+  /* Same fix, other direction: #78746c measured 4.22:1 on the dark ground. */
+  --subtle: #8b877e;
 
   --border: rgb(244 241 234 / 0.12);
   --border-strong: rgb(244 241 234 / 0.24);
@@ -61,9 +148,25 @@
 
   --ring: rgb(255 106 61 / 0.45);
   --shadow-color: 0 0 0;
+
+  /* Lifted, because the stock red goes muddy against a near-black ground. */
+  --destructive: oklch(0.66 0.19 25);
+  --destructive-foreground: #14130f;
+
+  --chart-1: #ff6a3d;
+  --chart-2: #d99a5c;
+  --chart-3: #9d998f;
+  --chart-4: #7d8f92;
+  --chart-5: #5b7385;
+
+  /* The sidebar sits *below* the page in the dark theme rather than above it —
+     a lighter rail on a dark ground reads as a floating panel, which is wrong
+     for permanent chrome. */
+  --sidebar: #0e0e10;
 }
 
 @theme inline {
+  /* Meridian */
   --color-background: var(--background);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
@@ -71,7 +174,7 @@
 
   --color-foreground: var(--foreground);
   --color-foreground-inverse: var(--foreground-inverse);
-  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
   --color-subtle: var(--subtle);
 
   --color-border: var(--border);
@@ -82,7 +185,43 @@
   --color-signal-contrast: var(--signal-contrast);
   --color-signal-soft: var(--signal-soft);
 
+  /* shadcn */
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Type. shadcn components are written against `font-sans`, so pointing it at
+     Archivo is what keeps a Button in Meridian's voice instead of importing a
+     second typeface. `init` adds Geist and a self-referential
+     `--font-sans: var(--font-sans)`; both are removed. */
+  --font-sans: var(--font-archivo);
   --font-display: var(--font-archivo);
+  --font-heading: var(--font-archivo);
   --font-mono: var(--font-jetbrains);
 
   /* Softened geometry. Meridian keeps its structure in the grid and the rules,
@@ -93,6 +232,8 @@
   --radius-lg: 1.25rem;
   --radius-xl: 1.75rem;
   --radius-2xl: 2.25rem;
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 @layer base {
@@ -118,6 +259,19 @@
     color: var(--signal-contrast);
   }
 
+  /**
+   * One focus ring per control.
+   *
+   * This is the baseline for plain elements — links, native inputs, anything
+   * hand-written. shadcn components do *not* get it: each one carries its own
+   * `outline-none` plus `focus-visible:ring-3 ring-ring/50`, and a utility
+   * beats a base-layer rule, so the outline below is switched off exactly
+   * where a component draws its own. That is the reconciliation — not two
+   * rings, and not a control left with none.
+   *
+   * `--ring` is Meridian's signal-tinted ring, so both paths land on the same
+   * colour.
+   */
   :focus-visible {
     outline: 2px solid var(--signal);
     outline-offset: 2px;

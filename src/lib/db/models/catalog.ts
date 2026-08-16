@@ -1,4 +1,5 @@
 import { Schema, type Types } from "mongoose";
+import { isEmptyDocument, plainText, type RichTextDocument } from "@/lib/rich-text/schema";
 import { MoneySchema, schemaOptions } from "../base";
 import { defineModel } from "../client";
 import {
@@ -7,16 +8,21 @@ import {
   FILE_SCAN_STATUSES,
   LICENCE_TYPES,
   PRODUCT_FILE_KINDS,
+  PRODUCT_MEDIA_KINDS,
   PRODUCT_STATUSES,
   PRODUCT_VERSION_STATUSES,
   TAXONOMY_KINDS,
+  TESTING_CHECKLIST_STATUSES,
+  type AddonPricingType,
   type DemoExposure,
   type FileScanStatus,
   type LicenceType,
   type ProductFileKind,
+  type ProductMediaKind,
   type ProductStatus,
   type ProductVersionStatus,
   type TaxonomyKind,
+  type TestingChecklistStatus,
 } from "../enums";
 
 /**
@@ -67,6 +73,93 @@ export const Taxonomy = defineModel<TaxonomyDoc>("Taxonomy", taxonomySchema);
 
 /* ────────────────────────────────────────────── embedded sub-documents */
 
+/**
+ * The shapes embedded in a product.
+ *
+ * These were `unknown[]` on `ProductDoc`, which meant TypeScript could not stop
+ * `{ password: "hunter2" }` being written into `demo.credentials`. For a
+ * document that is supposed to hold only ciphertext (§89), that is not a typing
+ * inconvenience — it is the absence of the check that matters most.
+ *
+ * Every one is `{ _id: false }`: they are values owned by the product, not
+ * entities with their own identity (see `ERD.md` on embed vs reference).
+ */
+
+export interface ProductPrice {
+  /** ISO-4217. Widened to `string` because the *document* is not the money type. */
+  currency: string;
+  /** Integer minor units — §84. Never a float, never a major-unit decimal. */
+  amount: number;
+  /** The struck-through "was" price, when there is one. */
+  compareAtAmount?: number;
+}
+
+export interface ProductFeature {
+  title: string;
+  detail?: string;
+}
+
+export interface ProductMedia {
+  kind: ProductMediaKind;
+  /** Set for uploaded media; `url` is set instead for an external video. */
+  storageKey?: string;
+  url?: string;
+  alt?: string;
+  sortOrder: number;
+  isPrimary: boolean;
+}
+
+/** §65 — what the customer actually buys. */
+export interface LicencePackage {
+  key: string;
+  name: string;
+  description?: string;
+  licenceType: LicenceType;
+  activationLimit: number;
+  supportMonths: number;
+  updateMonths: number;
+  prices: ProductPrice[];
+}
+
+/** §49 */
+export interface Addon {
+  key: string;
+  name: string;
+  description?: string;
+  pricingType: AddonPricingType;
+  prices: ProductPrice[];
+}
+
+/**
+ * AES-256-GCM output — see `src/lib/crypto.ts`.
+ *
+ * Never logged, never placed in an audit `before`/`after`, never returned to a
+ * client. The only thing that opens one is the demo service.
+ */
+export interface PasswordCipher {
+  iv: string;
+  tag: string;
+  ciphertext: string;
+  keyVersion: number;
+}
+
+export interface DemoCredential {
+  /** Stable within a product — it is how a re-edit matches an existing row. */
+  role: string;
+  label?: string;
+  url?: string;
+  username?: string;
+  passwordCipher?: PasswordCipher;
+}
+
+export interface TestingChecklistItem {
+  item: string;
+  status: TestingChecklistStatus;
+  notes?: string;
+  checkedByUserId?: Types.ObjectId;
+  checkedAt?: Date;
+}
+
 const priceSchema = new Schema(
   {
     currency: { type: String, required: true, uppercase: true },
@@ -86,7 +179,7 @@ const featureSchema = new Schema(
 
 const mediaSchema = new Schema(
   {
-    kind: { type: String, enum: ["screenshot", "video"], required: true },
+    kind: { type: String, enum: PRODUCT_MEDIA_KINDS, required: true },
     storageKey: String,
     url: String,
     alt: String,
@@ -148,7 +241,7 @@ const demoCredentialSchema = new Schema(
 const testingChecklistItemSchema = new Schema(
   {
     item: { type: String, required: true },
-    status: { type: String, enum: ["pending", "pass", "fail", "na"], default: "pending" },
+    status: { type: String, enum: TESTING_CHECKLIST_STATUSES, default: "pending" },
     notes: String,
     checkedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
     checkedAt: Date,
@@ -163,18 +256,33 @@ export interface ProductDoc {
   slug: string;
   name: string;
   summary: string;
-  description?: string;
+  /**
+   * The long description, as a **ProseMirror node tree** — never an HTML
+   * string, so nothing downstream is ever tempted to render it with
+   * `dangerouslySetInnerHTML`. `richTextDocumentSchema` validates it on write;
+   * that validation is the security boundary.
+   */
+  description?: RichTextDocument;
+  /**
+   * The same description flattened to plain text, written alongside it.
+   *
+   * The text index cannot score an object, so without this, enabling rich text
+   * would silently break §74 keyword search — a product's body would stop being
+   * searchable and nothing would error. It is derived, never edited: the one
+   * writer is `descriptionFields()`.
+   */
+  descriptionText?: string;
   status: ProductStatus;
   categoryIds: Types.ObjectId[];
   industryIds: Types.ObjectId[];
   technologyIds: Types.ObjectId[];
   productTypeId?: Types.ObjectId;
-  features: { title: string; detail?: string }[];
+  features: ProductFeature[];
   requirements?: string;
-  media: unknown[];
-  prices: { currency: string; amount: number; compareAtAmount?: number }[];
-  licencePackages: unknown[];
-  addons: unknown[];
+  media: ProductMedia[];
+  prices: ProductPrice[];
+  licencePackages: LicencePackage[];
+  addons: Addon[];
   currentVersionId?: Types.ObjectId;
   demo: {
     exposure: DemoExposure;
@@ -183,7 +291,7 @@ export interface ProductDoc {
     adminUrl?: string;
     instructions?: string;
     resetSchedule?: string;
-    credentials: unknown[];
+    credentials: DemoCredential[];
   };
   customization: {
     available: boolean;
@@ -199,7 +307,7 @@ export interface ProductDoc {
     managedHosting: boolean;
   };
   seo: { title?: string; description?: string; ogImageUrl?: string };
-  testingChecklist: unknown[];
+  testingChecklist: TestingChecklistItem[];
   isFeatured: boolean;
   orderCount: number;
   adaptedCount: number;
@@ -214,7 +322,11 @@ const productSchema = new Schema<ProductDoc>(
     slug: { type: String, required: true, lowercase: true, trim: true },
     name: { type: String, required: true, trim: true },
     summary: { type: String, required: true },
-    description: String,
+    // Mixed, because the tree's shape is defined by Zod rather than by
+    // Mongoose. A Mongoose sub-schema here would be a second, weaker copy of
+    // `richTextDocumentSchema` that could drift from it.
+    description: { type: Schema.Types.Mixed, default: undefined },
+    descriptionText: String,
     status: {
       type: String,
       enum: PRODUCT_STATUSES,
@@ -308,17 +420,44 @@ productSchema.index({ slugHistory: 1 });
 productSchema.index({ status: 1, facets: 1 });
 productSchema.index({ status: 1, isFeatured: -1, publishedAt: -1 });
 productSchema.index({ status: 1, orderCount: -1 });
+// The admin product list's default sort. The storefront indexes above are
+// ordered for browsing, not for "what did we touch most recently".
+productSchema.index({ status: 1, updatedAt: -1 });
 // Single-field multikey indexes for admin views that filter by one taxonomy.
 productSchema.index({ categoryIds: 1 });
 productSchema.index({ industryIds: 1 });
 productSchema.index({ technologyIds: 1 });
 // §74 keyword search. Atlas Search replaces this later without a data migration.
+//
+// `descriptionText`, not `description`: the description is a node tree, and a
+// text index over an object contributes nothing — search would quietly stop
+// matching on body copy. Changing the keys renames nothing, so `db:indexes`
+// (syncIndexes) has to run for this to take effect on an existing database.
 productSchema.index(
-  { name: "text", summary: "text", description: "text" },
-  { weights: { name: 10, summary: 5, description: 1 }, name: "product_text" },
+  { name: "text", summary: "text", descriptionText: "text" },
+  { weights: { name: 10, summary: 5, descriptionText: 1 }, name: "product_text" },
 );
 
 export const Product = defineModel<ProductDoc>("Product", productSchema);
+
+/**
+ * The `$set` for a description — both fields, or neither.
+ *
+ * The two fields have to move together: a tree without its plain-text twin is
+ * invisible to search, and a stale twin makes search return a product for words
+ * that were deleted from it. Every writer goes through here so that pairing is
+ * one function rather than a rule in a comment.
+ *
+ * An empty document clears both, so "I deleted all the copy" and "there was
+ * never any copy" store identically — which is what `no_description` readiness
+ * already assumes.
+ */
+export function descriptionFields(
+  doc: RichTextDocument | null | undefined,
+): Pick<ProductDoc, "description" | "descriptionText"> {
+  if (isEmptyDocument(doc)) return { description: undefined, descriptionText: undefined };
+  return { description: doc as RichTextDocument, descriptionText: plainText(doc) };
+}
 
 export const FACET_PREFIX = {
   category: "cat",
@@ -349,19 +488,88 @@ export function buildProductFacets(input: {
   return [...new Set(facets)].sort();
 }
 
-/** Turn marketplace query params into a `$all` facet filter (ticket 08). */
-export function facetFilter(query: {
-  category?: string[];
-  industry?: string[];
-  technology?: string[];
-  productType?: string;
-}): string[] {
+/**
+ * The facet terms a query selects, flattened — e.g. `["cat:crm","ind:property"]`.
+ *
+ * This is the *terms*, not the Mongo filter. Use `facetMatch()` to build the
+ * filter; see the note there about why `$all` is almost never what you want.
+ */
+export function facetFilter(query: FacetQuery): string[] {
   return buildProductFacets({
     categorySlugs: query.category,
     industrySlugs: query.industry,
     technologySlugs: query.technology,
-    productTypeSlug: query.productType,
+    productTypeSlug: Array.isArray(query.productType)
+      ? query.productType[0]
+      : query.productType,
   });
+}
+
+export interface FacetQuery {
+  category?: string[];
+  industry?: string[];
+  technology?: string[];
+  productType?: string | string[];
+}
+
+/**
+ * Build the Mongo filter for a faceted query: **OR within a dimension, AND
+ * across dimensions**.
+ *
+ * ## Why not `$all`
+ *
+ * The obvious filter is `{ facets: { $all: facetFilter(query) } }`, and it is
+ * wrong in a way that returns no error and no results. `$all` means *every*
+ * term must be present, so selecting two categories asks for a product filed
+ * under **both** — which essentially never exists:
+ *
+ * ```
+ * $all ["cat:crm","cat:property"] → 0 documents
+ * $in  ["cat:crm","cat:property"] → 2 documents
+ * ```
+ *
+ * What a filter rail means by two ticked categories is "either". Across
+ * dimensions the meaning flips: category CRM *and* technology Laravel. Hence
+ * an `$and` of per-dimension `$in`s.
+ *
+ * ## It still uses the index
+ *
+ * The first `$in` supplies the bounds on `status_1_facets_1` and the rest apply
+ * as a residual filter after the fetch — verified with `explain()`: `IXSCAN`,
+ * two keys examined, two documents examined for the two-dimension case. So the
+ * correct semantics cost nothing.
+ *
+ * Returns `null` when nothing is selected, so a caller can spread it without a
+ * branch: `{ status: "published", ...(facetMatch(q) ?? {}) }`.
+ */
+export function facetMatch(query: FacetQuery): { $and: FacetDimensionFilter[] } | null {
+  const dimensions: FacetDimensionFilter[] = [];
+
+  const add = (prefix: string, slugs: readonly string[] | undefined) => {
+    const terms = [...new Set((slugs ?? []).filter(Boolean))].map((s) => `${prefix}:${s}`);
+    if (terms.length > 0) dimensions.push({ facets: { $in: terms } });
+  };
+
+  add(FACET_PREFIX.category, query.category);
+  add(FACET_PREFIX.industry, query.industry);
+  add(FACET_PREFIX.technology, query.technology);
+  add(
+    FACET_PREFIX.productType,
+    typeof query.productType === "string" ? [query.productType] : query.productType,
+  );
+
+  return dimensions.length > 0 ? { $and: dimensions } : null;
+}
+
+export interface FacetDimensionFilter {
+  facets: { $in: string[] };
+}
+
+/** Split `"cat:crm"` back into its dimension and slug — for rendering chips. */
+export function parseFacet(facet: string): { prefix: string; slug: string } | null {
+  const index = facet.indexOf(":");
+  if (index <= 0) return null;
+  return { prefix: facet.slice(0, index), slug: facet.slice(index + 1) };
 }
 
 /* ────────────────────────────────────────────── ProductVersion */
@@ -371,11 +579,34 @@ export interface ProductVersionDoc {
   productId: Types.ObjectId;
   version: string;
   releaseDate?: Date;
-  releaseNotes?: string;
+  /**
+   * The customer-facing "what's new", as a node tree — same reasoning as
+   * `ProductDoc.description`. Unlike the description it needs no plain-text
+   * twin: nothing text-indexes a version.
+   */
+  releaseNotes?: RichTextDocument;
+  /** One line for the version list. Plain text, because that is all it is. */
   changelog?: string;
   minimumRequirements?: string;
   status: ProductVersionStatus;
   releasedAt?: Date;
+  /**
+   * §45 — which existing entitlements get this version without paying again.
+   *
+   * Ticket 07 requires this and says the rule is "declared here, enforced in
+   * ticket 14" — but enforcement needs a field to read, and ticket 02 never
+   * added one. Declared now so the rule can actually be recorded at release
+   * time rather than reconstructed later from release notes.
+   *
+   * - `includesPriorMajor` — a 2.x buyer gets 3.0 free.
+   * - `freeFromVersion` — the oldest version whose owners get this free.
+   * - `note` — the human sentence shown on the download page.
+   */
+  updateEligibility?: {
+    includesPriorMajor: boolean;
+    freeFromVersion?: string;
+    note?: string;
+  };
 }
 
 const productVersionSchema = new Schema<ProductVersionDoc>(
@@ -383,13 +614,18 @@ const productVersionSchema = new Schema<ProductVersionDoc>(
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true, index: true },
     version: { type: String, required: true, trim: true },
     releaseDate: Date,
-    releaseNotes: String,
+    releaseNotes: { type: Schema.Types.Mixed, default: undefined },
     changelog: String,
     minimumRequirements: String,
     status: { type: String, enum: PRODUCT_VERSION_STATUSES, default: "draft" },
     // The entitlement update window is measured against this, so it is set
     // once on release and never edited (ticket 14).
     releasedAt: Date,
+    updateEligibility: {
+      includesPriorMajor: { type: Boolean, default: false },
+      freeFromVersion: String,
+      note: String,
+    },
   },
   schemaOptions({ collection: "productVersions" }),
 );
@@ -441,7 +677,96 @@ const productFileSchema = new Schema<ProductFileDoc>(
 );
 
 productFileSchema.index({ storageKey: 1 }, { unique: true });
+// Publish readiness asks "does this version have an application package?" for
+// a page of products at once; without this it is a collection scan per row.
+productFileSchema.index({ versionId: 1, kind: 1 });
 
 export const ProductFile = defineModel<ProductFileDoc>("ProductFile", productFileSchema);
 
 export type { LicenceType };
+
+/* ────────────────────────────────────────────── SavedProduct */
+
+/**
+ * A bookmark — §6's "Save for Later".
+ *
+ * ## Keyed on the **user**, not the organisation
+ *
+ * Everything else transactional in this platform is org-scoped, so this is a
+ * deliberate exception and worth stating. A bookmark is a personal note about
+ * something you might want; it is not a purchase, an entitlement or anything
+ * anyone else in the organisation has a claim on. Org-scoping it would mean
+ * your saved list changes when you switch organisations — and that your
+ * colleagues can see what you have been considering.
+ *
+ * The unique index is what makes "save" idempotent: clicking twice is one row,
+ * without a read-then-write race in between.
+ */
+export interface SavedProductDoc {
+  _id: Types.ObjectId;
+  userId: Types.ObjectId;
+  productId: Types.ObjectId;
+}
+
+const savedProductSchema = new Schema<SavedProductDoc>(
+  {
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
+  },
+  schemaOptions({ collection: "savedProducts" }),
+);
+
+savedProductSchema.index({ userId: 1, productId: 1 }, { unique: true });
+// The list read: one user's saves, newest first.
+savedProductSchema.index({ userId: 1, createdAt: -1 });
+
+export const SavedProduct = defineModel<SavedProductDoc>("SavedProduct", savedProductSchema);
+
+/* ────────────────────────────────────────────── SearchLog */
+
+/**
+ * Searches that found nothing — §74's "that list is a product-roadmap input".
+ *
+ * ## Only the misses are recorded
+ *
+ * Logging every search would be an analytics pipeline, and this is not one. The
+ * question the business actually has is "what are people asking for that we do
+ * not sell", and a successful search does not answer it. Storing only the
+ * zero-result queries keeps the collection small enough to read by hand, which
+ * is what makes it useful.
+ *
+ * ## No user id
+ *
+ * A search term is a statement of intent and often of circumstance — "redundancy
+ * tracker", "insolvency" — and tying it to a person turns a roadmap input into a
+ * profile. The count is what matters; who typed it is not.
+ *
+ * `expires` gives MongoDB a TTL: 180 days is long enough to see a seasonal
+ * pattern and short enough that this never becomes a data-retention question.
+ */
+export interface SearchLogDoc {
+  _id: Types.ObjectId;
+  /** Normalised — lowercased and collapsed — so counts group properly. */
+  term: string;
+  count: number;
+  lastSeenAt: Date;
+  /** Which filters were active. A miss under three filters is a different fact. */
+  hadFilters: boolean;
+}
+
+const searchLogSchema = new Schema<SearchLogDoc>(
+  {
+    term: { type: String, required: true, trim: true, lowercase: true },
+    count: { type: Number, default: 1 },
+    lastSeenAt: { type: Date, default: Date.now },
+    hadFilters: { type: Boolean, default: false },
+  },
+  schemaOptions({ collection: "searchLogs" }),
+);
+
+// Upserted on, so one row per term rather than one per search.
+searchLogSchema.index({ term: 1 }, { unique: true });
+searchLogSchema.index({ count: -1, lastSeenAt: -1 });
+searchLogSchema.index({ lastSeenAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 180 });
+
+export const SearchLog = defineModel<SearchLogDoc>("SearchLog", searchLogSchema);

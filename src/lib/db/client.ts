@@ -65,6 +65,29 @@ export async function connectToDatabase(): Promise<Mongoose> {
   return cache.promise;
 }
 
+/**
+ * Whether this deployment can run multi-document transactions.
+ *
+ * Only a replica set can. A standalone mongod rejects `startTransaction`
+ * outright, so anything that assumes otherwise fails at runtime rather than at
+ * boot — Better Auth's MongoDB adapter in particular defaults transactions
+ * **on** whenever a `MongoClient` is passed, and every write it makes then
+ * fails against local dev.
+ *
+ * `MONGODB_TRANSACTIONS` overrides the guess. The guess itself is deliberately
+ * pessimistic: assuming "no" costs atomicity guarantees we can detect, while
+ * assuming "yes" wrongly breaks every write.
+ */
+export function supportsTransactions(): boolean {
+  const env = serverEnv();
+  if (env.MONGODB_TRANSACTIONS !== undefined) return env.MONGODB_TRANSACTIONS;
+
+  const uri = env.MONGODB_URI;
+  // mongodb+srv is Atlas (or a seedlist DNS deployment) — always a replica set.
+  if (uri.startsWith("mongodb+srv://")) return true;
+  return /[?&]replicaSet=/i.test(uri);
+}
+
 export async function getConnection(): Promise<Connection> {
   const m = await connectToDatabase();
   return m.connection;

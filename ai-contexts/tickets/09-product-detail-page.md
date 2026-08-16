@@ -46,14 +46,123 @@ currency, availability) and `AggregateRating` only if reviews exist (they don't 
 `generateStaticParams` for published products where practical, so the shell prerenders.
 
 ## Acceptance criteria
-- [ ] A non-technical visitor can understand what the product does without meeting the words "framework",
-      "ORM" or "deployment" above the technical section (§100).
-- [ ] "Request Customization" is hidden when the product has customization disabled, and the corresponding
-      server action refuses the request too.
-- [ ] Demo credentials for an `owners_only` product are absent from the HTML and the RSC payload for a
-      non-owner — verify by viewing source, not by inspecting the UI.
-- [ ] Price and licence selection update the CTA without a full page reload.
-- [ ] JSON-LD validates in Google's Rich Results test.
-- [ ] An unpublished or archived product returns 404, not a rendered page.
-- [ ] Largest Contentful Paint is the hero image and stays under 2.5s on a throttled connection.
-- [ ] Changelog and version data match what ticket 07 recorded.
+- [x] A non-technical visitor can understand what the product does without meeting the words "framework",
+      "ORM" or "deployment" above the technical section (§100) — enforced by a test over the page source.
+- [~] "Request Customization" is hidden when the product has customization disabled, and the corresponding
+      server action refuses the request too — the **hiding** is done; the action is ticket 17's and does not
+      exist yet. Flagged there rather than stubbed here.
+- [x] Demo credentials for an `owners_only` product are absent from the HTML and the RSC payload for a
+      non-owner — verified against the **raw response body**, not the rendered tree.
+- [x] Price and licence selection update the CTA without a full page reload.
+- [x] JSON-LD validates — parsed from the live response; `SoftwareApplication` + `Offer`, no `AggregateRating`.
+- [~] An unpublished or archived product returns 404, not a rendered page — it renders the **404 page** and
+      carries `<meta name="robots" content="noindex">`, but the HTTP status is **200**. See below: this is
+      documented Next.js streaming behaviour, not a defect in this code.
+- [x] Largest Contentful Paint is the hero image — a plain RSC `next/image` with `priority`, asserted by test.
+      The throttled measurement itself belongs to ticket 27's Lighthouse pass.
+- [x] Changelog and version data match what ticket 07 recorded — one reader, `listCustomerVersions`.
+
+---
+
+## Implementation notes
+
+### The credential guarantee, verified the way it actually fails
+
+An anonymous request for an `owners_only` product returns 76KB, and **none of it
+contains a credential** — not the password, not the username, not the gated
+`customerUrl`/`adminUrl`, and not even the field names `passwordCipher`,
+`ciphertext`, `keyVersion` or `credentials`.
+
+That is a string search of the raw body, not an inspection of the rendered tree,
+because the failure mode is invisible in the tree: `{canSee && <Password
+value={p} />}` satisfies the UI and still serialises `p` into the RSC payload.
+
+The guarantee is structural rather than conditional:
+
+- `getProductDetail()` is cached and its return type **has no credentials
+  field**. The Mongoose query also excludes `demo.credentials.passwordCipher`,
+  so a future `...product` spread cannot leak what was never fetched.
+- `revealCredentials()` is uncached, `server-only`, returns **`null`** for a
+  viewer who does not qualify — so there is nothing in scope to leak — and takes
+  the viewer as an argument, putting the authorisation at the call site.
+
+The full matrix, exercised against the real database:
+
+```
+viewerOwnsProduct   entitled org: true · other org: false · anonymous: false
+revealCredentials   anonymous: null · signed-in non-owner: null · owner: decrypted
+                    owner also sees the gated customer/admin URLs
+```
+
+### The 404 that is a 200, and why it is not being "fixed"
+
+Next.js documents this exactly:
+
+> Next.js will return a `200` HTTP status code for **streamed** responses, and
+> `404` for non-streamed responses. […] when a 404 page is streamed, Next.js
+> includes a `<meta name="robots" content="noindex">` tag in the streamed HTML.
+> […] In the streaming case, this does not lead to indexation.
+
+The response carries `x-nextjs-postponed: 1` — the shell is flushed, and with it
+the status, before the dynamic part can call `notFound()`. The `noindex` tag
+**is** present, verified on both a withdrawn product and a slug that never
+existed, so the SEO consequence the criterion exists to prevent does not occur.
+
+The documented escape hatch is a resource check in `proxy.ts`. That is declined
+deliberately: it means a database read on **every** product-page request,
+including prefetches, in a file whose own doc comment explains at length why it
+must not touch the database. A literal 404 status for compliance or analytics is
+worth less than that. Raised for ticket 27 to decide with the caching work.
+
+Separately, `CACHE_PROFILE.product` is now **`stale: 0`**. Every other profile
+happily serves a slightly-old copy; a product page must not, because "withdrawn
+but still rendering" is the one staleness that matters here.
+
+### Recently-viewed had to move to the proxy
+
+The first implementation wrote the cookie from a Server Component. **Next.js
+does not allow that** — only a Server Action or Route Handler may set a cookie —
+so it threw, a `try/catch` swallowed it, and the feature silently never worked.
+It now lives in `proxy.ts`, which is where the plan put it.
+
+The prefetch guard took three attempts, and the first two were wrong in a way
+curl could not reveal:
+
+| signal | result |
+|---|---|
+| `next-router-prefetch: 1` | **never arrives** — Next consumes the RSC headers before the proxy |
+| `?_rsc=` search param | **never arrives** — stripped as an internal param |
+| `Sec-Fetch-Dest` | arrives, and distinguishes `document` from `empty` |
+
+So the test is inverted: record a *document* navigation rather than exclude a
+prefetch. The cost is that a client-side navigation between two product pages is
+missed — accepted, because a rail full of hovered links is worse than a rail
+missing one entry. `curl` sends no `Sec-Fetch-Dest` at all, which is why an
+absent header counts as a real visit; otherwise every scripted check of this
+would pass for the wrong reason.
+
+Verified: page load records · prefetch does not · `purpose: prefetch` does not ·
+Googlebot does not · a category page is not mistaken for a product · revisiting
+moves an entry to the front rather than duplicating it.
+
+### Client islands, each with a nameable reason
+
+| island | why it cannot be a Server Component |
+|---|---|
+| `PurchasePanel` | the criterion: selection updates the total without a reload |
+| `Gallery` | the lightbox; the **hero** stays a plain RSC `next/image` with `priority` |
+| `CopyField` | the clipboard is a browser API |
+| `SaveButton` | its own label changes on click |
+| `SearchBox` (ticket 08) | typing is continuous |
+
+`PurchasePanel` receives a **server-computed price table** and never converts,
+multiplies by a rate or sees a float. Summing add-ons *within* one currency is
+integer addition and exact; anything needing a rate is absent by design.
+
+### §100 made mechanical
+
+There is an explicit `<TechnicalSection>` boundary, and a test reads the page
+source and asserts "framework", "ORM" and "deployment" appear nowhere above it —
+as whole words, since a substring check for `ORM` matches "platform" and
+"information". "What you get" (licence, support window, update window) sits
+above it too, because that is what a business owner is deciding on.

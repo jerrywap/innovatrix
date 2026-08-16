@@ -1,6 +1,10 @@
 /* eslint-disable @next/next/no-img-element */
 import { PHOTO, u } from "../_lib/img";
 
+// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
+// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
+export const instant = false;
+
 const CREAM = "#FBF8F3";
 const FOREST = "#1C3A30";
 const CLAY = "#C56A45";

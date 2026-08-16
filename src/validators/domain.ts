@@ -273,14 +273,34 @@ export const postMessageSchema = z.object({
 
 /* ────────────────────────────────────────────── listing */
 
+/**
+ * A query-string boolean.
+ *
+ * **Not `z.coerce.boolean()`** — that is `Boolean(input)`, so every non-empty
+ * string is `true` and `?customisable=false` means the opposite of what it
+ * says:
+ *
+ * | input     | `z.coerce.boolean()` | `z.stringbool()` |
+ * |-----------|----------------------|------------------|
+ * | `"false"` | `true`               | `false`          |
+ * | `"0"`     | `true`               | `false`          |
+ *
+ * `z.stringbool()` understands the strings a URL actually carries. Use it
+ * anywhere a boolean arrives as text.
+ */
+export const queryBooleanSchema = z.stringbool();
+
 export const marketplaceQuerySchema = paginationSchema.extend({
   q: optionalText(120),
   category: z.array(slugSchema).default([]),
   industry: z.array(slugSchema).default([]),
   technology: z.array(slugSchema).default([]),
+  /** Single-valued: a product has one type, so "either type" is not a question. */
+  productType: slugSchema.optional(),
+  /** Integer minor units in the active currency — never a major-unit decimal. */
   minPrice: z.coerce.number().int().nonnegative().optional(),
   maxPrice: z.coerce.number().int().nonnegative().optional(),
-  customisable: z.coerce.boolean().optional(),
+  customisable: queryBooleanSchema.optional(),
   sort: z.enum(["relevance", "latest", "popular", "price_asc", "price_desc"]).default("latest"),
 });
 

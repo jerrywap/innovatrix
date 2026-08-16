@@ -67,3 +67,38 @@ Recommended: **enable Cache Components**.
 - [ ] A deliberately thrown server error appears in Sentry with request id and release.
 - [ ] Simulating a stuck payment fires the alert.
 - [ ] No secret or credential appears anywhere in the logs (grep a day of staging logs).
+
+---
+
+## Carried over from ticket 04 — the public surface is dynamic
+
+`(public)/layout.tsx` calls `getSession()` so the header can render "Dashboard"
+rather than "Sign in" on the **first paint**, with no flash and no JavaScript. The
+cost is that `headers()` is read in the layout, so `/`, `/marketplace`, `/pricing`
+and the rest are server-rendered per request instead of prerendered as static:
+
+```
+before ticket 04:  ○ /            (Static)
+after  ticket 04:  ƒ /            (Dynamic)
+```
+
+That is the right default for correctness and the wrong one for the two pages
+that matter most to SEO and to first-visit latency. It was accepted rather than
+worked around, because the alternatives are worse in isolation:
+
+- **A client-side session island** makes the pages static again and reintroduces
+  the flash of the wrong header, plus a request on every page view.
+- **No session in the header** means a signed-in customer is invited to sign in.
+
+The real fix is **partial prerendering** — a static shell with the auth-dependent
+corner of the header as a dynamic hole. In Next.js 16 that means Cache Components
+(`use cache` / `cacheLife` / `cacheTag`), which is an architecture-wide decision
+that belongs here rather than in a shell ticket.
+
+Scope for this ticket:
+- [ ] Evaluate `cacheComponents: true` and PPR for the `(public)` segment.
+- [ ] Wrap the session-dependent header slot in Suspense so the shell prerenders.
+- [ ] Confirm `/` and `/marketplace` return to static (or PPR) in the build output.
+- [ ] Measure first-visit latency before and after — the point is the number, not
+      the badge in the route table.
+

@@ -21,7 +21,10 @@ without a row here should fail review.
 |---|---|---|---|---|
 | `*.organizationId` | `organizations` | yes | `restrict` | `OrgScopedRepository` + `requireOrg` (DAL) |
 | `organizationMembers.userId` | `users` | yes | `cascade` | `OrganizationService.removeMember` |
+| `products.categoryIds[]` / `industryIds[]` / `technologyIds[]` / `productTypeId` | `taxonomies` | no | `restrict` — refuse while any product references it | `TaxonomyService.remove` |
+| `products.facets[]` | *derived from* `taxonomies.slug` | — | re-derive on rename | `TaxonomyService.update` / `ProductService.saveClassification` |
 | `products.currentVersionId` | `productVersions` | no | `null` | `ProductService.releaseVersion` |
+| `productFiles.productId` | `products` | yes | `cascade` (+ delete the objects) | `ProductFileService` |
 | `productVersions.productId` | `products` | yes | `restrict` while published | `ProductService.archive` |
 | `productFiles.versionId` | `productVersions` | yes | `cascade` (+ delete the object) | `ProductFileService` |
 | `carts.items[].productId` | `products` | yes | `retain` (re-validated on read) | `CartService.recalculate` |
@@ -55,3 +58,33 @@ without a row here should fail review.
    caller's transaction (`counterStore(session)`), or a rollback leaves a hole.
 6. **Internal messages never reach a customer payload.** Filtered in the
    repository query, not in the component (§37, ticket 21).
+
+---
+
+## Taxonomy references and the derived `facets` array
+
+Two rows above deserve more than a table cell, because both fail *silently*.
+
+**`taxonomies` has no `deletedAt`.** Unlike products, `BaseRepository.deleteById`
+therefore **hard-deletes** a taxonomy. Deleting one still referenced leaves every
+product carrying a dangling id and a stale facet string, and nothing anywhere
+errors — the marketplace simply stops matching a filter that used to work. Hence
+`restrict`: `TaxonomyService.remove` counts referencing products first and
+refuses with the count. Setting `isActive: false` is the normal path; delete is
+for typos.
+
+**`products.facets` stores slugs, not ids.** That is what lets
+`?category=crm&industry=property` filter without resolving ids first — the whole
+reason the array exists (see `ERD.md` on `CannotIndexParallelArrays`). The cost
+is that renaming a taxonomy's slug invalidates the derived value on every
+referencing product, so `TaxonomyService.update` re-derives them in bulk.
+
+Do **not** take the shortcut of `updateMany({ facets: "cat:old" }, { $set: {
+"facets.$": "cat:new" } })`. It is one query, and it makes a second writer of a
+derived field — breaking the sorted/deduped invariant `buildProductFacets()`
+establishes, which is exactly the drift `ERD.md` warns about. `deriveFacets()`
+stays the only writer.
+
+A rename also breaks bookmarked filter URLs. Accepted for MVP: ticket 08 treats
+an unknown facet slug as "no results" rather than an error. If that becomes a
+problem, `Taxonomy` gains a `slugHistory` mirroring `Product`'s.
