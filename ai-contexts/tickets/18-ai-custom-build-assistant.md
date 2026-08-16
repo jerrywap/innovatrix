@@ -55,14 +55,40 @@ conversation, record recommended-products-shown and the customer's choice, emit 
 the dashboard request page (§25).
 
 ## Acceptance criteria
-- [ ] Given "I want a platform for managing a care agency", the assistant asks about the business and proposes
+- [x] Given "I want a platform for managing a care agency", the assistant asks about the business and proposes
       the §23-style feature checklist rather than asking about technology.
-- [ ] Rejected suggestions do not appear as requirements in the brief.
-- [ ] A requirement set matching a seeded marketplace product triggers the §24 recommendation.
-- [ ] Choosing "Continue With Custom Build" proceeds with no friction, nagging, or repeated prompting.
-- [ ] Choosing an existing product carries the gathered requirements into the customization flow — nothing is
-      re-asked.
-- [ ] The brief contains no technical jargon the customer didn't introduce.
-- [ ] A submitted request appears on the dashboard with its reference and in the staff queue.
-- [ ] The assistant declines to estimate cost or duration, explaining a quote will follow review (§73).
-- [ ] Shown recommendations and the customer's choice are recorded on the request.
+- [x] Rejected suggestions do not appear as requirements in the brief.
+- [ ] A requirement set matching a seeded product triggers the §24 recommendation — **built, not exercised live** (needs two customer turns against seeded catalogue).
+- [x] Choosing "Continue With Custom Build" proceeds with no friction, nagging, or repeated prompting.
+- [ ] Choosing an existing product carries the gathered requirements into the customization flow — **the link and the recorded choice work; the requirements are not yet forwarded into the new conversation**.
+- [x] The brief contains no technical jargon the customer didn't introduce.
+- [ ] A submitted request appears on the dashboard and in the staff queue — **blocked live by the standalone MongoDB**, covered by integration tests.
+- [x] The assistant declines to estimate cost or duration, explaining a quote will follow review (§73).
+- [x] Shown recommendations and the customer's choice are recorded on the request.
+
+## Implementation notes
+
+### §23 needed a prompt fix that only live output revealed
+
+The summariser initially **dropped** declined and deferred items rather than
+recording them. §23 says unaccepted items are *recorded* as suggestions — "not
+sure, leave that for now" tells a reviewer what the customer is thinking about
+next, and dropping it loses that. The prompt now asks for them explicitly, and
+three separate live runs confirmed: declined items appear as `suggested` and
+never as `confirmed`.
+
+### §24 reuses ticket 08's search rather than a second matcher
+
+A separate relevance implementation would drift, so a product could be
+recommended here and unfindable in the marketplace. Terms come from the
+**customer's** messages only — the assistant's turns are full of our vocabulary
+and searching on those matches half the catalogue.
+
+Offered once, after two customer turns, and never again once they have chosen.
+Both buttons are the same size; dismissing costs one click. §24 forbids forcing
+the marketplace option, and the temptation is real because that sale is cheaper
+for us.
+
+### Not verified live
+
+Same transaction blocker as ticket 17.

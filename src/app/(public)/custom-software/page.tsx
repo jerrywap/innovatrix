@@ -1,31 +1,144 @@
 import type { Metadata } from "next";
-import { Wrench } from "lucide-react";
-import { EmptyState } from "@/components/empty-state";
+import { ClipboardList, MessagesSquare, Receipt } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { getSession } from "@/lib/auth/dal";
+import { Assistant } from "@/features/requirements/components/assistant";
+import { Recommendations } from "@/features/requirements/components/recommendations";
+import { aiConfigured } from "@/services/ai/client";
+import { readAnonymousKey, startOrResume } from "@/services/ai/conversation-service";
+import { recommendProducts } from "@/services/ai/recommend";
+import { resolveAiConfig } from "@/services/ai/settings";
+import { pageMetadata } from "@/lib/seo";
 
-// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
-// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
-export const instant = false;
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Build custom software",
-  description: "Describe what you need. We scope it, quote it, and build it.",
-};
+  description:
+    "Describe the problem in your own words. We'll work out what software solves it, scope it, and send you a quote.",
+  path: "/custom-software",
+});
 
-export default function Page() {
+/**
+ * "I have a problem, not a specification" — ticket 18, §21–25.
+ *
+ * ## Business first, technology never
+ *
+ * §22's rule is *understand the problem, not the technology*, and §100 bans our
+ * vocabulary from the customer's side of the conversation. Both live in the
+ * system prompt; what this page contributes is the framing — no field labelled
+ * "tech stack", no dropdown of platforms.
+ *
+ * ## §24 runs from the transcript, not from a separate questionnaire
+ *
+ * Once the customer has said enough, the marketplace is searched with their own
+ * words. If we already sell something close, it is offered — beside an equally
+ * prominent "continue with a custom build", because §24 forbids forcing it.
+ */
+export default async function Page() {
+  const session = await getSession();
+  // Read-only. `proxy.ts` mints this before the page runs — a Server
+  // Component cannot set a cookie, and the first version of this tried to.
+  const anonymousKey = session?.user.id ? undefined : await readAnonymousKey();
+
+  const conversation = await startOrResume({
+    contextType: "custom_build",
+    ...(session?.user.id ? { userId: session.user.id } : {}),
+    ...(session?.activeOrganizationId ? { organizationId: session.activeOrganizationId } : {}),
+    ...(anonymousKey ? { anonymousKey } : {}),
+  });
+
+  const config = await resolveAiConfig();
+  const available = aiConfigured() && config.enabled;
+
+  /*
+   * Only once they have said something substantial, and only once. Searching
+   * after the first "hello" recommends noise, and re-offering after they have
+   * chosen is the nagging §24 explicitly rules out.
+   */
+  const shouldRecommend =
+    !conversation.recommendationChoice &&
+    conversation.messages.filter((message) => message.role === "user").length >= 2;
+
+  const recommendations = shouldRecommend ? await recommendProducts(conversation.messages) : [];
+
   return (
-    <div className="mx-auto w-full max-w-[1180px] px-5 py-12 lg:px-10 lg:py-16">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-10">
       <PageHeader
         title="Build custom software"
-        description="Describe what you need. We scope it, quote it, and build it."
+        description="Tell us what you're trying to do — in your words, not ours. We'll work out what it needs to be."
       />
-      <div className="mt-8">
-        <EmptyState
-          icon={Wrench}
-          title="The guided brief is on its way"
-          description="This is where the AI assistant takes you through what you need and turns it into a request we can quote."
-        />
-      </div>
+
+      {conversation.messages.length === 0 && (
+        <ol className="grid gap-3 sm:grid-cols-3">
+          <Step icon={MessagesSquare} n="1" title="You describe the problem">
+            A few questions, one at a time. No forms and no jargon.
+          </Step>
+          <Step icon={ClipboardList} n="2" title="You check the summary">
+            Everything we understood, in a document you can edit before sending.
+          </Step>
+          <Step icon={Receipt} n="3" title="We scope and quote it">
+            A person reviews it and sends a written quote. No prices before that.
+          </Step>
+        </ol>
+      )}
+
+      {!available && (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-[13px]">
+          Our assistant is unavailable at the moment. Write out what you need below and
+          we&rsquo;ll pick it up from there — it reaches the same people either way.
+        </p>
+      )}
+
+      {recommendations.length > 0 && (
+        <Recommendations conversationId={String(conversation._id)} products={recommendations} />
+      )}
+
+      <Assistant
+        conversationId={String(conversation._id)}
+        initialMessages={conversation.messages
+          .filter((message) => message.role !== "system")
+          .map((message) => ({
+            role: message.role as "user" | "assistant",
+            content: message.content,
+          }))}
+        signedIn={Boolean(session?.user.id)}
+        signInHref={`/login?next=${encodeURIComponent("/custom-software")}`}
+        startOverHref="/custom-software"
+        suggestions={
+          conversation.messages.length === 0
+            ? [
+                "I need to manage staff and shifts",
+                "I need to take bookings",
+                "I need to keep track of clients",
+                "Something else",
+              ]
+            : undefined
+        }
+      />
     </div>
+  );
+}
+
+function Step({
+  icon: Icon,
+  n,
+  title,
+  children,
+}: {
+  icon: typeof MessagesSquare;
+  n: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <li className="border-border bg-surface flex flex-col gap-2 rounded-xl border p-4">
+      <span className="bg-surface-muted text-muted-foreground grid size-8 place-items-center rounded-lg">
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <p className="text-[14px] font-medium">
+        <span className="text-subtle font-mono text-[11px]">{n}. </span>
+        {title}
+      </p>
+      <p className="text-muted-foreground text-[12.5px]">{children}</p>
+    </li>
   );
 }

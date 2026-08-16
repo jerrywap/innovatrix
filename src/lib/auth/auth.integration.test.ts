@@ -3,9 +3,8 @@ import { APIError } from "better-auth/api";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { organization } from "better-auth/plugins/organization";
 import { MongoClient, ObjectId, type Db } from "mongodb";
-import { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, inject } from "vitest";
 import { organizationAc, organizationRoles } from "./organization-access";
 
 /**
@@ -27,7 +26,6 @@ import { organizationAc, organizationRoles } from "./organization-access";
  * Better Auth uses in production is the path under test.
  */
 
-let replSet: MongoMemoryReplSet;
 let client: MongoClient;
 let db: Db;
 let auth: ReturnType<typeof buildTestAuth>;
@@ -118,11 +116,6 @@ function buildTestAuth(database: Db, mongoClient: MongoClient) {
 }
 
 beforeAll(async () => {
-  replSet = await MongoMemoryReplSet.create({
-    replSet: { count: 1, storageEngine: "wiredTiger" },
-    instanceOpts: [{ launchTimeout: 120_000 }],
-  });
-
   const uri = replSet.getUri();
   client = new MongoClient(uri);
   await client.connect();
@@ -142,7 +135,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await mongoose.disconnect();
   await client?.close();
-  await replSet?.stop();
 });
 
 /* ────────────────────────────────────────────── helpers */

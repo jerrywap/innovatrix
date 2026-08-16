@@ -184,12 +184,50 @@ export const requireOrg = cache(async (): Promise<OrgContext> => {
 });
 
 /**
+ * `requireOrg`, but for a **route handler**.
+ *
+ * `requireOrg` redirects to `/login` and throws `ForbiddenError`, which are the
+ * right behaviours in a page and the wrong ones in an API route: a redirect to
+ * an HTML login page is not a useful answer to `fetch`, and a thrown error
+ * becomes a 500 with a redacted digest rather than the 401 or 403 the caller
+ * can act on.
+ *
+ * Same checks, same re-read of the membership — only the failure shape differs.
+ *
+ * ⚠️ It swallows the `NEXT_REDIRECT` that `redirect()` throws, which is exactly
+ * what a route handler wants and exactly wrong in a **page** — there, the
+ * redirect would silently become a `null` and the page would render as though
+ * the visitor were merely org-less. Pages call `requireOrg`.
+ */
+export const requireOrgOrNull = cache(async (): Promise<OrgContext | null> => {
+  try {
+    return await requireOrg();
+  } catch {
+    return null;
+  }
+});
+
+/**
  * Check a **client-supplied** organization id against the session.
  *
  * Note what this does not do: it does not return the id for use as scope. If a
  * caller wants scope, it calls `requireOrg()` and uses what the session says.
  * This is only for the case where a request carries an organization id that
  * must be proven to belong to the caller — a webhook return URL, a deep link.
+ *
+ * ## It has no callers, and that is the point
+ *
+ * Ticket 26's audit asked "is an `organizationId` ever accepted from client
+ * input for scoping?" The answer is no — every scoped read takes it from
+ * `requireOrg()` — so the function that would validate one has nothing to
+ * validate.
+ *
+ * Kept rather than deleted, because the alternative to having it is that the
+ * first person who *does* need to accept an org id writes the membership check
+ * inline, or forgets to. `action-guards.test.ts` asserts that no action schema
+ * declares an `organizationId` field, so this staying unused is enforced rather
+ * than merely true today. It is exercised by `tenant-isolation.integration.test.ts`
+ * so it is not also untested.
  */
 export async function assertOrgAccess(claimedOrganizationId: string): Promise<void> {
   const session = await getSession();
@@ -406,6 +444,23 @@ export async function requirePermissionOrForbid(permission: Permission): Promise
   const staff = await requireStaffOrRedirect();
   if (!staff.permissions.has(permission)) forbidden();
   return staff;
+}
+
+/**
+ * For a **customer** page gated on the organisation role — §89.
+ *
+ * The staff guards above are about permissions; this is the customer-side
+ * equivalent, and it exists for the same reason: `NAV`'s `organizationRoles`
+ * decides what is *drawn*, and a filtered nav item without a matching check on
+ * the page is a link somebody can still type. Billing screens are the case that
+ * makes it matter — a technical contact has no business reading invoices.
+ */
+export async function requireOrgRoleOrForbid(
+  roles: readonly OrganizationRole[],
+): Promise<OrgContext> {
+  const context = await requireOrg();
+  if (!roles.includes(context.role)) forbidden();
+  return context;
 }
 
 /** For a page, where several permissions each open the screen. */

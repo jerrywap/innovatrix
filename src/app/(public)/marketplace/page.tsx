@@ -4,13 +4,14 @@ import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchBox } from "@/features/marketplace/components/search-box";
 import { MarketplaceResults } from "@/features/marketplace/results-section";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Marketplace",
   description:
     "Ready-made software you can buy, adapt and install — CRMs, portals, booking systems and more, with the source included.",
-  alternates: { canonical: "/marketplace" },
-};
+  path: "/marketplace",
+});
 
 /**
  * The marketplace — §6, §74, §93, §94.

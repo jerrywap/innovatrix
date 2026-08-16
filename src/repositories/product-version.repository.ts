@@ -24,6 +24,23 @@ export class ProductVersionRepository extends BaseRepository<ProductVersionDoc> 
       .lean<ProductVersionDoc[]>();
   }
 
+  /**
+   * Versions for several products, in one query.
+   *
+   * My Software needs every product's version list to decide which rows show
+   * "Update available". Asking per row is the N+1 that turns a fifty-item page
+   * into fifty round trips — and the 1.5s first-paint criterion into a miss.
+   */
+  async listForProducts(productIds: readonly string[]): Promise<ProductVersionDoc[]> {
+    if (productIds.length === 0) return [];
+
+    return this.model
+      .find({ productId: { $in: productIds.map((id) => toObjectId(id)) } })
+      .sort({ releasedAt: -1, createdAt: -1 })
+      .limit(1000)
+      .lean<ProductVersionDoc[]>();
+  }
+
   /** The unique index is `{productId, version}`, so this is an exact lookup. */
   async findByVersionString(productId: string, version: string) {
     return this.findOne({ productId: toObjectId(productId), version });

@@ -1,4 +1,5 @@
 import { AccountMenu } from "@/components/shell/account-menu";
+import { NotificationBell } from "@/components/shell/notification-bell";
 import { AppShell } from "@/components/shell/app-shell";
 import { requireStaffOrRedirect } from "@/lib/auth/dal";
 import { staffNavFor } from "@/lib/navigation";
@@ -33,6 +34,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           <span className="text-subtle hidden text-[12px] capitalize sm:block">
             {roles.map((role) => role.replace(/_/g, " ")).join(" · ")}
           </span>
+          <NotificationBell userId={user.id} href="/staff/notifications" />
           <AccountMenu name={user.name} email={user.email} isStaff />
         </>
       }

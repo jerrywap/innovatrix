@@ -1,10 +1,28 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { SHOT, placeholder } from "@/lib/placeholder-images";
+import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 
-// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
-// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
-export const instant = false;
+/**
+ * The home page had **no metadata of its own** before ticket 27.
+ *
+ * It inherited the root layout's defaults, which is not nothing — but it meant
+ * no canonical, no Open Graph and no Twitter card on the single most-linked URL
+ * on the site. A shared link rendered as a bare hostname.
+ *
+ * The title is written out rather than left to the `%s · Innovatrix` template,
+ * because on the home page that template would produce "Innovatrix · Innovatrix".
+ */
+export const metadata: Metadata = {
+  ...pageMetadata({
+    title: "Innovatrix",
+    description:
+      "Buy software that already exists, have it adapted to how you work, or commission it outright — then have it installed, supported and maintained.",
+    path: "/",
+  }),
+  title: { absolute: "Innovatrix — Find, customise, build and run your software" },
+};
 
 /* ────────────────────────────────────────────────────────── data */
 

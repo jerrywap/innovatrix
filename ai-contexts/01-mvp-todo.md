@@ -22,7 +22,7 @@ repositories, Mongoose models, jobs, webhooks, real business logic.
 | Auth | **Better Auth** (MongoDB adapter, organization plugin) | Maps directly onto §76 organizations and §77 staff roles. |
 | Payments | **Provider abstraction: Paystack + Stripe + PayPal**, selectable per-currency in admin | §62. Webhook is the source of truth (§13, §103). |
 | Object storage | **S3-compatible** (Cloudflare R2 or AWS S3), signed URLs only | §44, §66, §85. |
-| AI | **OpenRouter** (OpenAI-compatible gateway) via the `openai` SDK, model `anthropic/claude-opus-4.1` | §71–73. One gateway, swappable models, one bill. AI is a layer, never the source of truth (§104). |
+| AI | **OpenRouter** via the `openai` SDK; model chosen in `/admin/settings/ai`, default `google/gemini-3.7-flash` | §71–73, §104. One gateway, one bill, model swappable without a deploy. `claude-opus-4.1` was the original default and cannot do structured output. |
 | Money | **Integer minor units + ISO-4217 currency code**, BSON `Int32`/`Int64` — never `Double` | §84. |
 | UI | Tailwind v4 + shadcn/ui, RSC-first | §81. |
 
@@ -154,16 +154,17 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 | 5.6 | Recently viewed (cookie) + saved/favourites (account) | [~] | [x] | 08 |
 | 5.7 | Product detail page — full §8 layout, gallery, features, requirements, changelog | [x] | [x] | 09 |
 | 5.8 | Demo panel — public/customer/admin demo URLs + credentials per exposure rules (§9) | [x] | [x] | 09 |
-| 5.9 | Primary CTAs: Buy As-Is · Request Customization · Try Demo · Save for Later | [~] | [~] | 09 |
+| 5.9 | Primary CTAs: Buy As-Is · Request Customization · Try Demo · Save for Later | [x] | [~] | 09 |
 | 5.10 | Related products | [x] | [x] | 09 |
 
 > **5.6** — complete. Saved/favourites at `/dashboard/saved`, keyed on the user rather than the
 > organisation. Recently-viewed is written in `proxy.ts` (a Server Component may not set a cookie)
 > with a `Sec-Fetch-Dest` guard so a prefetch is not mistaken for a visit.
 >
-> **5.9** — three of the four CTAs are live. **Buy As-Is** is rendered but disabled: the cart is
-> ticket 10. **Request Customization** is drawn and correctly hidden when customization is off; the
-> action behind it is ticket 17's.
+> **5.9** — all four CTAs are drawn. **Buy As-Is** is live end to end (ticket 10). **Try Demo**
+> appears only when a demo exists, and goes to the external URL or to `#demo` depending on what is
+> configured. **Request Customization** is drawn and correctly hidden when customization is off; the
+> action behind it is ticket 17's, which is the remaining `[~]`.
 
 ---
 
@@ -171,13 +172,13 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 6.1 | Cart model (guest cookie cart + user cart, merge on login), single currency per cart | [ ] | [ ] | 10 |
-| 6.2 | Add/remove/update, licence-package selection, service add-ons (§11, §12) | [ ] | [ ] | 10 |
-| 6.3 | Discount codes, tax lines, totals computed **server-side only** | [ ] | [ ] | 10 |
-| 6.4 | Checkout flow: account → billing → review → pay → confirm (§13) | [ ] | [ ] | 11 |
-| 6.5 | Order creation with **frozen price snapshot** per line (§61) | [ ] | [ ] | 11 |
-| 6.6 | Order states: Pending → AwaitingPayment → Paid → Fulfilled → Cancelled/Refunded | [ ] | [ ] | 11 |
-| 6.7 | Order confirmation page + emailed receipt | [ ] | [ ] | 11 |
+| 6.1 | Cart model (guest cookie cart + user cart, merge on login), single currency per cart | [x] | [x] | 10 |
+| 6.2 | Add/remove/update, licence-package selection, service add-ons (§11, §12) | [x] | [x] | 10 |
+| 6.3 | Discount codes, tax lines, totals computed **server-side only** | [x] | [x] | 10 |
+| 6.4 | Checkout flow: account → billing → review → pay → confirm (§13) | [~] | [x] | 11 |
+| 6.5 | Order creation with **frozen price snapshot** per line (§61) | [x] | [x] | 11 |
+| 6.6 | Order states: Pending → AwaitingPayment → Paid → Fulfilled → Cancelled/Refunded | [x] | [x] | 11 |
+| 6.7 | Order confirmation page + emailed receipt | [x] | [~] | 11 |
 
 ---
 
@@ -185,15 +186,29 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 7.1 | `PaymentProvider` interface — initiate, verify, webhook-parse, refund | — | [ ] | 12 |
-| 7.2 | **Stripe** driver (Checkout Session + webhook) | [ ] | [ ] | 12 |
-| 7.3 | **Paystack** driver (initialize transaction + webhook) | [ ] | [ ] | 12 |
-| 7.4 | **PayPal** driver (Orders v2 + webhook) | [ ] | [ ] | 12 |
-| 7.5 | **Admin payment settings** — enable/disable providers, keys, per-currency routing, test mode | [ ] | [ ] | 12 |
-| 7.6 | Webhook endpoints with **signature verification + idempotency + raw-body handling** (§87) | — | [ ] | 13 |
-| 7.7 | Payment records, state machine, reconciliation against provider | — | [ ] | 13 |
-| 7.8 | **Fulfilment on verified payment only** — never trust the browser redirect (§13) | — | [ ] | 13 |
-| 7.9 | Manual/offline payment recording (bank transfer) for staff | [ ] | [ ] | 13 |
+| 7.1 | `PaymentProvider` interface — initiate, verify, webhook-parse, refund | — | [x] | 12 |
+| 7.2 | **Stripe** driver (Checkout Session + webhook) | [x] | [x] | 12 |
+| 7.3 | **Paystack** driver (initialize transaction + webhook) | [x] | [x] | 12 |
+| 7.4 | **PayPal** driver (Orders v2 + webhook) | [x] | [x] | 12 |
+| 7.5 | **Admin payment settings** — enable/disable providers, keys, per-currency routing, test mode | [x] | [x] | 12 |
+| 7.6 | Webhook endpoints with **signature verification + idempotency + raw-body handling** (§87) | — | [x] | 13 |
+| 7.7 | Payment records, state machine, reconciliation against provider | — | [x] | 13 |
+| 7.8 | **Fulfilment on verified payment only** — never trust the browser redirect (§13) | — | [x] | 13 |
+| 7.9 | Manual/offline payment recording (bank transfer) for staff | [~] | [x] | 13 |
+
+> **6.4** — one page rather than a wizard, and a signed-out visitor is redirected to
+> `/login?next=/checkout`. Guests creating an account *inline* is a real §13 requirement and is not
+> built; flagged rather than half-done.
+>
+> **6.7** — the confirmation page is complete and distinguishes a confirmed payment from one still
+> awaiting the webhook. The **emailed** receipt is ticket 24's.
+>
+> **7.1–7.5** — no provider is verified against a live account: there are no credentials yet.
+> Signature verification is tested with generated HMACs for all three; the drivers' HTTP is stubbed.
+> Env placeholders are in `.env.example`.
+>
+> **7.9** — the action and the fulfilment path are complete and permission-gated
+> (`payment.record_manual`); the staff *form* for it hangs off ticket 20's Customer 360.
 
 ---
 
@@ -201,11 +216,11 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 8.1 | Order → OrderItem → Entitlement chain on payment (§64) | — | [ ] | 14 |
-| 8.2 | Licence issuance: key generation, type, activation limit, expiry, support expiry (§65) | — | [ ] | 14 |
-| 8.3 | Entitlement gates: which versions, updates until, support until | — | [ ] | 14 |
-| 8.4 | Signed, expiring download URLs + download log + rate limit (§66) | [ ] | [ ] | 14 |
-| 8.5 | Licence view/verify page for the customer | [ ] | [ ] | 14 |
+| 8.1 | Order → OrderItem → Entitlement chain on payment (§64) | — | [x] | 14 |
+| 8.2 | Licence issuance: key generation, type, activation limit, expiry, support expiry (§65) | — | [x] | 14 |
+| 8.3 | Entitlement gates: which versions, updates until, support until | — | [x] | 14 |
+| 8.4 | Signed, expiring download URLs + download log (§66) — **rate limit is ticket 26** | [x] | [x] | 14 |
+| 8.5 | Licence view/verify page for the customer | [x] | [x] | 14 |
 
 ---
 
@@ -213,15 +228,15 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 9.1 | Dashboard — **action-oriented**: Needs Your Attention first, then counts (§27, §102) | [ ] | [ ] | 15 |
-| 9.2 | **My Software** — owned products, versions, updates, licence, support window (§29) | [ ] | [ ] | 15 |
-| 9.3 | Per-product actions: Download · Licence · Changelog · Docs · Request Customization · Request Support | [ ] | [ ] | 15 |
-| 9.4 | Orders list + order detail | [ ] | [ ] | 15 |
+| 9.1 | Dashboard — **action-oriented**: Needs Your Attention first, then counts (§27, §102) | [x] | [x] | 15 |
+| 9.2 | **My Software** — owned products, versions, updates, licence, support window (§29) | [x] | [x] | 15 |
+| 9.3 | Per-product actions: Download · Licence · Changelog · Demo · Request Customization. **Docs** (no field on `ProductDoc`), **Request Support** (17) and **Request Installation** (needs a standalone cart service line) are not shipped | [x] | [x] | 15 |
+| 9.4 | Orders list + order detail | [x] | [x] | 15 |
 | 9.5 | Requests list + request detail (AI summary, status, timeline, messages) | [ ] | [ ] | 19 |
 | 9.6 | Quotes list + quote detail with Accept / Reject / Ask Question | [ ] | [ ] | 22 |
-| 9.7 | Invoices list + pay-invoice flow | [ ] | [ ] | 23 |
-| 9.8 | Organization settings, members, billing details; account/profile settings | [ ] | [ ] | 15 |
-| 9.9 | Notifications centre + unread badge | [ ] | [ ] | 24 |
+| 9.7 | Invoices list + pay-invoice flow. Gated on the billing org roles at the page **and** the action, not only in the nav | [x] | [x] | 23 |
+| 9.8 | Organization settings, members, billing details; account/profile settings — **assigned to tickets 03 and 24 by ticket 15's own scope**; the routes exist as stubs | [ ] | [ ] | 03, 24 |
+| 9.9 | Notifications centre + unread badge, customer and staff | [x] | [x] | 24 |
 
 ---
 
@@ -229,19 +244,19 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 10.1 | Anthropic client wrapper: streaming, retries, typed errors, prompt caching, usage logging | — | [ ] | 16 |
-| 10.2 | `aiConversations` persistence — resumable, org-scoped, full transcript retained (§72) | — | [ ] | 16 |
-| 10.3 | Chat UI: streaming, one-question-at-a-time, suggested-option chips, free text (§17) | [ ] | [ ] | 16 |
-| 10.4 | **Structured requirement extraction** via Zod schema — confirmed vs assumed, never fabricated (§17) | — | [ ] | 16 |
-| 10.5 | AI guardrails: no pricing, no dates, no feasibility promises, no cross-tenant leakage (§73) | — | [ ] | 16 |
-| 10.6 | Graceful degradation when the AI provider is down — manual form fallback (§104) | [ ] | [ ] | 16 |
-| 10.7 | **Customization assistant** — product-context aware, uses the product's suggested areas (§16, §50) | [ ] | [ ] | 17 |
-| 10.8 | Requirements summary screen — editable, Edit / Continue / Submit (§18) | [ ] | [ ] | 17 |
-| 10.9 | Submission → `CustomizationRequest` linked to product + version (§19, §20) | [ ] | [ ] | 17 |
-| 10.10 | **Custom-build assistant** — business-first discovery, no tech jargon (§22) | [ ] | [ ] | 18 |
-| 10.11 | AI feature suggestions — accept/reject, never silently become requirements (§23) | [ ] | [ ] | 18 |
-| 10.12 | **Marketplace recommendation** during custom build — "we may already have this" (§24) | [ ] | [ ] | 18 |
-| 10.13 | Submission → `CustomerRequest` + reference + dashboard access (§25) | [ ] | [ ] | 18 |
+| 10.1 | **OpenRouter** client via the `openai` SDK: streaming, retries, typed errors, usage/cost logging. Anthropic prompt caching does **not** pass through the gateway | — | [x] | 16 |
+| 10.2 | `aiConversations` persistence — resumable, org-scoped, full transcript retained (§72) | — | [x] | 16 |
+| 10.3 | Chat UI: streaming, one-question-at-a-time, suggested-option chips, free text (§17) | [x] | [x] | 16 |
+| 10.4 | **Structured requirement extraction** — `json_schema` or tool-calling per model capability, Zod parse either way (§17) | — | [x] | 16 |
+| 10.5 | AI guardrails in prompt **and** code: no pricing (including endorsing the customer's own figure), no dates, org-scoped (§73) | — | [x] | 16 |
+| 10.6 | Graceful degradation when the AI provider is down — manual form fallback (§104) | [x] | [x] | 16 |
+| 10.7 | **Customization assistant** at `/customize/[slug]` — product-context aware, uses the product's suggested areas (§16, §50) | [x] | [x] | 17 |
+| 10.8 | Requirements summary screen — editable, the customer's tick decides `origin` (§18) | [x] | [x] | 17 |
+| 10.9 | Submission → request linked to product + version (§19, §20) — **coded and integration-tested; blocked live by the standalone MongoDB** | [x] | [x] | 17 |
+| 10.10 | **Custom-build assistant** — business-first discovery, no tech jargon (§22) | [x] | [x] | 18 |
+| 10.11 | AI feature suggestions — declined and deferred items recorded as `suggested`, never `confirmed` (§23) | [x] | [x] | 18 |
+| 10.12 | **Marketplace recommendation** during custom build, reusing ticket 08's search (§24) | [x] | [x] | 18 |
+| 10.13 | Submission → `CustomerRequest` + reference + dashboard access (§25). Carrying requirements *into* the customization flow is **not** done | [x] | [x] | 18 |
 
 ---
 
@@ -249,12 +264,12 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 11.1 | Unified `CustomerRequest` model with `kind: custom_build | customization` | — | [ ] | 19 |
-| 11.2 | **Server-validated state machine** with explicit allowed transitions (§91) | — | [ ] | 19 |
-| 11.3 | Domain events (`RequestSubmitted`, `QuoteIssued`, `PaymentReceived`, …) — in-process bus (§92) | — | [ ] | 19 |
-| 11.4 | `activityEvents` → chronological timeline on every request/order/quote (§70) | [ ] | [ ] | 19 |
-| 11.5 | Customer-confirmed requirements immutable to staff; internal interpretation kept separate (§34) | [ ] | [ ] | 19 |
-| 11.6 | Context preservation — base product, version, AI transcript all reachable from the request (§101) | [ ] | [ ] | 19 |
+| 11.1 | Unified `CustomerRequest` model with `kind: custom_build \| customization` | — | [x] | 19 |
+| 11.2 | **Server-validated state machine** — graph plus a permission/actor layer, kept in agreement by a test (§91) | — | [x] | 19 |
+| 11.3 | Domain events — in-process bus, dispatched after commit, each handler isolated (§92) | — | [x] | 19 |
+| 11.4 | `activityEvents` → chronological timeline, customer and internal split (§70) | [x] | [x] | 19 |
+| 11.5 | Customer-confirmed requirements refused to staff **at the service**, not just absent from the UI (§34) | [x] | [x] | 19 |
+| 11.6 | Context preservation — base product, version, AI transcript all on the staff workspace (§101) | [x] | [x] | 19 |
 
 ---
 
@@ -262,13 +277,13 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 12.1 | Staff dashboard — the §31 counters, all clickable into filtered queues | [ ] | [ ] | 20 |
-| 12.2 | Work queues (§32): New Requests · Awaiting Staff · Waiting for Customer · Quotes Awaiting Response · Overdue Follow-ups · Unassigned | [ ] | [ ] | 20 |
-| 12.3 | Request workspace — AI transcript, structured requirements, attachments, internal notes | [ ] | [ ] | 20 |
-| 12.4 | Assignment + assignment history (§40) | [ ] | [ ] | 20 |
-| 12.5 | **Customer 360** — profile, products owned, orders, requests, quotes, balance, timeline (§33) | [ ] | [ ] | 20 |
-| 12.6 | Follow-ups: owner, due date, related record, status; overdue surfaced prominently (§39) | [ ] | [ ] | 20 |
-| 12.7 | Request-customer-action ("waiting on customer") with a customer-facing prompt | [ ] | [ ] | 20 |
+| 12.1 | Staff dashboard — counters clickable into the queue they count, from one shared definition | [x] | [x] | 20 |
+| 12.2 | Seven work queues (§32), oldest-first, index-verified at 10k rows by `npm run db:explain:queues` | [x] | [x] | 20 |
+| 12.3 | Request workspace — AI transcript (incl. withheld turns), requirements, internal notes, attachments | [x] | [x] | 20 |
+| 12.4 | Assignment + assignment history + bulk assign, partial success reported (§40) | [x] | [x] | 20 |
+| 12.5 | **Customer 360** — counters, software, orders, requests, interleaved timeline (§33) | [x] | [x] | 20 |
+| 12.6 | Follow-ups — list with four scopes (overdue default), created from the request workspace and Customer 360 (§39) | [x] | [x] | 20 |
+| 12.7 | Request-customer-action → `waiting_for_customer` + `CustomerActionRequested`. The **notification** is ticket 24 | [x] | [x] | 20 |
 
 ---
 
@@ -276,10 +291,10 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 13.1 | Reusable `Conversation` + `Message` model, polymorphic subject (§38) | — | [ ] | 21 |
-| 13.2 | Visibility: `customer` vs `internal` — internal notes **never** reach the customer (§37) | [ ] | [ ] | 21 |
-| 13.3 | Threaded UI on both sides, attachments via signed uploads | [ ] | [ ] | 21 |
-| 13.4 | System-generated state-change entries interleaved in the thread | [ ] | [ ] | 21 |
+| 13.1 | Reusable `Conversation` + `Message` model, polymorphic subject (§38). Requests only so far — orders and quotes are refused explicitly, not silently allowed | — | [x] | 21 |
+| 13.2 | Visibility: four layers — query filter, separate services, a DTO with no `visibility` field, and a payload-level test (§37) | [x] | [x] | 21 |
+| 13.3 | Threaded UI on both sides, sanitised bodies. **Message attachments not built** (request-level ones are, ticket 20) | [x] | [x] | 21 |
+| 13.4 | System state-change entries interleaved in the thread — **not built**; activity and messages are two sections | [ ] | [ ] | 21 |
 | 13.5 | Email notification on new counterpart message, with reply-in-app link | — | [ ] | 24 |
 
 ---
@@ -288,15 +303,15 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 14.1 | Quote builder — scope, deliverables, exclusions, line items, tax, discount, terms, expiry (§51) | [ ] | [ ] | 22 |
-| 14.2 | Quote states: Draft → Issued → Accepted / Rejected / Expired / Superseded | [ ] | [ ] | 22 |
-| 14.3 | Customer actions: Accept · Reject · Ask Question (§51) | [ ] | [ ] | 22 |
-| 14.4 | Quote PDF generation + email delivery | [ ] | [ ] | 22 |
-| 14.5 | Acceptance is audited (user, timestamp, quote version) (§90) | — | [ ] | 22 |
-| 14.6 | Quote → Invoice conversion, deposit vs full (§52) | [ ] | [ ] | 23 |
-| 14.7 | Invoice states: Draft → Issued → Partially Paid → Paid → Overdue → Cancelled (§63) | [ ] | [ ] | 23 |
-| 14.8 | Pay-invoice through the same provider abstraction as checkout | [ ] | [ ] | 23 |
-| 14.9 | On payment: request → `Approved`/`Converted`, work-order seam left for post-MVP projects | — | [ ] | 23 |
+| 14.1 | Quote builder — scope, deliverables, exclusions, line items, tax, discount, terms, expiry, with the requirements alongside (§51) | [x] | [x] | 22 |
+| 14.2 | Quote states, with revisions superseding rather than editing; `{reference, version}` unique | [x] | [x] | 22 |
+| 14.3 | Customer actions: Accept (confirmed, restating the total) · Reject. **Ask Question not wired** — ticket 21's thread isn't on the quote page yet | [x] | [x] | 22 |
+| 14.4 | Quote document — a **print stylesheet**, not a generated PDF: the page is the document, so it matches by construction. Email delivery is ticket 24 | [x] | [x] | 22 |
+| 14.5 | Acceptance audited with user, timestamp, IP and **version** (§90) | — | [x] | 22 |
+| 14.6 | Quote → Invoice conversion, deposit vs full (§52) — the **deposit only**; the balance is raised by staff when the work is done, so it does not sit in the overdue queue for unstarted work | [x] | [x] | 23 |
+| 14.7 | Invoice states: Draft → Issued → Partially Paid → Paid → Overdue → Cancelled (§63). `overdue` is **derived from `dueAt` on read**; the stored status is what ticket 25's sweep will act on | [x] | [x] | 23 |
+| 14.8 | Pay-invoice through the same provider abstraction as checkout — `initiatePaymentForInvoice` + a `subjectType` branch in `fulfilment.ts`. **Not verified live**: only Paystack is enabled in dev and it does not take GBP | [x] | [x] | 23 |
+| 14.9 | On payment: request → `converted`, `WorkReadyToStart` emitted, `ready-to-start` staff queue. The seam is the event; no project entity | — | [x] | 23 |
 
 ---
 
@@ -304,11 +319,11 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 15.1 | Notification model + in-app centre + unread count (§69) | [ ] | [ ] | 24 |
-| 15.2 | Transactional email (React Email + Resend/SES), all templates | — | [ ] | 24 |
-| 15.3 | Event → notification mapping for the §69 event list | — | [ ] | 24 |
-| 15.4 | Per-user notification preferences | [ ] | [ ] | 24 |
-| 15.5 | Channel seam for SMS/WhatsApp (interface only, no implementation) | — | [ ] | 24 |
+| 15.1 | Notification model + in-app centre + unread count (§69). Bell in both shells, counted server-side per render — no polling, correct across devices because nothing is stored per device | [x] | [x] | 24 |
+| 15.2 | Transactional email. **One** template, plain-text-first, through the existing `EmailTransport` port. **No React Email and no Resend** — the dev transport still writes to `.dev-emails/`; production delivery is a `resolveTransport()` change | — | [~] | 24 |
+| 15.3 | Event → notification mapping, as a **data table** in `services/notifications/catalog.ts`. 12 of 14 rows; `OrderCompleted`/`LicenceIssued` need ticket 13 to emit after its transaction | — | [~] | 24 |
+| 15.4 | Per-user notification preferences, per category, per channel. Essentials shown, locked and explained rather than hidden; refused server-side too | [x] | [x] | 24 |
+| 15.5 | Channel seam — `NotificationChannelDriver` + a registry, with `in_app` and `email` registered and nothing else. A stub that pretends to send is worse than an absent channel | — | [x] | 24 |
 
 ---
 
@@ -316,10 +331,10 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 16.1 | Job runner + queue with retries, backoff, dead-letter, observability (§86) | — | [ ] | 25 |
-| 16.2 | Jobs: send email, generate PDF, process webhook follow-up, expire quotes, expire carts | — | [ ] | 25 |
-| 16.3 | Scheduled jobs (cron): quote-expiry sweep, follow-up reminders, abandoned-cart cleanup | — | [ ] | 25 |
-| 16.4 | Admin job monitor (queue depth, failures, retry) | [ ] | [ ] | 25 |
+| 16.1 | Job runner + queue with retries, backoff, dead-letter, observability (§86) | — | [x] | 25 |
+| 16.2 | Jobs: send email, process webhook follow-up, expire quotes, mark invoices overdue, reminders | — | [x] | 25 |
+| 16.3 | Scheduled jobs (cron): quote expiry, invoice overdue + reminders, follow-up reminders | — | [x] | 25 |
+| 16.4 | Admin job monitor (queue depth, failures, retry) | [x] | [x] | 25 |
 
 ---
 
@@ -327,15 +342,15 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 17.1 | Authorization enforced in **every** server action and route handler (§88) | — | [ ] | 26 |
-| 17.2 | Zod validation at every trust boundary | — | [ ] | 26 |
-| 17.3 | Rate limiting: auth, AI endpoints, downloads, webhooks | — | [ ] | 26 |
-| 17.4 | Security headers + CSP; secure cookies; CSRF posture documented for server actions | — | [ ] | 26 |
-| 17.5 | Secrets management; **no server secret ever reaches the client bundle** | — | [ ] | 26 |
-| 17.6 | Field-level encryption for demo credentials and any stored secret (§89) | — | [ ] | 26 |
-| 17.7 | `auditLogs` for the §90 action list, append-only | [ ] | [ ] | 26 |
-| 17.8 | Tenant-isolation test suite (cross-org access must fail) | — | [ ] | 26 |
-| 17.9 | Upload safety: type/size limits, no executable rendering, virus-scan seam | — | [ ] | 26 |
+| 17.1 | Authorization enforced in **every** server action and route handler (§88) | — | [x] | 26 |
+| 17.2 | Zod validation at every trust boundary (`.strict()` on route bodies; form sweep deferred) | — | [x] | 26 |
+| 17.3 | Rate limiting: auth, AI endpoints, downloads, webhooks | — | [x] | 26 |
+| 17.4 | Security headers + CSP; secure cookies; CSRF posture documented for server actions | — | [x] | 26 |
+| 17.5 | Secrets management; **no server secret ever reaches the client bundle** | — | [x] | 26 |
+| 17.6 | Field-level encryption for demo credentials and any stored secret (§89) | — | [x] | 26 |
+| 17.7 | `auditLogs` for the §90 action list, append-only | [x] | [x] | 26 |
+| 17.8 | Tenant-isolation test suite (cross-org access must fail) | — | [x] | 26 |
+| 17.9 | Upload safety: type/size limits, no executable rendering, virus-scan seam | — | [x] | 26 |
 
 ---
 
@@ -343,11 +358,11 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 18.1 | Metadata API per route, canonical URLs, Open Graph, JSON-LD Product schema (§93) | [ ] | [ ] | 27 |
-| 18.2 | `sitemap.ts` + `robots.ts`, published products only | [ ] | [ ] | 27 |
-| 18.3 | Caching strategy — decide on Cache Components (`use cache` + `cacheLife`/`cacheTag`) and apply consistently | [ ] | [ ] | 27 |
-| 18.4 | Image optimization, pagination everywhere, no unbounded queries (§94) | [ ] | [ ] | 27 |
-| 18.5 | Error tracking (Sentry), structured logs, payment + job monitoring (§95) | — | [ ] | 27 |
+| 18.1 | Metadata API per route, canonical URLs, Open Graph, JSON-LD Product schema (§93) | [x] | [x] | 27 |
+| 18.2 | `sitemap.ts` + `robots.ts`, published products only | [x] | [x] | 27 |
+| 18.3 | Caching strategy — decide on Cache Components (`use cache` + `cacheLife`/`cacheTag`) and apply consistently | [x] | [x] | 27 |
+| 18.4 | Image optimization, pagination everywhere, no unbounded queries (§94) | [x] | [x] | 27 |
+| 18.5 | Structured logs, `/api/health`, payment + job alerts (§95). Sentry = a documented seam, no DSN yet | — | [x] | 27 |
 
 ---
 

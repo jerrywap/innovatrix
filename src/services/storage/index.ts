@@ -7,14 +7,18 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { serverEnv } from "@/config/env";
 import { DomainError, NotFoundError, ValidationError } from "@/lib/errors";
 import { bucket, s3Client, storageContext } from "./client";
 import {
   assertKeyBelongsTo,
   assertKeyInPrefix,
   contentDisposition,
+  healthcheckKey,
+  paymentProofKey,
   productFileKey,
   productMediaKey,
+  StorageKeyError,
   type StorageScope,
 } from "./keys";
 import { assertBytesMatchDeclared, assertUploadAllowed, STORAGE_POLICY } from "./policy";
@@ -62,6 +66,8 @@ const UPLOAD_TTL_SECONDS: Record<StorageScope, number> = {
   "product-media": 300,
   "product-file": 3600,
   attachment: 600,
+  // A receipt is a small file and a high-trust one. Short window.
+  "payment-proof": 300,
   "quote-document": 300,
   "invoice-document": 300,
   healthcheck: 60,
@@ -342,6 +348,120 @@ export function productFilePath(
 
 export function productMediaPath(productId: string, filename: string): string {
   return productMediaKey(storageContext(), productId, filename);
+}
+
+/**
+ * The unsigned address an uploaded object is read back from.
+ *
+ * Only correct for objects that are meant to be world-readable — product
+ * screenshots, which are marketing material. **Never** build one of these for a
+ * release artefact: §66 requires those go through `createDownloadUrl` after an
+ * entitlement check, and a permanent URL defeats every part of that.
+ *
+ * Derived exactly the way `next.config.ts` derives its image allowlist host, so
+ * a URL from here is always one `next/image` will accept: an S3-compatible
+ * `STORAGE_ENDPOINT` (R2, MinIO) is used verbatim, and plain AWS gets the
+ * virtual-hosted form built from bucket and region.
+ */
+export function publicObjectUrl(key: string, options: { version?: number } = {}): string {
+  const ctx = storageContext();
+  assertKeyInPrefix(key, ctx.root);
+
+  const env = serverEnv();
+  const base = env.STORAGE_ENDPOINT?.trim()
+    ? `${env.STORAGE_ENDPOINT.replace(/\/+$/, "")}/${env.STORAGE_BUCKET}`
+    : `https://${env.STORAGE_BUCKET}.s3.${env.STORAGE_REGION}.amazonaws.com`;
+
+  // Each segment encoded separately — the slashes are structure, not content.
+  const url = `${base}/${key.split("/").map(encodeURIComponent).join("/")}`;
+
+  /*
+   * `version` busts caches after an overwrite.
+   *
+   * Replacing an image reuses its key, so the URL does not change — and a
+   * browser, proxy or CDN holding the previous bytes keeps serving them. S3
+   * ignores query parameters it does not recognise on a GET, so a changed `v`
+   * is a new cache entry pointing at the same object.
+   */
+  return options.version ? `${url}?v=${options.version}` : url;
+}
+
+/**
+ * Where an offline payment's proof lives.
+ *
+ * There is deliberately **no `publicObjectUrl` counterpart** for this scope.
+ * The bucket serves any known key unsigned, and this one holds somebody's
+ * banking — account numbers, a remittance advice. It is read only through
+ * `/api/payment-evidence/[paymentId]`, which checks a permission and redirects
+ * to a short presigned GET. Nothing here may build an addressable URL.
+ */
+/**
+ * A key inside our own prefix that is not expected to exist.
+ *
+ * For `/api/health`: a HEAD against it distinguishes "the bucket is reachable
+ * and the credentials work" (null) from "it is not" (throws). Exported so the
+ * route does not have to reach for `storageContext`, which is deliberately
+ * internal — every key in this app is built by a named function, and a route
+ * assembling one by hand is how a path escapes the prefix.
+ */
+export function healthcheckProbeKey(): string {
+  return healthcheckKey(storageContext());
+}
+
+export function paymentProofPath(paymentId: string, filename: string): string {
+  return paymentProofKey(storageContext(), paymentId, filename);
+}
+
+/**
+ * Prove a client-supplied proof key belongs to *this* payment.
+ *
+ * The second half of the two-step upload, and the reason it exists: without
+ * this, a caller could hand back a key pointing at another payment's receipt
+ * and have it attached to a record they can read.
+ */
+export function assertPaymentProofKey(key: string, paymentId: string): string {
+  const root = storageContext().root;
+  assertKeyInPrefix(key, root);
+
+  if (!key.startsWith(`${root}/payments/${paymentId}/`)) {
+    throw new StorageKeyError("That file does not belong to this payment.");
+  }
+  return key;
+}
+
+/**
+ * Prove a client-supplied attachment key belongs to this organisation *and*
+ * this subject.
+ *
+ * Not `assertKeyBelongsTo` — that one checks the `products/{id}/versions/{id}/`
+ * layout, and an attachment key is `attachments/{org}/{subject}/`. Passing an
+ * attachment key to it fails every time, which at least fails safe, but the
+ * first version of this did exactly that and would have rejected every legitimate
+ * upload.
+ */
+export function assertAttachmentKey(
+  key: string,
+  organizationId: string,
+  subjectId: string,
+): string {
+  const root = storageContext().root;
+  assertKeyInPrefix(key, root);
+
+  if (!key.startsWith(`${root}/attachments/${organizationId}/${subjectId}/`)) {
+    throw new StorageKeyError("That file does not belong to this request.");
+  }
+  return key;
+}
+
+/**
+ * Prove a client-supplied *media* key belongs to this product.
+ *
+ * Separate from `assertProductFileKey` only for the name: "product file" is the
+ * release-artefact model, and calling it to validate a screenshot reads like a
+ * mistake even though the check is the same one.
+ */
+export function assertProductMediaKey(key: string, productId: string): string {
+  return assertKeyBelongsTo(key, storageContext().root, { productId });
 }
 
 /** Prove a client-supplied key belongs to this product (and version). */

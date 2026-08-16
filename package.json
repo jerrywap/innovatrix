@@ -24,7 +24,14 @@
     "db:docs": "tsx scripts/generate-docs.ts",
     "storage:probe": "tsx --conditions=react-server --env-file=.env.local scripts/storage-probe.ts",
     "db:seed:bulk": "tsx --conditions=react-server --env-file=.env.local scripts/seed-bulk.ts",
-    "db:explain": "tsx --conditions=react-server --env-file=.env.local scripts/explain-marketplace.ts"
+    "db:explain": "tsx --conditions=react-server --env-file=.env.local scripts/explain-marketplace.ts",
+    "storage:media-probe": "tsx --conditions=react-server --env-file=.env.local scripts/media-upload-probe.ts",
+    "ai:probe": "tsx --conditions=react-server --env-file=.env.local scripts/ai-probe.ts",
+    "requests:probe": "tsx --conditions=react-server --env-file=.env.local scripts/request-probe.ts",
+    "db:explain:queues": "tsx --conditions=react-server --env-file=.env.local scripts/explain-queues.ts",
+    "jobs:probe": "tsx --conditions=react-server --env-file=.env.local scripts/jobs-probe.ts",
+    "scan:bundle": "tsx --env-file=.env.local scripts/bundle-secret-scan.ts",
+    "audit:deps": "npm audit --audit-level=high"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1111.0",
@@ -41,6 +48,7 @@
     "nanoid": "^5.1.16",
     "next": "16.3.1",
     "next-themes": "^0.4.6",
+    "openai": "^6.49.0",
     "radix-ui": "^1.6.7",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -57,6 +65,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.5",
+    "@vitest/coverage-v8": "^4.1.10",
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",

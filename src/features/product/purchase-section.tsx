@@ -31,6 +31,13 @@ export async function PurchaseSection({ product }: { product: ProductDetail }) {
       addons={product.addons}
       basePrices={product.prices}
       customisable={product.customization.available}
+      // From `publicDemoView`, which has no credentials field at all — so
+      // there is nothing here that could cross into the client bundle.
+      demo={{
+        ...(product.demo.publicUrl ? { publicUrl: product.demo.publicUrl } : {}),
+        hasCredentials: product.demo.hasCredentials,
+        roleCount: product.demo.roles.length,
+      }}
       {...(product.customization.typicalTurnaround
         ? { typicalTurnaround: product.customization.typicalTurnaround }
         : {})}

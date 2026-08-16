@@ -42,9 +42,33 @@ claim, and `assertOrgAccess()` exists to check one rather than to supply scope.
 - **Never pass a component function across the RSC boundary.** React refuses it
   and the whole shell 500s. Pass a name and resolve it on the client — see
   `components/shell/nav-icons.ts`.
-- `loading.tsx` per protected segment. Those routes read `headers()` via the
-  DAL, so they are dynamic and there is a real gap before first paint.
 - Suspense around anything doing uncached I/O, so the static shell still renders.
+- **Guard first, stream second.** `await` the DAL at the top of the page
+  component, before returning any JSX, and put the slow query inside a
+  `<Suspense>`. You get both: the refusal is decided before the first flush, so
+  the status is right, and the shell still streams.
+
+### `loading.tsx` and the status code
+
+Once bytes are on the wire the status line is committed. `loading.tsx` puts a
+Suspense boundary around its whole segment, which lets Next flush the shell
+*before* the page resolves — so `forbidden()` and `notFound()` render the right
+body under **`200 OK`**. A guard inside a `<Suspense>`d child does the same
+thing one layer down, and looks tidier while doing it.
+
+That is not cosmetic. `forbidden()` exists precisely because a thrown error
+renders client-side under a 200; recovering the status and then losing it on the
+shell is the same bug again. Crawlers, monitors, CDNs and `curl` in a runbook
+are all told the request succeeded.
+
+So: **a `loading.tsx` may only sit over a segment where no page, at it or below
+it, can refuse** — and the guard belongs in the page component's own body, never
+inside a boundary. `loading-boundaries.test.ts` enforces both and names the
+offending pair.
+
+Where the 404 depends on the main query — a detail page that loads a record and
+calls `notFound()` — there is nothing to stream ahead of it, and blocking is
+correct rather than a regression. Drop the `<Suspense>` instead of pretending.
 
 ## URL state
 
@@ -81,6 +105,37 @@ alias layer is what makes that survivable. `theme-tokens.test.ts` enforces it.
 
 Re-running `shadcn init` also resets `--radius` and re-adds a Geist font import;
 check both afterwards.
+
+## Object storage
+
+**Bytes never pass through the Next.js server.** Both directions are presigned
+and go browser↔S3 directly:
+
+- **Download** — the route authorises, writes the log, then `307`s to a
+  short-lived presigned GET. Never `GetObject` into a `Response`.
+- **Upload** — a server action returns a presigned `PUT` and the browser sends
+  the file itself. Never accept a file in a Server Action or route body.
+
+This is an architectural constraint, not a preference. Proxying puts a 2GB
+release artefact through the app server's memory and its request timeout, and
+Server Actions have a body limit that a phone photo clears without trying. The
+only bytes the server may read are the **4KB range read** in `verifyUpload()`,
+which sniffs magic numbers and never reaches a client.
+
+Two rules that follow from the bucket being shared with unrelated live
+applications:
+
+- **The key is built server-side**, from ids the server already trusts. A
+  client-supplied key is a claim about where bytes may land.
+- When a key *does* come from the client — the second half of a two-step upload
+  — `assertKeyBelongsTo` must run, not just `assertKeyInPrefix`. In-prefix only
+  proves it is one of ours, not that it is *this caller's*.
+
+Uploading over an existing key overwrites in place, which is how media
+replacement avoids orphaning; add a `?v=` stamp to the stored URL or caches keep
+serving the old bytes. `s3:DeleteObject` is currently denied, so nothing else
+cleans up — check with `npm run storage:media-probe` rather than assuming either
+way.
 
 ## Accessibility
 

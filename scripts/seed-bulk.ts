@@ -273,9 +273,18 @@ async function main() {
             media: [
               {
                 kind: "screenshot",
-                // Unsplash is in `images.remotePatterns`; the id varies so the
-                // grid is not one image repeated a thousand times.
-                url: `https://images.unsplash.com/photo-${1550000000000 + index}?w=800`,
+                // `picsum.photos`, seeded on the slug.
+                //
+                // The first attempt built Unsplash URLs by adding an index to a
+                // base photo id — which produced a thousand ids that do not
+                // exist, so every card 404'd and the dev log filled with
+                // "upstream image response failed". Placeholder art has to come
+                // from a service that *generates* it, not one that happens to
+                // have real photos at guessable addresses.
+                //
+                // Seeded on the slug rather than random, so the catalogue looks
+                // identical on every machine and a screenshot stays valid.
+                url: `https://picsum.photos/seed/${slug}/800/500`,
                 alt: `${name} dashboard`,
                 sortOrder: 0,
                 isPrimary: true,

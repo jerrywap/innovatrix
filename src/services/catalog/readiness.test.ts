@@ -11,6 +11,7 @@ const complete: ReadinessSnapshot = {
   hasReleasedVersion: true,
   hasReleasedVersionWithPackage: true,
   checklist: [{ status: "pass" }, { status: "pass" }],
+  currenciesWithoutLicencePrice: [],
 };
 
 const codes = (snapshot: Partial<ReadinessSnapshot>) =>
@@ -30,6 +31,11 @@ describe("computeReadiness", () => {
     ["no screenshot", { screenshotCount: 0 }, "no_screenshot"],
     ["no description", { hasDescription: false }, "no_description"],
     ["no released version", { hasReleasedVersion: false }, "no_released_version"],
+    [
+      "an advertised currency no licence is priced in",
+      { currenciesWithoutLicencePrice: ["USD"] },
+      "unbuyable_currency",
+    ],
   ])("reports %s as exactly one gap", (_label, snapshot, expected) => {
     // One missing thing produces one gap — not a cascade the reader has to
     // work through to find the real problem.
@@ -117,6 +123,31 @@ describe("the §47 testing checklist", () => {
       computeReadiness({ ...complete, checklist: [{ status: "na", notes: "   " }] })
         .isTestingComplete,
     ).toBe(false);
+  });
+
+  /**
+   * The bug this check exists for: a customer browsing in USD saw a USD price
+   * on the listing, opened the product, and Add to basket refused — because
+   * `product.prices` had USD and the licence package was GBP-only. The refusal
+   * blamed a currency conflict in a basket that was empty.
+   */
+  it("names every unbuyable currency, so the fix is obvious", () => {
+    const result = computeReadiness({
+      ...complete,
+      currenciesWithoutLicencePrice: ["USD", "NGN"],
+    });
+
+    expect(result.isPublishable).toBe(false);
+    expect(result.gaps[0]!.message).toMatch(/NGN, USD/);
+    expect(result.gaps[0]!.section).toBe("pricing");
+  });
+
+  it("says nothing when the product has no licence package to compare against", () => {
+    // `no_licence_package` already covers that, and two gaps for one cause
+    // makes the real fix harder to see.
+    expect(codes({ licencePackageCount: 0, currenciesWithoutLicencePrice: [] })).toEqual([
+      "no_licence_package",
+    ]);
   });
 
   it("reports a failure ahead of incompleteness when both apply", () => {

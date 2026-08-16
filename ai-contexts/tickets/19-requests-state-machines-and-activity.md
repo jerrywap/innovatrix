@@ -65,11 +65,56 @@ explanation of what it means and what happens next, requirements (with edit whil
 timeline, messages (ticket 21), quotes (ticket 22).
 
 ## Acceptance criteria
-- [ ] An invalid transition (e.g. `submitted → converted`) is rejected server-side even when called directly.
-- [ ] A customer cannot trigger a staff-only transition.
-- [ ] Every status change produces exactly one activity event and one audit entry.
-- [ ] The customer timeline contains no internal notes; the staff timeline contains both.
-- [ ] Staff editing customer-confirmed requirements is impossible through the API, not merely absent from the UI.
-- [ ] Opening a request as staff shows base product, version, transcript and requirements without extra clicks (§101).
-- [ ] Requirement edit history is complete and attributable.
-- [ ] Event handlers failing (e.g. email down) do not roll back the state transition.
+- [x] An invalid transition (e.g. `submitted → converted`) is rejected server-side even when called directly.
+- [x] A customer cannot trigger a staff-only transition.
+- [x] Every status change produces exactly one activity event and one audit entry.
+- [x] The customer timeline contains no internal notes; the staff timeline contains both.
+- [x] Staff editing customer-confirmed requirements is impossible through the API, not merely absent from the UI.
+- [ ] Opening a request as staff shows base product, version, transcript and requirements without extra clicks (§101) — **the workspace renders all four; not verified against a real submitted request**.
+- [x] Requirement edit history is complete and attributable.
+- [x] Event handlers failing (e.g. email down) do not roll back the state transition.
+
+## Implementation notes
+
+### The permission layer is a second map, with a test tying it to the first
+
+`REQUEST_TRANSITIONS` already existed and matched §91. Ticket 19 wants each edge
+to name a permission and whether the customer may take it — but `STATES.md` is
+generated from `states.ts` and the generator iterates every machine as
+`Record<S, readonly S[]>`. Enriching the map in place would break it for all
+seven.
+
+So `REQUEST_TRANSITION_RULES` is keyed `"from->to"`, and `states.test.ts`
+asserts the two agree **in both directions**: every edge has a rule, no rule
+invents an edge, and no rule names a permission that does not exist. A missing
+rule is a button that does nothing; a rule for a non-existent edge reads as
+coverage and is not.
+
+Corrected while implementing: the plan used `quote.create`, which does not
+exist. The real permissions are `quote.draft` / `quote.issue`.
+
+### A failing handler cannot undo what happened
+
+Dispatch is after commit, and each handler is individually isolated. Both are
+load-bearing: inside the transaction, a throwing handler aborts it and the
+transition silently disappears; without per-handler isolation, registration
+order becomes an undocumented priority list. Both are tested.
+
+### Verified — 25 integration tests against a real replica set
+
+`submitted → converted` refused server-side · a customer refused a staff-only
+edge · a staff member without the named permission refused · another
+organisation's request invisible · exactly one activity event and one audit
+entry per transition · the internal note absent from the customer's timeline ·
+plain-language narrative rather than the enum · a throwing handler not rolling
+back · handlers after a failing one still running · **staff refused write access
+to `customerRequirements` through the service** · requirement history keeping
+the version it replaced · assignment history surviving reassignment.
+
+### Not verified live — the dev database is a standalone
+
+`submitFromConversation` runs in one transaction so a rolled-back submission
+cannot burn a reference number, and a standalone mongod cannot start one.
+`docker-compose.yml` exists for this; `npm run db:up` provides the replica set.
+Checkout and payment fulfilment are blocked by the same thing, so this is
+environmental and pre-existing rather than introduced here.

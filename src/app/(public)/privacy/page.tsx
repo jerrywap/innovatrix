@@ -2,15 +2,13 @@ import type { Metadata } from "next";
 import { Shield } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { pageMetadata } from "@/lib/seo";
 
-// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
-// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
-export const instant = false;
-
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Privacy",
   description: "What we collect, why, and what we do with it.",
-};
+  path: "/privacy",
+});
 
 export default function Page() {
   return (

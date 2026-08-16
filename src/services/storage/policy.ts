@@ -58,6 +58,15 @@ export const STORAGE_POLICY: Record<StorageScope, ScopePolicy> = {
     ],
     extensions: ["jpg", "jpeg", "png", "webp", "pdf", "docx", "xlsx", "csv", "txt"],
   },
+  /**
+   * A bank receipt or remittance advice. Small, and deliberately narrow: a
+   * scan or a PDF, nothing executable, nothing archive-shaped.
+   */
+  "payment-proof": {
+    maxBytes: 10 * MB,
+    contentTypes: ["application/pdf", "image/jpeg", "image/png", "image/webp"],
+    extensions: ["pdf", "jpg", "jpeg", "png", "webp"],
+  },
   "quote-document": {
     maxBytes: 20 * MB,
     contentTypes: ["application/pdf"],

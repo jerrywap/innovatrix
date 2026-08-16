@@ -25,6 +25,17 @@ export const CURRENCIES = {
 
 export type CurrencyCode = keyof typeof CURRENCIES;
 
+/**
+ * The same set as a tuple, for `z.enum()`.
+ *
+ * Derived from `CURRENCIES` rather than written out again, so a currency added
+ * above is immediately accepted by every validator — and one removed stops
+ * type-checking at every call site rather than failing at runtime in
+ * `fromDecimal`, which is where a currency with no known exponent does its
+ * damage.
+ */
+export const CURRENCY_CODES = Object.keys(CURRENCIES) as [CurrencyCode, ...CurrencyCode[]];
+
 export interface Money {
   readonly amount: number; // integer, minor units
   readonly currency: CurrencyCode;

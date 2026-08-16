@@ -14,10 +14,22 @@
  * want one; this exists for services that legitimately touch several.
  */
 export { auditLogs, AuditLogRepository } from "./audit-log.repository";
+export { carts, CartRepository } from "./cart.repository";
+export { discountCodes, DiscountCodeRepository } from "./discount-code.repository";
+export {
+  entitlements,
+  licences,
+  EntitlementRepository,
+  LicenceRepository,
+} from "./entitlement.repository";
+export { orders, OrderRepository } from "./order.repository";
+export { payments, PaymentRepository } from "./payment.repository";
 export { productFiles, ProductFileRepository } from "./product-file.repository";
 export { productVersions, ProductVersionRepository } from "./product-version.repository";
 export { products, ProductRepository } from "./product.repository";
 export { taxonomies, TaxonomyRepository } from "./taxonomy.repository";
+export { taxRules, TaxRuleRepository } from "./tax-rule.repository";
+export { webhookEvents, WebhookEventRepository } from "./webhook-event.repository";
 export {
   BaseRepository,
   OrgScopedRepository,

@@ -4,6 +4,8 @@ import { connectToDatabase } from "@/lib/db/client";
 import { AuditLog, type AuditLogDoc } from "@/lib/db/models/communication";
 import { toObjectId } from "@/lib/db/base";
 import type { SubjectType } from "@/lib/db/enums";
+import { redact } from "@/lib/redact";
+import { log } from "@/lib/logger";
 
 /**
  * The audit log — §90.
@@ -44,7 +46,19 @@ import type { SubjectType } from "@/lib/db/enums";
 
 export type AuditActor =
   | { type: "staff"; userId: string; name?: string }
-  | { type: "customer"; userId: string; organizationId: string; name?: string }
+  /**
+   * `organizationId` is optional, and only because of auth events.
+   *
+   * Every *domain* action a customer takes happens inside an organisation, and
+   * the caller passes it. But a session is created before an organisation is
+   * chosen — at signup, on an invitation acceptance, for somebody between
+   * organisations — and §90 wants that recorded with the person named.
+   *
+   * The alternatives were both worse: `organizationId: ""` puts a blank id in
+   * an append-only collection, and falling back to a `system` actor loses the
+   * user, which is the one field an incident review starts from.
+   */
+  | { type: "customer"; userId: string; organizationId?: string; name?: string }
   | { type: "system" }
   | { type: "webhook"; source: string };
 
@@ -66,28 +80,14 @@ export interface AuditEntry {
   source?: string;
 }
 
-/** Anything matching this never reaches the log, whatever the caller passed. */
-const SECRET_KEY = /password|cipher|secret|token|credential|apikey|api_key|authorization/i;
-
 /**
- * Recursively strip values whose *key* suggests a secret.
+ * Strip anything whose key suggests a secret.
  *
- * Keys, not values — a heuristic on values would either miss things or redact
- * legitimate prose. Depth-capped so a hostile object cannot recurse forever.
+ * Moved to `@/lib/redact` when the structured logger needed the same rule
+ * (ticket 27). Re-exported under the old name because it is part of this
+ * module's documented surface and is asserted by name in the audit tests.
  */
-export function redactAuditPayload<T>(value: T, depth = 0): T {
-  if (depth > 6 || value === null || typeof value !== "object") return value;
-
-  if (Array.isArray(value)) {
-    return value.map((item) => redactAuditPayload(item, depth + 1)) as unknown as T;
-  }
-
-  const out: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = SECRET_KEY.test(key) ? "[redacted]" : redactAuditPayload(item, depth + 1);
-  }
-  return out as T;
-}
+export const redactAuditPayload = redact;
 
 export async function writeAuditLog(entry: AuditEntry, session?: ClientSession): Promise<void> {
   const doc: Partial<AuditLogDoc> = {
@@ -127,7 +127,10 @@ export async function writeAuditLog(entry: AuditEntry, session?: ClientSession):
   } catch (error) {
     // Best-effort. Losing a read-audit is bad; failing the operation the user
     // asked for because we could not record it is worse.
-    console.error(`[audit] could not record "${entry.action}"`, error);
+    log.exception(`Could not record audit entry "${entry.action}"`, error, {
+      code: "audit.write_failed",
+      action: entry.action,
+    });
   }
 }
 

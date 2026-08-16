@@ -2,7 +2,7 @@ import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import type { PipelineStage } from "mongoose";
 import { connectToDatabase } from "@/lib/db/client";
-import { Product, Taxonomy, parseFacet } from "@/lib/db/models/catalog";
+import { Product, Taxonomy } from "@/lib/db/models/catalog";
 import type { TaxonomyKind } from "@/lib/db/enums";
 import type { StorefrontCurrency } from "@/config/storefront";
 import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG } from "@/services/catalog/cache";

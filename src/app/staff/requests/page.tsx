@@ -1,30 +1,22 @@
 import type { Metadata } from "next";
-import { ClipboardList } from "lucide-react";
-import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { requirePermissionOrForbid } from "@/lib/auth/dal";
-
-// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
-// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
-export const instant = false;
+import { redirect } from "next/navigation";
+import { requireStaffOrRedirect } from "@/lib/auth/dal";
 
 export const metadata: Metadata = { title: "Requests" };
 
+/**
+ * There is no "all requests" table, and that is §30's point.
+ *
+ * *"Should not simply be a generic admin table."* A flat list of every request
+ * ever is a database browser — it answers "what exists", which nobody needs,
+ * rather than "what should I do next", which is the whole job. So this
+ * redirects to the queue of things nobody has picked up.
+ *
+ * Kept as a route rather than deleted because `/staff/requests/[reference]`
+ * lives underneath it, and a parent that 404s while its children work is the
+ * kind of thing people report as a bug.
+ */
 export default async function Page() {
-  // Nav filtering decides what is drawn; this decides what is allowed.
-  await requirePermissionOrForbid("request.view_all");
-
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Requests"
-        description="Everything customers have asked for, across all organizations."
-      />
-      <EmptyState
-        icon={ClipboardList}
-        title="No requests"
-        description="Submitted requests appear here for triage and assignment."
-      />
-    </div>
-  );
+  await requireStaffOrRedirect();
+  redirect("/staff/queue/unassigned");
 }

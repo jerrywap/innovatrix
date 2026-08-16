@@ -1,5 +1,4 @@
-import { MongoMemoryReplSet } from "mongodb-memory-server";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi, inject } from "vitest";
 import { DEFAULT_TESTING_CHECKLIST } from "./readiness";
 import { VALID_ENV } from "@/test/env";
 
@@ -30,7 +29,6 @@ import { VALID_ENV } from "@/test/env";
  * and the modules are loaded once, here, rather than per test.
  */
 
-let replSet: MongoMemoryReplSet;
 let catalog: typeof import("./product-service");
 let taxonomyService: typeof import("./taxonomy-service");
 let models: typeof import("@/lib/db/models/catalog");
@@ -40,16 +38,11 @@ let mongoose: typeof import("mongoose").default;
 const ACTOR = { type: "staff", userId: "6a80c46f6c887b38e2f0e001", name: "Test" } as const;
 
 beforeAll(async () => {
-  replSet = await MongoMemoryReplSet.create({
-    replSet: { count: 1, storageEngine: "wiredTiger" },
-    instanceOpts: [{ launchTimeout: 120_000 }],
-  });
-
   vi.resetModules();
   for (const [key, value] of Object.entries(VALID_ENV)) {
     vi.stubEnv(key, value);
   }
-  vi.stubEnv("MONGODB_URI", replSet.getUri());
+  vi.stubEnv("MONGODB_URI", inject("mongoUri"));
   vi.stubEnv("MONGODB_DB_NAME", "catalog_test");
   // The replica set can transact, so exercise the transactional branch of
   // `transition` rather than the standalone fallback.
@@ -76,7 +69,6 @@ beforeAll(async () => {
 afterAll(async () => {
   vi.unstubAllEnvs();
   await mongoose?.disconnect();
-  await replSet?.stop();
 });
 
 afterEach(async () => {
@@ -84,7 +76,13 @@ afterEach(async () => {
     models.Product.deleteMany({}),
     models.Taxonomy.deleteMany({}),
     models.ProductVersion.deleteMany({}),
-    auditModel.AuditLog.deleteMany({}),
+    /*
+     * Through the native driver, because ticket 26 made the *model* refuse
+     * every delete — `AuditLog.deleteMany({})` now throws, which is the point.
+     * Emptying a test database is not an application code path, and the
+     * collection handle is how that distinction is expressed.
+     */
+    auditModel.AuditLog.collection.deleteMany({}),
   ]);
 });
 

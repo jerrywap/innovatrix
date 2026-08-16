@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { securityHeaders } from "./src/config/security-headers";
 
 /**
  * The host product media is served from, derived from the storage config.
@@ -52,8 +53,21 @@ const nextConfig: NextConfig = {
      * an error boundary renders **on the client with a 200**. A staff member
      * who opens a screen their role doesn't cover would get a blank pane with
      * no JavaScript, and every crawler and monitor would be told the refusal
-     * succeeded. `forbidden()` renders server-side, returns a real 403, and
-     * adds `noindex`.
+     * succeeded. `forbidden()` renders server-side and adds `noindex`.
+     *
+     * **It only returns a real 403 if nothing has flushed first**, which was
+     * measured rather than assumed. A `loading.tsx` over the segment — or a
+     * guard inside a `<Suspense>`d child — lets the shell flush before the page
+     * resolves, and the status line is committed by then: the 403 *page*
+     * renders under a **200**. A `finance` user opening `/admin/settings/ai`
+     * used to get exactly that.
+     *
+     * Fixed by hoisting every guard to the top of its page component and
+     * deleting the segment-level `loading.tsx` files. `loading-boundaries.test.ts`
+     * enforces both halves and names the offending pair; AGENTS.md carries the
+     * rule. Streaming is not lost — the slow query stays inside a `<Suspense>`,
+     * and what a `loading.tsx` added over that was a fallback during the
+     * *guard's* own latency, which is a session read and one indexed query.
      *
      * Marked experimental upstream. The exposure is confined to
      * `requirePermissionOrForbid()` in the DAL and one `forbidden.tsx` — if the
@@ -98,10 +112,64 @@ const nextConfig: NextConfig = {
     // uploaded (ticket 06); the storage host serves it afterwards.
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com" },
+      // Seeded placeholder art (`scripts/seed-bulk.ts`). Deterministic per
+      // slug, so the catalogue looks the same on every machine.
+      { protocol: "https", hostname: "picsum.photos" },
       ...(imageHost ? [{ protocol: "https" as const, hostname: imageHost }] : []),
+      /**
+       * Development-only catch-all. `**` is picomatch, matched against the
+       * hostname alone (`match-remote-pattern.js`), so it accepts any host over
+       * https — which is what local work against hand-entered or imported media
+       * URLs needs, since those hostnames aren't known ahead of time.
+       *
+       * Deliberately **not** applied in production. `/_next/image` fetches the
+       * remote URL server-side and re-serves it from our origin, so a wildcard
+       * allowlist is an open image proxy: anyone can point `?url=` at any host
+       * and spend our bandwidth and optimizer CPU under our domain. The
+       * allowlist is the only thing standing between a public endpoint and that,
+       * which is why it stays explicit where it is reachable from the internet.
+       *
+       * Product media in production is expected to live on `imageHost` above —
+       * uploaded, not hotlinked. A host that must be hotlinked gets its own
+       * entry in this list.
+       */
+      ...(process.env.NODE_ENV === "development"
+        ? [{ protocol: "https" as const, hostname: "**" }]
+        : []),
     ],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920],
     imageSizes: [256, 384],
+  },
+
+  /**
+   * Hosts allowed to load dev-server assets.
+   *
+   * Next 16 blocks cross-origin requests for `/_next/static/*` in development,
+   * and it treats `127.0.0.1` as a **different origin from `localhost`** — same
+   * machine, different host string. Browsing `http://127.0.0.1:3000` therefore
+   * gets the HTML but not the JavaScript chunks, so **nothing hydrates**: every
+   * button is inert, every form does nothing, and there is no error on the page
+   * because the code that would report one never loaded.
+   *
+   * The only sign is a `Blocked cross-origin request` warning in the dev log,
+   * which is easy to miss among image 404s.
+   *
+   * Development only — Next ignores this in a production build, so it widens
+   * nothing that ships. The LAN address is here too, for testing on a phone.
+   */
+  allowedDevOrigins: ["127.0.0.1", "localhost", "*.local"],
+
+  /**
+   * Security headers — §88, ticket 26. Reasoning in `security-headers.ts`.
+   *
+   * Here rather than in `proxy.ts` for two reasons. The proxy's matcher
+   * excludes `api/auth`, `api/webhooks`, `api/cron` and every static asset, so
+   * headers set there would miss exactly the routes that most want a
+   * `nosniff` — and `headers()` applies to static responses too, which the
+   * proxy never sees at all.
+   */
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders() }];
   },
 };
 

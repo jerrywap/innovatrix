@@ -119,3 +119,50 @@ describe("a moved product redirects rather than 404s", () => {
     expect(source).toContain("permanentRedirect");
   });
 });
+
+describe("§8's four primary CTAs", () => {
+  const panelPath = fileURLToPath(new URL("./purchase-panel.tsx", import.meta.url));
+  const panel = readFileSync(panelPath, "utf8");
+  const sectionPath = fileURLToPath(new URL("./purchase-section.tsx", import.meta.url));
+  const section = readFileSync(sectionPath, "utf8");
+
+  it("renders all four", () => {
+    // Buy As-Is, Request Customization, Try Demo, Save for Later. Three of
+    // four shipped first time round — "Try Demo" was specified and missed,
+    // which is why this is a test rather than a memory.
+    expect(panel).toContain("<AddToCart");
+    expect(panel).toContain("Request customization");
+    expect(panel).toContain("<TryDemo");
+    expect(panel).toContain("{saveButton}");
+  });
+
+  it("sends Try Demo to the external demo when there is one, and to the panel otherwise", () => {
+    const cta = panel.slice(panel.indexOf("function TryDemo"));
+    // A public URL opens externally; credentials-only anchors to the section
+    // that either shows them or explains what unlocks them.
+    expect(cta).toContain('target="_blank"');
+    expect(cta).toContain('href="#demo"');
+    expect(cta).toContain('rel="noopener noreferrer"');
+  });
+
+  it("renders no Try Demo at all when nothing is configured", () => {
+    const cta = panel.slice(panel.indexOf("function TryDemo"));
+    // A greyed-out CTA is a promise the product cannot keep.
+    expect(cta).toMatch(/if \(!demo\.publicUrl && !demo\.hasCredentials\) return null;/);
+  });
+
+  it("hands the CTA no credential, because it is a client component", () => {
+    // Anything passed here is in the RSC payload. `DemoCta` carries a URL, a
+    // boolean and a count — the same discipline `publicDemoView` enforces on
+    // the server side.
+    const props = section.slice(section.indexOf("demo={{"), section.indexOf("saveButton="));
+    expect(props).toContain("hasCredentials");
+    expect(props).not.toMatch(/password|username|cipher|customerUrl|adminUrl/i);
+
+    const type = panel.slice(
+      panel.indexOf("interface DemoCta"),
+      panel.indexOf("}", panel.indexOf("interface DemoCta")),
+    );
+    expect(type).not.toMatch(/password|username|cipher|adminUrl|customerUrl/i);
+  });
+});

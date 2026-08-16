@@ -25,6 +25,26 @@ import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG } from "@/services/catalog/cac
  */
 const MAX_PRODUCTS = 5_000;
 
+type ChangeFrequency = NonNullable<MetadataRoute.Sitemap[number]["changeFrequency"]>;
+
+/**
+ * The static half, as data so a test can walk it.
+ *
+ * Exported for `sitemap.test.ts`, which checks each path against `src/app`.
+ * Every entry must be a real, public, indexable route — anything carrying
+ * `noindex` (checkout, cart, the concept pages) belongs in `robots.ts`'s
+ * disallow list rather than here, and a URL that 404s belongs nowhere.
+ */
+export const STATIC_PATHS: ReadonlyArray<[string, ChangeFrequency, number]> = [
+  ["/", "weekly", 1],
+  ["/marketplace", "daily", 0.9],
+  ["/custom-software", "monthly", 0.8],
+  ["/services", "monthly", 0.7],
+  ["/pricing", "monthly", 0.7],
+  ["/terms", "yearly", 0.2],
+  ["/privacy", "yearly", 0.2],
+];
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // `use cache`, not `export const revalidate` — Cache Components rejects
   // route-segment config outright, and this is the replacement rather than a
@@ -36,17 +56,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const origin = serverEnv().APP_URL.replace(/\/$/, "");
 
-  const staticPages: MetadataRoute.Sitemap = [
-    { url: `${origin}/`, changeFrequency: "weekly", priority: 1 },
-    { url: `${origin}/marketplace`, changeFrequency: "daily", priority: 0.9 },
-    { url: `${origin}/custom-software`, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${origin}/services`, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${origin}/pricing`, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${origin}/about`, changeFrequency: "yearly", priority: 0.4 },
-    { url: `${origin}/contact`, changeFrequency: "yearly", priority: 0.4 },
-    { url: `${origin}/terms`, changeFrequency: "yearly", priority: 0.2 },
-    { url: `${origin}/privacy`, changeFrequency: "yearly", priority: 0.2 },
-  ];
+  /*
+   * `/about` and `/contact` were here, and **neither route exists**.
+   *
+   * `typedRoutes` makes a `<Link>` to a missing route a compile error, and it
+   * cannot see inside a template string — so the build was clean while the
+   * sitemap advertised two 404s to every crawler that read it. Removed rather
+   * than papered over with stub pages; `sitemap.test.ts` now asserts that every
+   * path here resolves to a route file, so the next one is caught at test time
+   * instead of by Search Console.
+   */
+  const staticPages: MetadataRoute.Sitemap = STATIC_PATHS.map(
+    ([path, changeFrequency, priority]) => ({
+      url: `${origin}${path}`,
+      changeFrequency,
+      priority,
+    }),
+  );
 
   const taxonomy = await getTaxonomyIndex();
   const landingPages: MetadataRoute.Sitemap = [

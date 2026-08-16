@@ -10,7 +10,18 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Replaced by Sentry in ticket 27.
+    /*
+     * `console.error`, and it stays that way — ticket 27.
+     *
+     * This is a Client Component, so `@/lib/logger` is unreachable: it imports
+     * `server-only`, and rightly. The *server* side of this error is already
+     * recorded by `onRequestError` in `instrumentation.ts`, with the same
+     * `digest` the paragraph below asks the customer to quote — so nothing is
+     * lost by this line being unstructured.
+     *
+     * What it buys is the browser console during development, and a hook for a
+     * client-side error reporter (`Sentry.captureException`) when there is one.
+     */
     console.error(error);
   }, [error]);
 

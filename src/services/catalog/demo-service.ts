@@ -91,6 +91,9 @@ export interface DemoViewer {
   ownsProduct: boolean;
   /** Staff see demo credentials regardless of exposure — they configure them. */
   isStaff: boolean;
+  /** For the §90 audit row. Absent for an anonymous viewer of a public demo. */
+  userId?: string;
+  organizationId?: string;
 }
 
 /**
@@ -152,10 +155,70 @@ export async function revealCredentials(
       : {}),
   }));
 
+  await recordReveal(productId, exposure, viewer, credentials);
+
   return {
     credentials,
     ...(product.demo?.customerUrl ? { customerUrl: product.demo.customerUrl } : {}),
     ...(product.demo?.adminUrl ? { adminUrl: product.demo.adminUrl } : {}),
+  };
+}
+
+/**
+ * §90's "demo credentials viewed", and the two reasons it is narrower than that.
+ *
+ * The service doc has referenced this audit since ticket 07 and nothing wrote
+ * it. Written here rather than at the call site so it cannot be forgotten by
+ * the next caller — the reveal and the record are the same operation.
+ *
+ * **Only when a password was actually decrypted.** A demo with a URL and no
+ * credentials is a link, and logging that somebody looked at a link is noise
+ * that makes the real rows harder to find.
+ *
+ * **Not for `public` exposure.** A public demo credential is published — it is
+ * on the page for anyone, deliberately. An audit row per anonymous page view
+ * would be tens of thousands of entries recording that the public read
+ * something public, in an append-only collection nothing deletes. What §90
+ * wants is the gated case: who, specifically, was shown a credential they had
+ * to qualify for.
+ */
+async function recordReveal(
+  productId: string,
+  exposure: DemoExposure,
+  viewer: DemoViewer,
+  credentials: RevealedCredential[],
+): Promise<void> {
+  if (exposure === "public") return;
+  if (!credentials.some((credential) => credential.password)) return;
+
+  await writeAuditLog({
+    action: "product.demo_credentials_viewed",
+    actor: actorFor(viewer),
+    subject: { type: "product", id: productId },
+    ...(viewer.organizationId ? { organizationId: viewer.organizationId } : {}),
+    // The roles, never the values. `redactAuditPayload` would catch a
+    // `password` key anyway; not passing one is the stronger version.
+    after: { exposure, roles: credentials.map((credential) => credential.role) },
+  });
+}
+
+/**
+ * The actor, without inventing an organisation.
+ *
+ * Three cases, and the middle one is the one worth naming: a *staff* viewer is
+ * not a customer, and recording them as one would misattribute every reveal
+ * somebody made while configuring the demo. An anonymous viewer of a gated
+ * demo cannot happen — `canRevealCredentials` refused them above — so `system`
+ * is unreachable in practice and is there rather than a non-null assertion.
+ */
+function actorFor(viewer: DemoViewer): AuditActor {
+  if (!viewer.userId) return { type: "system" };
+  if (viewer.isStaff) return { type: "staff", userId: viewer.userId };
+
+  return {
+    type: "customer",
+    userId: viewer.userId,
+    ...(viewer.organizationId ? { organizationId: viewer.organizationId } : {}),
   };
 }
 

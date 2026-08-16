@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import { nanoid } from "nanoid";
 import { RECENTLY_VIEWED_COOKIE } from "@/config/storefront";
+import { REQUEST_ID_HEADER } from "@/config/observability";
+import {
+  CONVERSATION_COOKIE,
+  CONVERSATION_COOKIE_MAX_AGE,
+} from "@/services/ai/conversation-cookie";
 import {
   pushRecentlyViewed,
   recentlyViewedCookieOptions,
@@ -58,9 +64,39 @@ const AUTH_PAGES = ["/login", "/register", "/forgot-password"] as const;
 /** `/marketplace/<slug>` — but not `/marketplace/category/...` or `/industry/...`. */
 const PRODUCT_PATH = /^\/marketplace\/(?!category\/|industry\/)([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
 
+/** The two AI doors (tickets 17, 18). Both need an owner before they render. */
+const ASSISTANT_PATH = /^\/(?:custom-software|customize)(?:\/|$)/;
+
+/**
+ * A correlation id for every request — ticket 27, §95.
+ *
+ * Minted here because the proxy is the only thing that runs before everything
+ * else, and put on the **request** headers so a Server Component can read it
+ * with `headers()`. Without that a log line from a page and a log line from the
+ * action it submitted to are two unrelated lines.
+ *
+ * An inbound `x-request-id` is honoured, so a trace that started at a load
+ * balancer or an upstream service keeps its identity. That is client-supplied
+ * and is treated accordingly: it is a **log field and nothing else**, capped in
+ * length, and never used for authorisation or as a key to anything.
+ */
+function requestId(request: NextRequest): string {
+  const inbound = request.headers.get(REQUEST_ID_HEADER);
+  if (inbound) return inbound.slice(0, 64);
+  return nanoid(16);
+}
+
+/** Attach the id to the forwarded request, so `headers()` can read it. */
+function withRequestId(request: NextRequest, id: string): Headers {
+  const headers = new Headers(request.headers);
+  headers.set(REQUEST_ID_HEADER, id);
+  return headers;
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
   const hasSessionCookie = Boolean(getSessionCookie(request, { cookiePrefix: "innovatrix" }));
+  const id = requestId(request);
 
   if (!hasSessionCookie && PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))) {
     const login = new URL("/login", request.url);
@@ -77,10 +113,35 @@ export function proxy(request: NextRequest): NextResponse {
 
   const productSlug = PRODUCT_PATH.exec(pathname)?.[1];
   if (productSlug && isRealVisit(request)) {
-    return withRecentlyViewed(request, productSlug);
+    return withRecentlyViewed(request, productSlug, id);
   }
 
-  return NextResponse.next();
+  /*
+   * Mint the anonymous-conversation cookie before the assistant pages render.
+   *
+   * They need an owner key to create or resume a conversation, and a Server
+   * Component cannot set a cookie — the first version of this called
+   * `ensureAnonymousKey()` from the page and every visit 500'd with "Cookies
+   * can only be modified in a Server Action or Route Handler". Exactly the
+   * mistake ticket 09's recently-viewed cookie made, and fixed the same way.
+   *
+   * Only for signed-out visitors: a session already identifies the owner, and
+   * an unnecessary cookie is one more thing to clear on sign-out.
+   */
+  if (
+    !hasSessionCookie &&
+    ASSISTANT_PATH.test(pathname) &&
+    isRealVisit(request) &&
+    !request.cookies.get(CONVERSATION_COOKIE)
+  ) {
+    return withConversationKey(request, id);
+  }
+
+  const response = NextResponse.next({ request: { headers: withRequestId(request, id) } });
+  // Also on the response, so the id in a support ticket's screenshot of the
+  // network tab is the same one in the logs.
+  response.headers.set(REQUEST_ID_HEADER, id);
+  return response;
 }
 
 /**
@@ -129,8 +190,46 @@ function isRealVisit(request: NextRequest): boolean {
   return destination === null || destination === "document";
 }
 
-function withRecentlyViewed(request: NextRequest, slug: string): NextResponse {
-  const response = NextResponse.next();
+/**
+ * Mint the key on the response **and on the forwarded request**.
+ *
+ * The second half is the part that is easy to miss. `response.cookies.set`
+ * tells the *browser* to store it, which is enough for recently-viewed because
+ * nothing reads that back in the same request. Here the page renders
+ * immediately afterwards and calls `cookies()` — which reads the **request**,
+ * not the response — so without forwarding it the page would see no cookie,
+ * create no conversation, and the visitor would need a second page load before
+ * the assistant worked.
+ */
+function withConversationKey(request: NextRequest, id: string): NextResponse {
+  const key = nanoid(21);
+
+  const headers = withRequestId(request, id);
+  const existing = headers.get("cookie");
+  headers.set(
+    "cookie",
+    existing ? `${existing}; ${CONVERSATION_COOKIE}=${key}` : `${CONVERSATION_COOKIE}=${key}`,
+  );
+
+  const response = NextResponse.next({ request: { headers } });
+  response.headers.set(REQUEST_ID_HEADER, id);
+
+  response.cookies.set({
+    name: CONVERSATION_COOKIE,
+    value: key,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: request.nextUrl.protocol === "https:",
+    path: "/",
+    maxAge: CONVERSATION_COOKIE_MAX_AGE,
+  });
+
+  return response;
+}
+
+function withRecentlyViewed(request: NextRequest, slug: string, id: string): NextResponse {
+  const response = NextResponse.next({ request: { headers: withRequestId(request, id) } });
+  response.headers.set(REQUEST_ID_HEADER, id);
 
   const next = pushRecentlyViewed(request.cookies.get(RECENTLY_VIEWED_COOKIE)?.value, slug);
 
@@ -145,9 +244,18 @@ function withRecentlyViewed(request: NextRequest, slug: string): NextResponse {
 export const config = {
   /**
    * Without a matcher this would run on every static asset. The negative
-   * lookahead excludes Next's internals, the auth endpoints themselves (which
-   * must never be redirected — that would break the sign-in POST), and files
-   * with an extension.
+   * lookahead excludes Next's internals, files with an extension, and three
+   * API prefixes that must reach their handler untouched:
+   *
+   * - **`api/auth`** — redirecting the sign-in POST would break it.
+   * - **`api/webhooks`** — ticket 13 verifies signatures over the **exact
+   *   bytes**. Nothing may sit in front of that body, and running a
+   *   cookie-parsing redirect in front of the most failure-sensitive route in
+   *   the platform buys nothing.
+   * - **`api/cron`** — authenticated by a shared secret, not a session, so a
+   *   session check would only ever redirect it wrongly.
    */
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.[a-zA-Z0-9]+$).*)"],
+  matcher: [
+    "/((?!api/auth|api/webhooks|api/cron|_next/static|_next/image|favicon.ico|.*\\.[a-zA-Z0-9]+$).*)",
+  ],
 };

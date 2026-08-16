@@ -17,6 +17,8 @@ import {
 import { DemoPanel } from "@/features/product/demo-panel";
 import { Gallery } from "@/features/product/gallery";
 import { ProductJsonLd } from "@/features/product/json-ld";
+import { BreadcrumbJsonLd, type Crumb } from "@/components/json-ld";
+import { DEFAULT_CURRENCY } from "@/config/storefront";
 import { PurchaseSection } from "@/features/product/purchase-section";
 import { RelatedProducts } from "@/features/product/related";
 
@@ -101,7 +103,15 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
     <article className="mx-auto w-full max-w-[1180px] px-5 py-10 lg:px-10 lg:py-14">
       {/* Recently-viewed is recorded in `proxy.ts`, not here: Next.js does not
           let a Server Component set a cookie, and attempting it throws. */}
-      <ProductJsonLd product={product} currency="GBP" origin={origin} />
+      {/*
+        `DEFAULT_CURRENCY`, not a hard-coded "GBP".
+        
+        The literal was here and the component has always taken the prop — so
+        the storefront's configured default and the price advertised to a
+        crawler could silently disagree the moment either changed. One source.
+      */}
+      <ProductJsonLd product={product} currency={DEFAULT_CURRENCY} origin={origin} />
+      <BreadcrumbJsonLd crumbs={crumbsFor(product)} origin={origin} />
 
       <Breadcrumbs product={product} />
 
@@ -199,6 +209,26 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
 }
 
 /* ────────────────────────────────────────────── sections */
+
+/**
+ * The crumbs, once, for both the visible nav and the structured data.
+ *
+ * Derived rather than written twice: a `BreadcrumbList` that disagrees with the
+ * rendered breadcrumb is a structured-data policy violation, and two hand-kept
+ * lists disagree the first time somebody edits one.
+ */
+function crumbsFor(product: ProductDetail): Crumb[] {
+  const category = product.taxonomy.categories[0];
+
+  return [
+    { name: "Marketplace", path: "/marketplace" },
+    ...(category
+      ? [{ name: category.name, path: `/marketplace/category/${category.slug}` }]
+      : []),
+    // No `path` on the last one — schema.org's way of saying "you are here".
+    { name: product.name },
+  ];
+}
 
 function Breadcrumbs({ product }: { product: ProductDetail }) {
   const category = product.taxonomy.categories[0];

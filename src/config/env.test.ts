@@ -37,7 +37,10 @@ describe("server env", () => {
   it("accepts a complete, valid environment", async () => {
     const { serverEnv } = await loadEnv();
     expect(serverEnv().MONGODB_DB_NAME).toBe("innovatrix");
-    expect(serverEnv().OPENROUTER_MODEL).toBe("anthropic/claude-opus-4.1");
+    // Whatever this default is, it must support structured output — the
+    // requirement extraction in ticket 16 cannot run otherwise, and the
+    // previous default (`anthropic/claude-opus-4.1`) did not.
+    expect(serverEnv().OPENROUTER_MODEL).toBe("google/gemini-3.7-flash");
     expect(serverEnv().OPENROUTER_BASE_URL).toBe("https://openrouter.ai/api/v1");
   });
 
@@ -119,5 +122,37 @@ describe("server env", () => {
     process.env.PAYSTACK_SECRET_KEY = "sk_test_paystack";
     const { configuredPaymentProviders } = await loadEnv();
     expect(configuredPaymentProviders()).toEqual(["paystack"]);
+  });
+
+  /**
+   * `KEY=` is how `.env.example` says "fill this in later", and every optional
+   * variable has to survive being copied across verbatim.
+   *
+   * This was a real failure: `CRON_SECRET: z.string().min(16).optional()` looks
+   * correct and is not. An empty string is *present*, so `.optional()` never
+   * applies, `.min(16)` rejects it, and the process refuses to start naming a
+   * variable the author deliberately left blank — following the README's own
+   * quick start. Found by trying it.
+   */
+  it("treats a blank optional variable as unset rather than as a bad value", async () => {
+    process.env.CRON_SECRET = "";
+    process.env.OPENROUTER_API_KEY = "";
+    process.env.OPENROUTER_SITE_URL = "";
+    process.env.STORAGE_ENDPOINT = "";
+    process.env.MONGODB_TRANSACTIONS = "";
+
+    const { serverEnv } = await loadEnv();
+
+    expect(() => serverEnv()).not.toThrow();
+    expect(serverEnv().CRON_SECRET).toBeUndefined();
+    expect(serverEnv().OPENROUTER_API_KEY).toBeUndefined();
+  });
+
+  it("still rejects a CRON_SECRET that is present and too short", async () => {
+    // The blank case above must not have loosened the real check — a
+    // four-character shared secret is worse than none, because it looks set.
+    process.env.CRON_SECRET = "short";
+    const { serverEnv } = await loadEnv();
+    expect(() => serverEnv()).toThrow(/CRON_SECRET/);
   });
 });

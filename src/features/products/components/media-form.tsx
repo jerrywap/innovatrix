@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FieldGroup, SectionForm } from "./section-form";
+import { MediaUpload } from "./media-upload";
 import { Repeater } from "./repeater";
 import { saveMediaAction } from "../actions";
 import type { AdminProductView, MediaView } from "@/services/catalog/product-view";
@@ -10,19 +12,23 @@ import type { AdminProductView, MediaView } from "@/services/catalog/product-vie
 /**
  * Screenshots and video — §42 step 5.
  *
- * ## Uploads are not wired up yet, and the reason is not code
+ * ## Uploads work now; they did not when ticket 05 shipped
  *
- * Ticket 05 landed with two unresolved environment blockers that bite exactly
- * here: **bucket CORS is not configured**, so a browser upload fails its
- * preflight before a byte moves, and **`s3:DeleteObject` is denied**, so a
- * screenshot could be added and never removed. The signing path itself works —
- * the storage probe proved a server-side PUT round-trips.
+ * That ticket deferred this behind two environment blockers. Both were
+ * re-checked rather than assumed, with `npm run storage:media-probe`:
  *
- * So this step takes a **URL** for now. That is honest: it stores real media,
- * renders on the product page, and satisfies the publish gate, without
- * pretending an upload button works when it cannot. `FileDropzone` and the
- * presigned PUT drop in behind the same schema — `media[].storageKey` already
- * exists alongside `url` — once the bucket is fixed.
+ * - **Bucket CORS** is configured. A real preflight from this origin against a
+ *   signed URL returns `200` with `access-control-allow-origin`, and the PUT
+ *   that follows returns `200`. So the upload control is here.
+ * - **`s3:DeleteObject` is still denied** for this IAM user. That does not
+ *   affect *replacing* an image — uploading over one reuses its key and S3
+ *   overwrites in place, so a mistake gets corrected rather than abandoned.
+ *   It does affect *deleting* a row: the object stays in the bucket. A
+ *   storage-cost problem rather than a correctness one, said out loud below
+ *   rather than discovered later from a bill.
+ *
+ * Pasting a URL still works and is still first-class — some media is hosted
+ * elsewhere, and an upload is just a second way to fill the same field.
  *
  * Alt text is asked for on every image because §100's accessibility bar applies
  * to the marketplace, and an unlabelled screenshot is the most common way a
@@ -42,8 +48,9 @@ export function MediaForm({
         description="The first one is the marketplace card. At least one is needed before publishing."
       >
         <p className="border-border bg-surface-muted text-muted-foreground rounded-xl border px-3.5 py-2.5 text-[12.5px]">
-          Direct uploads are waiting on bucket CORS, which has to be set by someone with console
-          access. Until then, paste an image URL — the product page renders it either way.
+          Upload an image or paste its address — the product page renders either. Uploading over
+          an image replaces the stored file. Deleting a row removes it from the page but leaves
+          the file in the bucket: this account cannot delete objects yet.
         </p>
 
         <Repeater
@@ -53,30 +60,50 @@ export function MediaForm({
           emptyLabel="No screenshots yet."
           max={24}
           reorderable
-          row={(media, index) => <MediaRow media={media} index={index} />}
+          row={(media, index) => (
+            <MediaRow media={media} index={index} productId={product.id} />
+          )}
         />
       </FieldGroup>
     </SectionForm>
   );
 }
 
-function MediaRow({ media, index }: { media: MediaView; index: number }) {
+/**
+ * The row owns its address, so an upload and a paste are the same edit.
+ *
+ * State rather than `defaultValue` only for the two fields an upload changes —
+ * `Repeater` keys rows stably and moves the DOM node on reorder, so this
+ * survives being moved.
+ */
+function MediaRow({
+  media,
+  index,
+  productId,
+}: {
+  media: MediaView;
+  index: number;
+  productId: string;
+}) {
+  const [url, setUrl] = useState(media.url ?? "");
+  const [storageKey, setStorageKey] = useState(media.storageKey ?? "");
+
   return (
     <div className="flex flex-col gap-2">
       <input type="hidden" name={`media[${index}][kind]`} value={media.kind} />
       <input type="hidden" name={`media[${index}][sortOrder]`} value={String(index)} />
-      {media.storageKey && (
-        <input type="hidden" name={`media[${index}][storageKey]`} value={media.storageKey} />
-      )}
+      {/* Always rendered, so an upload into a brand-new row has somewhere to
+          put the key — it used to be conditional on there already being one. */}
+      <input type="hidden" name={`media[${index}][storageKey]`} value={storageKey} />
 
       <div className="flex gap-3">
-        {(media.url ?? media.storageKey) && (
+        {url && (
           // A plain <img>, not next/image: the URL is arbitrary and may not be
           // in `remotePatterns`, and a broken optimiser here would hide the
           // preview an admin is checking. Public pages use next/image.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={media.url ?? ""}
+            src={url}
             alt=""
             className="border-border bg-surface-muted size-16 shrink-0 rounded-lg border object-cover"
           />
@@ -85,12 +112,31 @@ function MediaRow({ media, index }: { media: MediaView; index: number }) {
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <Input
             name={`media[${index}][url]`}
-            defaultValue={media.url ?? ""}
+            value={url}
+            onChange={(event) => {
+              setUrl(event.target.value);
+              // Typed over by hand, so whatever object this used to point at is
+              // no longer what renders. Keeping the key would attach the row to
+              // a file it no longer shows.
+              setStorageKey("");
+            }}
             type="url"
             placeholder="https://…"
             aria-label={`Image ${index + 1} address`}
             className="font-mono text-[12.5px]"
           />
+
+          <MediaUpload
+            productId={productId}
+            // Present ⇒ overwrite that object. A wrong image corrected here
+            // replaces the file rather than leaving it behind.
+            {...(storageKey ? { replaceKey: storageKey } : {})}
+            onUploaded={(result) => {
+              setUrl(result.url);
+              setStorageKey(result.storageKey);
+            }}
+          />
+
           <Input
             name={`media[${index}][alt]`}
             defaultValue={media.alt ?? ""}

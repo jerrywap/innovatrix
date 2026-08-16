@@ -359,3 +359,86 @@
     animation: pulse-ring 2.4s ease-out infinite;
   }
 }
+
+/*
+ * Printing — the quote's PDF (ticket 22).
+ *
+ * Rather than generating a second document, a quote prints. Ticket 22 offered
+ * React-PDF or Puppeteer; both mean a *second layout* that has to be kept in
+ * step with the web page, and the drift between them is silent. Puppeteer also
+ * wants the ticket-25 job queue, which does not exist, so it would have meant
+ * launching Chromium inside a Server Action.
+ *
+ * The thing that makes this safe rather than merely cheap: a quote version is
+ * immutable. A revision creates v2 and supersedes v1 — it never edits in place
+ * — so re-rendering a version always produces the same document. The usual
+ * reason for storing a rendered artefact ("the customer must download exactly
+ * what they were sent") is already guaranteed by the data.
+ *
+ * `.no-print` marks anything that is navigation or an action rather than the
+ * document: it exists on screen and must not appear on paper.
+ */
+@media print {
+  .no-print,
+  header nav,
+  aside,
+  footer {
+    display: none !important;
+  }
+
+  /* The viewer's theme must not decide whether the printout is legible. A dark
+     theme prints as a black page or, worse, as white-on-white once the browser
+     drops backgrounds. */
+  :root,
+  :root[data-theme="dark"] {
+    --background: #ffffff;
+    --foreground: #111111;
+    --surface: #ffffff;
+    --surface-muted: #f6f6f6;
+    --border: #d4d4d4;
+    --muted-foreground: #444444;
+    --subtle: #666666;
+  }
+
+  body {
+    background: #ffffff;
+    color: #111111;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+
+  .quote-document {
+    border: none !important;
+    padding: 0 !important;
+    /* Keep a row's description with its price. A line item split across a page
+       break is how a total stops being checkable. */
+    break-inside: auto;
+  }
+
+  .quote-document tr,
+  .quote-document section {
+    break-inside: avoid;
+  }
+
+  /* Backgrounds are dropped by default, which erases the table header and the
+     total row — the two bits of structure a reader needs. */
+  .quote-document thead,
+  .quote-document [class*="bg-surface-muted"] {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  a[href]::after {
+    /* No "(https://…)" after every link. On a quote the links are navigation,
+       not references, and printing them is noise. */
+    content: none !important;
+  }
+
+  @page {
+    margin: 18mm;
+  }
+}

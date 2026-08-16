@@ -311,8 +311,36 @@ export const SUBJECT_TYPES = values([
   "entitlement",
   "organization",
   "payment",
+  /**
+   * Ticket 25. Retrying or cancelling a background job is a staff decision
+   * about something that will or will not happen to customer data, so it is
+   * auditable like any other — and `job` rather than a vaguer `system` so the
+   * subject-scoped index actually finds the job's own history.
+   */
+  "job",
 ] as const);
 export type SubjectType = (typeof SUBJECT_TYPES)[number];
 
 export const NOTIFICATION_CHANNELS = values(["in_app", "email"] as const);
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+/**
+ * §69's preference categories.
+ *
+ * Deliberately five broad buckets rather than one switch per event. A
+ * preferences screen with thirty toggles is one nobody reads, and the person
+ * who wants fewer emails wants "stop telling me about products", not to reason
+ * about `ProductVersionReleased`.
+ *
+ * `security` is in the list so the *category* exists on every notification, not
+ * so it can be switched off — see `ESSENTIAL_CATEGORIES` in the service.
+ */
+export const NOTIFICATION_CATEGORIES = values([
+  "requests",
+  "quotes",
+  "billing",
+  "products",
+  "messages",
+  "security",
+] as const);
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];

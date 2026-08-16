@@ -173,6 +173,13 @@ export const STAFF_NAV: readonly NavSection[] = [
         matchNested: true,
       },
       {
+        label: "Invoices",
+        href: "/staff/invoices",
+        icon: "receipt",
+        permission: "invoice.view_all",
+        matchNested: true,
+      },
+      {
         label: "Customers",
         href: "/staff/customers",
         icon: "users",
@@ -196,6 +203,13 @@ export const STAFF_NAV: readonly NavSection[] = [
         icon: "messages",
         permission: "message.view_all",
         matchNested: true,
+      },
+      {
+        // No permission: everybody who works here has an inbox, and it holds
+        // only what they were already entitled to be told.
+        label: "Notifications",
+        href: "/staff/notifications",
+        icon: "bell",
       },
     ],
   },
@@ -252,6 +266,12 @@ export const ADMIN_NAV: readonly NavSection[] = [
         permission: "payment.reconcile",
         matchNested: true,
       },
+      {
+        label: "Discounts",
+        href: "/admin/discounts",
+        icon: "tags",
+        permission: "discount.manage",
+      },
     ],
   },
   {
@@ -268,6 +288,32 @@ export const ADMIN_NAV: readonly NavSection[] = [
         href: "/admin/jobs",
         icon: "checklist",
         permission: "system.manage_jobs",
+      },
+      {
+        // Narrow on purpose: the log records staff actions too, so reading it
+        // is its own capability rather than something every admin has (§90).
+        label: "Audit log",
+        href: "/admin/audit",
+        icon: "scroll",
+        permission: "audit.view",
+      },
+      {
+        label: "Payments setup",
+        href: "/admin/settings/payments",
+        icon: "card",
+        permission: "payment_provider.configure",
+      },
+      {
+        label: "Tax",
+        href: "/admin/settings/tax",
+        icon: "receipt",
+        permission: "tax.manage",
+      },
+      {
+        label: "AI",
+        href: "/admin/settings/ai",
+        icon: "sparkles",
+        permission: "ai.configure",
       },
       {
         label: "Settings",

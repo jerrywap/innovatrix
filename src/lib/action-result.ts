@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DomainError, GENERIC_ERROR_MESSAGE, ValidationError, isDomainError } from "./errors";
+import { log } from "./logger";
 
 /**
  * The single shape every server action returns.
@@ -74,9 +75,18 @@ function isNextControlFlow(error: unknown): boolean {
   );
 }
 
+/**
+ * An error a server action did not expect.
+ *
+ * The client gets a redacted digest with no detail — that is the whole reason
+ * `ActionResult` exists — so this is the only place the actual cause is
+ * recorded. Structured, with the stack flattened into a field: passing an
+ * `Error` to `JSON.stringify` produces `{}`, because its properties are
+ * non-enumerable, so an unstructured logger would record nothing for the one
+ * field anybody wanted.
+ */
 function logUnexpected(error: unknown): void {
-  // Replaced by structured logging + Sentry in ticket 27.
-  console.error("[action]", error);
+  log.exception("Unhandled error in a server action", error, { code: "action.unhandled" });
 }
 
 /**

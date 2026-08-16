@@ -2,12 +2,13 @@ import "server-only";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import { PRODUCT_VERSION_TRANSITIONS, assertTransition } from "@/lib/db/states";
-import type { ProductVersionDoc } from "@/lib/db/models/catalog";
+import { Product, type ProductVersionDoc } from "@/lib/db/models/catalog";
 import type { ProductVersionStatus } from "@/lib/db/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { isEmptyDocument, type RichTextDocument } from "@/lib/rich-text/schema";
 import { compareSemver, isSemver, sortByVersionDesc, supersedes } from "@/lib/semver";
 import { products } from "@/repositories/product.repository";
+import { emit } from "@/lib/events";
 import { productFiles } from "@/repositories/product-file.repository";
 import { productVersions } from "@/repositories/product-version.repository";
 import { statusChange, writeAuditLog, type AuditActor } from "@/services/audit";
@@ -215,6 +216,24 @@ export async function releaseVersion(
     subject: { type: "product", id: String(version.productId) },
     ...statusChange("draft", "released", { version: updated.version }),
     source: "admin",
+  });
+
+  /*
+   * §69's update notice, fanning out to everyone with an active entitlement.
+   *
+   * Emitted after the audit and outside any transaction: a notification
+   * failing must not un-release a version, and the version is genuinely
+   * released whether or not anybody was told.
+   */
+  const product = await Product.findById(version.productId)
+    .select({ name: 1 })
+    .lean<{ name: string }>();
+
+  await emit("ProductVersionReleased", {
+    productId: String(version.productId),
+    productName: product?.name ?? "Your software",
+    versionId: String(version._id),
+    version: updated.version,
   });
 
   return updated;

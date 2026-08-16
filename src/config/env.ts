@@ -25,6 +25,21 @@ const optionalBool = z.preprocess(
   bool.optional(),
 );
 
+/**
+ * The same treatment for an optional value with a *shape* — a minimum length, a
+ * prefix, a URL.
+ *
+ * `z.string().min(16).optional()` looks right and is not: `CRON_SECRET=` in a
+ * `.env` file is the empty string, which is present, so `.optional()` never
+ * applies and `.min(16)` rejects it. Boot then fails naming a variable the
+ * author deliberately left blank — and `.env.example` ships exactly that line,
+ * so following the README literally used to produce a process that would not
+ * start.
+ */
+function optionalShaped<T extends z.ZodType>(schema: T) {
+  return z.preprocess((v) => (v === "" || v === undefined ? undefined : v), schema.optional());
+}
+
 const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
@@ -116,32 +131,61 @@ const serverSchema = z.object({
    */
   PAYPAL_ENV: z.enum(["sandbox", "live"]).default("sandbox"),
 
-  /**
-   * Authenticates `/api/cron/*` (ticket 13's reconciliation sweep).
-   *
-   * Not a session — the caller is a scheduler, not a person. Optional so local
-   * development boots without one; the route refuses to run when it is unset
-   * rather than running unauthenticated, because a reconciliation endpoint
-   * anyone can trigger is a way to hammer three payment providers.
-   */
-  CRON_SECRET: z.string().min(16).optional(),
-
   /* ── AI (ticket 16) — via OpenRouter ────────────────────
      OpenRouter is an OpenAI-compatible gateway, so ticket 16 uses the OpenAI
      SDK pointed at this baseURL rather than a vendor SDK. Model ids are
      "vendor/model", so Claude stays reachable — just not called directly. */
-  OPENROUTER_API_KEY: z.string().startsWith("sk-or-").optional(),
+  OPENROUTER_API_KEY: optionalShaped(z.string().startsWith("sk-or-")),
   OPENROUTER_BASE_URL: z.url().default("https://openrouter.ai/api/v1"),
-  OPENROUTER_MODEL: z.string().default("anthropic/claude-opus-4.1"),
-  OPENROUTER_SITE_URL: z.url().optional(),
+  /**
+   * The **fallback** model. `AiSettings` in the database wins over this, so
+   * changing model in production is an admin screen, not a deploy — which is
+   * the point of §104's "keep working when a provider misbehaves".
+   *
+   * Was `anthropic/claude-opus-4.1`, changed for two reasons found by reading
+   * OpenRouter's own model catalogue rather than guessing:
+   *
+   *  1. **It cannot do structured extraction.** Its `supported_parameters`
+   *     lists neither `response_format` nor `structured_outputs`, so ticket
+   *     16's `extract.ts` — the thing that turns a conversation into
+   *     requirements — would have failed on the default configuration.
+   *  2. Cost. $15/$75 per M against $0.375/$1.875, on the platform's most
+   *     talkative path, with a fifth of the context window.
+   */
+  OPENROUTER_MODEL: z.string().default("google/gemini-3.7-flash"),
+  OPENROUTER_SITE_URL: optionalShaped(z.url()),
   OPENROUTER_APP_NAME: z.string().default("Innovatrix"),
 
   /* ── Email (ticket 24) ────────────────────────────────── */
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.email().default("no-reply@innovatrix.com"),
 
-  /* ── Jobs (ticket 25) ─────────────────────────────────── */
-  CRON_SECRET: z.string().min(16).optional(),
+  /* ── Scheduled work (tickets 13, 25) ──────────────────
+     Authenticates `/api/cron/*`. The caller is a scheduler, not a person, so
+     it is a shared secret rather than a session. Optional so local development
+     boots without one; the routes **refuse to run** when it is unset rather
+     than running unauthenticated — an open reconciliation endpoint is a way to
+     hammer three payment providers on demand. */
+  CRON_SECRET: optionalShaped(z.string().min(16)),
+
+  /* ── Background jobs (ticket 25) ──────────────────────
+     `inline` runs a worker inside this process — right on a container, wrong
+     on a serverless host where nothing is long-lived and every instance would
+     poll. `off` leaves the queue to `/api/cron/tick`.
+
+     Defaulting to `inline` means a fresh checkout has working background jobs
+     without reading a document; a serverless deploy has to say `off`, which is
+     the deployment that has someone configuring it anyway. */
+  JOBS_WORKER: z.enum(["inline", "off"]).default("inline"),
+  JOBS_POLL_MS: z.coerce.number().int().min(250).max(300_000).default(5_000),
+  /* How long a claim is honoured before another worker may take the job. Must
+     exceed the slowest handler, or a long job is run twice concurrently. */
+  JOBS_VISIBILITY_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(30_000)
+    .max(3_600_000)
+    .default(300_000),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;

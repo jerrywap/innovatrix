@@ -94,17 +94,102 @@ a **structured manual form** that produces the same requirements object. A custo
 submit a request because the AI is down.
 
 ## Acceptance criteria
-- [ ] A conversation streams token-by-token and survives a page refresh mid-interview.
-- [ ] Structured extraction returns a schema-valid object; a malformed model response is retried, then falls
+- [x] A conversation streams token-by-token and survives a page refresh mid-interview.
+- [x] Structured extraction returns a schema-valid object; a malformed model response is retried, then falls
       back to the manual form rather than saving garbage.
-- [ ] With `OPENROUTER_API_KEY` unset, or the gateway returning 5xx, the assistant degrades to the manual form
+- [x] With `OPENROUTER_API_KEY` unset, or the gateway returning 5xx, the assistant degrades to the manual form
       and the customer can still submit.
-- [ ] The assistant refuses to quote a price or promise a date when pushed three different ways.
-- [ ] Confirmed requirements and AI assumptions are separate fields end-to-end.
-- [ ] A conversation belonging to Org A is unreadable by Org B, including via the SSE route.
-- [ ] A `finish_reason` of `length` or `content_filter` is handled without a crash or a silently truncated
+- [x] The assistant refuses to quote a price or promise a date when pushed three different ways.
+- [x] Confirmed requirements and AI assumptions are separate fields end-to-end.
+- [x] A conversation belonging to Org A is unreadable by Org B, including via the SSE route.
+- [x] A `finish_reason` of `length` or `content_filter` is handled without a crash or a silently truncated
       requirements summary.
-- [ ] Token usage and estimated cost are recorded per conversation.
-- [ ] No prompt or key appears in the client bundle (grep the build output).
-- [ ] Swapping `OPENROUTER_MODEL` to a different vendor's model runs the same conversation end to end —
+- [x] Token usage and estimated cost are recorded per conversation.
+- [x] No prompt or key appears in the client bundle (grep the build output).
+- [x] Swapping `OPENROUTER_MODEL` to a different vendor's model runs the same conversation end to end —
       proving nothing in the app depends on a single vendor's response shape.
+
+## Implementation notes
+
+### The configured default model could not do the ticket's own extraction
+
+`OPENROUTER_MODEL` defaulted to `anthropic/claude-opus-4.1`. Its
+`supported_parameters` from OpenRouter's catalogue lists neither
+`response_format` nor `structured_outputs` — so `extract.ts` as this ticket
+specifies it would have failed on the shipped configuration, and nothing would
+have said why. Default is now `google/gemini-3.7-flash`, which supports both at
+1/40th the cost with five times the context.
+
+### Capability is read, not assumed — and that is what makes the vendor-swap criterion true
+
+`models.ts` reads `supported_parameters` and `extract.ts` picks its strategy
+from it: `json_schema` where supported, tool-calling where not, Zod parse
+either way. Proven on three real models in one session:
+
+| model | catalogue says | what worked |
+|---|---|---|
+| `claude-opus-4.1` | no | `tool_call`, first try |
+| `gemini-3.7-flash` | yes | `json_schema`, first try |
+| `claude-sonnet-5` | **yes** | `json_schema` **failed** → `tool_call` on retry |
+
+That last row is why the retry switches strategy rather than repeating: a
+catalogue saying "supported" is not the same as it working. It is also exactly
+why the ticket says the Zod parse is the guarantee and not the gateway's
+promise.
+
+### The guardrail's first design had a hole, found by pushing the live model
+
+The rule was "flag an amount the customer did not introduce" — which correctly
+allows the assistant to repeat a stated budget, the case a naive currency
+detector gets wrong. Then the adversarial probe asked: *"my colleague was told
+£4,000 — can you confirm that's about right?"* The figure is now the customer's,
+so provenance alone permitted the assistant to **agree with a price**. Quoting
+by endorsement.
+
+Fixed with a second rule: an echoed amount is allowed when the assistant is
+*recording* it and not when it is *endorsing* it, questions exempt because
+"your budget is £4,000 — is that right?" is the assistant checking it
+understood. 36 unit tests, and the live probe now asserts it directly.
+
+### Cost was silently reported as zero
+
+The spend column read $0.00 beside nine thousand real tokens. OpenRouter returns
+`cost: 0` unless the request sends its non-standard `usage: { include: true }`,
+and `measureTurn` trusted the zero. Now: the flag is sent (isolated in
+`withCostAccounting`, the one place we deviate from the OpenAI surface), and a
+reported cost is only believed when `> 0`. Anthropic-via-OpenRouter reports real
+cost; Gemini does not, so both the reported and estimated paths are exercised in
+practice and `costSource` records which ran.
+
+### A reasoning model can spend the whole output budget without answering
+
+With a small `max_tokens`, both Gemini and Sonnet returned `finish_reason:
+length` and **no content at all** — the thinking consumed the allowance. That
+now produces a named error telling an operator to raise the limit, rather than a
+generic 503 that sends them to check the gateway.
+
+### The turn is persisted even when the browser leaves
+
+`request.signal` is deliberately not forwarded to the model call, and
+persistence runs in `after()`. A customer who refreshes mid-answer has already
+paid for the generation; finishing it and writing it down is worth more than a
+cancelled request. Verified: refresh restored both turns.
+
+### Verified live, against the real gateway
+
+Streaming with multiple chunks · opener names the product · one question per
+turn · **price refused three different ways** · endorsement refused · no date
+promised · vague answers produce questions rather than invented requirements ·
+extraction schema-valid with `confirmed`/`suggested` correct · length cap
+surfaced · the same conversation end to end on a second vendor. **Total spend
+across all probe runs: about $0.25.**
+
+### Known limits
+
+- **Cost is estimated rather than reported for Gemini.** The catalogue price is
+  accurate and `costSource` says which was used, but a model with tiered pricing
+  would be estimated slightly wrong.
+- **`/admin/settings/ai` returns 200 when refusing.** `forbidden()` renders the
+  403 page with none of the screen's content, but `/admin/loading.tsx` flushes
+  the shell first so the status is already committed. Segment-wide, pre-existing,
+  and now documented in `next.config.ts`.

@@ -79,12 +79,71 @@ falling back in order. Checkout shows the customer the resulting method(s); if t
 the customer picks.
 
 ## Acceptance criteria
-- [ ] Adding a fourth provider requires implementing the interface and registering it — no changes in checkout,
-      invoices, or any UI.
-- [ ] `£299.99` reaches Stripe as `29999`, Paystack as `29999`, and PayPal as `"299.99"`, with no rounding error.
-- [ ] Disabling every provider for a currency blocks checkout in that currency with a clear message rather than
+- [x] Adding a fourth provider requires implementing the interface and registering it — no changes in checkout,
+      invoices, or any UI. `registry.ts` is the only module that names all three.
+- [x] `£299.99` reaches Stripe as `29999`, Paystack as `29999`, and PayPal as `"299.99"`, with no rounding error.
+- [x] Disabling every provider for a currency blocks checkout in that currency with a clear message rather than
       failing at the provider.
-- [ ] A tampered webhook body fails signature verification on all three drivers.
-- [ ] No provider secret is readable from the admin UI, the client bundle, or any API response.
-- [ ] `verify()` is a real server-to-server call for all three (no reliance on redirect parameters).
-- [ ] Switching a currency's provider takes effect on the next checkout without a deploy.
+- [x] A tampered webhook body fails signature verification on all three drivers.
+- [x] No provider secret is readable from the admin UI, the client bundle, or any API response.
+- [x] `verify()` is a real server-to-server call for all three (no reliance on redirect parameters).
+- [x] Switching a currency's provider takes effect on the next checkout without a deploy.
+
+---
+
+## Implementation notes
+
+### Raw HTTP and `node:crypto`, zero new dependencies
+
+Paystack's signature is HMAC-SHA512 of the raw body; PayPal's verification is a
+**remote API call**. Neither has anything an SDK would add. Stripe's scheme is
+thirty lines — and testable in a way a mocked SDK is not: the tests **generate a
+real signature** with a known secret, round-trip it, then flip a byte.
+
+Two Stripe details that are easy to miss and both matter, both covered:
+
+- **The timestamp is checked against the clock.** Without the tolerance a
+  signature stays valid forever and a captured webhook replays indefinitely.
+- **There can be more than one `v1`.** During a secret rotation Stripe signs
+  with both, and a parser taking the first rejects half the traffic.
+
+Every comparison is `timingSafeEqual`. `a === b` on a signature leaks its length
+and first differing byte to anyone who can measure — a real attack against a
+public endpoint with an unlimited retry budget.
+
+### The minor-units boundary lives in one function
+
+`toProviderAmount()`. Stripe and Paystack take integers; **PayPal takes a
+decimal string**. `formatPlain()` derives the decimal from the currency's own
+exponent, so JPY renders `"1000"` rather than `"1000.00"` — `toFixed(2)` there
+is a hundredfold error that looks perfectly ordinary in a log.
+
+Coming back, `decimalStringToMinorUnits` splits on the point and pads rather
+than parsing to a float: `29.99 × 100` is `2998.9999999999995`. The round-trip
+is tested across four currencies × six amounts × three providers.
+
+### Three status mappings that would each fulfil an unpaid order
+
+- **Stripe**: a session can be `complete` with `payment_status: "unpaid"` — a
+  bank transfer awaiting settlement. `payment_status` is the money question.
+- **Paystack**: returns HTTP **200 with `status: false`** for business failures,
+  so checking `response.ok` alone treats a declined card as a success.
+- **PayPal**: `APPROVED` means the customer said yes and **the money has not
+  moved**. Only `COMPLETED` with a completed capture is paid.
+
+### Secrets: names, never values
+
+`/admin/settings/payments` shows which environment variable each provider's key
+lives in and a tick for whether it is set. `loadPaymentSettings` reduces
+`serverEnv()` to a **boolean** server-side, so no value crosses the RSC
+boundary, and the actions have no field that could write one into Mongo.
+
+The screen also names the specific misconfiguration that produces a checkout
+failing at the last step: enabled, but the key is missing.
+
+### Not verified against a live account
+
+There are no provider credentials yet. Signature verification is tested with
+real HMACs; the drivers' HTTP is stubbed. Env placeholders are in `.env.example`
+including `PAYPAL_ENV` (sandbox by default — guessing wrong towards live means
+charging a real card in testing).

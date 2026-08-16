@@ -22,8 +22,11 @@ export function ResendVerification() {
       onClick={() =>
         startTransition(async () => {
           await resendVerificationAction();
-          // Shown whatever the outcome: the action is rate-limited server-side,
-          // and a failure message here would only invite retry hammering.
+          // Shown whatever the outcome, and a failure message here would only
+          // invite retry hammering. Safe to do because the send *is* throttled
+          // server-side — five an hour, in `auth.ts`'s `rateLimit.customRules`.
+          // It was not until ticket 26; this comment asserted a limit that did
+          // not exist, which is how an unbounded mail-sending endpoint hid.
           setSent(true);
         })
       }

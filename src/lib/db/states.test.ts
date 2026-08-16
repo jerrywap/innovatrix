@@ -7,12 +7,15 @@ import {
   PRODUCT_TRANSITIONS,
   QUOTE_TRANSITIONS,
   REQUEST_TRANSITIONS,
+  REQUEST_TRANSITION_RULES,
   STATE_MACHINES,
   assertTransition,
   canTransition,
   isTerminal,
   nextStates,
+  requestTransitionRule,
 } from "./states";
+import { PERMISSIONS } from "@/lib/auth/permissions";
 
 /**
  * §91 — "State transitions must be validated server-side."
@@ -190,5 +193,90 @@ describe("product (§46)", () => {
   it("allows un-deprecating but never un-archiving", () => {
     expect(canTransition(PRODUCT_TRANSITIONS, "deprecated", "published")).toBe(true);
     expect(isTerminal(PRODUCT_TRANSITIONS, "archived")).toBe(true);
+  });
+});
+
+/**
+ * The graph and the authorisation layer are two maps, so the only thing keeping
+ * them honest is this.
+ *
+ * The failure they prevent is quiet in both directions. A missing rule means
+ * `RequestService.transition` refuses a move the machine allows — a button that
+ * does nothing. A rule for an edge that does not exist means somebody wrote
+ * authorisation for a transition they *think* is possible, which reads as
+ * coverage and is not.
+ */
+describe("REQUEST_TRANSITION_RULES covers REQUEST_TRANSITIONS exactly", () => {
+  const edges = Object.entries(REQUEST_TRANSITIONS).flatMap(([from, targets]) =>
+    (targets as readonly string[]).map((to) => `${from}->${to}`),
+  );
+
+  it("has a rule for every edge in the machine", () => {
+    const missing = edges.filter((key) => !(key in REQUEST_TRANSITION_RULES));
+    expect(missing).toEqual([]);
+  });
+
+  it("has no rule for an edge the machine does not allow", () => {
+    const invented = Object.keys(REQUEST_TRANSITION_RULES).filter(
+      (key) => !edges.includes(key),
+    );
+    expect(invented).toEqual([]);
+  });
+
+  it("names only permissions that exist", () => {
+    // A typo'd permission string is never granted to anyone, so the edge
+    // becomes unreachable for staff and nothing says why.
+    const named = Object.values(REQUEST_TRANSITION_RULES)
+      .map((rule) => rule.permission)
+      .filter((permission) => permission !== null);
+    const unknown = named.filter((p) => !(PERMISSIONS as readonly string[]).includes(p));
+    expect(unknown).toEqual([]);
+  });
+
+  it("gives every rule a label, because the staff UI renders it", () => {
+    for (const [key, rule] of Object.entries(REQUEST_TRANSITION_RULES)) {
+      expect(rule.label, key).toMatch(/\S/);
+    }
+  });
+});
+
+describe("who may move a request", () => {
+  it("lets a customer submit, and gives staff no route to submit for them", () => {
+    // §34: "customer-confirmed" is a claim about who confirmed it. Staff
+    // submitting on a customer's behalf would make that claim false.
+    const rule = requestTransitionRule("draft", "submitted");
+    expect(rule?.customerMay).toBe(true);
+    expect(rule?.permission).toBeNull();
+  });
+
+  it("does not let a customer start their own review or convert their own request", () => {
+    expect(requestTransitionRule("submitted", "under_review")?.customerMay).toBe(false);
+    expect(requestTransitionRule("approved", "converted")?.customerMay).toBe(false);
+  });
+
+  it("lets a customer answer a request for information", () => {
+    // The wait ends because the customer replied; requiring staff to close it
+    // would leave requests parked in `waiting_for_customer` after the customer
+    // has done their part.
+    expect(requestTransitionRule("waiting_for_customer", "under_review")?.customerMay).toBe(
+      true,
+    );
+  });
+
+  it("lets a customer cancel from every non-terminal state they own", () => {
+    const cancellable = Object.entries(REQUEST_TRANSITIONS)
+      .filter(([, targets]) => (targets as readonly string[]).includes("cancelled"))
+      .map(([from]) => from);
+
+    for (const from of cancellable) {
+      expect(
+        requestTransitionRule(from as never, "cancelled")?.customerMay,
+        `${from}->cancelled`,
+      ).toBe(true);
+    }
+  });
+
+  it("returns undefined for an edge that is not in the machine", () => {
+    expect(requestTransitionRule("submitted", "converted")).toBeUndefined();
   });
 });

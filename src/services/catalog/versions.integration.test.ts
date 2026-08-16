@@ -1,5 +1,4 @@
-import { MongoMemoryReplSet } from "mongodb-memory-server";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi, inject } from "vitest";
 import { VALID_ENV } from "@/test/env";
 
 /**
@@ -18,7 +17,6 @@ import { VALID_ENV } from "@/test/env";
  *   wrong pointer, not an error, so nothing else would notice.
  */
 
-let replSet: MongoMemoryReplSet;
 let mongoose: typeof import("mongoose").default;
 let catalog: typeof import("./product-service");
 let versionService: typeof import("./version-service");
@@ -29,14 +27,9 @@ let models: typeof import("@/lib/db/models/catalog");
 const ACTOR = { type: "staff", userId: "6a80c46f6c887b38e2f0e001", name: "Test" } as const;
 
 beforeAll(async () => {
-  replSet = await MongoMemoryReplSet.create({
-    replSet: { count: 1, storageEngine: "wiredTiger" },
-    instanceOpts: [{ launchTimeout: 120_000 }],
-  });
-
   vi.resetModules();
   for (const [key, value] of Object.entries(VALID_ENV)) vi.stubEnv(key, value);
-  vi.stubEnv("MONGODB_URI", replSet.getUri());
+  vi.stubEnv("MONGODB_URI", inject("mongoUri"));
   vi.stubEnv("MONGODB_DB_NAME", "versions_test");
   vi.stubEnv("MONGODB_TRANSACTIONS", "true");
 
@@ -55,7 +48,6 @@ beforeAll(async () => {
 afterAll(async () => {
   vi.unstubAllEnvs();
   await mongoose?.disconnect();
-  await replSet?.stop();
 });
 
 afterEach(async () => {

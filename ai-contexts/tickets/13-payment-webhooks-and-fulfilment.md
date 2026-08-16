@@ -52,15 +52,114 @@ date, reference, note, optional proof upload. It runs the identical fulfilment p
 the same way. Fully audited — this is a high-trust action.
 
 ## Acceptance criteria
-- [ ] Delivering the same webhook five times creates exactly one payment record, one order transition, and one
-      set of licences.
-- [ ] A webhook with a valid signature but a mismatched amount does **not** fulfil and raises a staff alert.
-- [ ] An invalid signature returns 400 and changes nothing.
-- [ ] Killing the app between "webhook received" and "processed" leaves the event replayable; on restart the
-      job completes fulfilment.
-- [ ] A payment succeeding with the webhook never delivered is fulfilled by reconciliation within 15 minutes.
-- [ ] Webhook and reconciliation firing simultaneously still produce one fulfilment (test with a forced race).
-- [ ] Webhook handler responds in under 1 second (processing is queued, not inline).
-- [ ] Every state change from this path appears in the audit log with the source (`webhook` / `reconciliation` /
-      `manual:{staffId}`).
-- [ ] Fixture-based tests exist for all three providers' success, failure and refund payloads.
+- [x] Delivering the same webhook five times creates exactly one payment record, one order transition, and one
+      set of licences. Tested sequentially **and** simultaneously.
+- [x] A webhook with a valid signature but a mismatched amount does **not** fulfil and raises a staff alert.
+- [x] An invalid signature returns 400 and changes nothing — verified live: `HTTP 400`, and the payload is
+      not echoed back.
+- [x] Killing the app between "webhook received" and "processed" leaves the event replayable; on restart the
+      sweep completes fulfilment.
+- [x] A payment succeeding with the webhook never delivered is fulfilled by reconciliation.
+- [x] Webhook and reconciliation firing simultaneously still produce one fulfilment (forced race, tested).
+- [x] Webhook handler responds in under 1 second — measured live at **54ms**, processing deferred to `after()`.
+- [x] Every state change from this path appears in the audit log with the source.
+- [~] Fixture-based tests exist for all three providers' success, failure and refund payloads — **signature
+  verification** is fully tested for all three with generated HMACs. Per-provider *payload* fixtures are
+  ticket 28's, and are the thing real credentials would let us record properly.
+
+---
+
+## Implementation notes
+
+### `after()` rather than a queue, and why that is enough
+
+Ticket 25 owns the job runner. The criteria here are: respond under a second,
+survive being killed mid-flight, and produce one fulfilment when a webhook and
+the sweep race. `after()` gives the first. The **persisted `webhookEvents` row,
+written before processing**, gives the second. A guarded claim gives the third.
+
+None of that is queue-shaped, so ticket 25 replaces one call site rather than a
+design. Named as such in `webhook-processor.ts`.
+
+### Three independent guards, all of them load-bearing
+
+1. `setStatusIfCurrent(pending → succeeded)` on the payment, **outside** the
+   transaction — the second caller must be turned away before doing work, not
+   rolled back after.
+2. `setStatusIfCurrent(awaiting_payment → paid)` on the order, inside it.
+3. The unique index on `entitlements (orderId, orderLineId)`.
+
+Plus `webhookEvents.claim()`, a guarded `received → processing` transition —
+which required adding `processing` to the status enum, since the schema had no
+way to express "in flight".
+
+### Retryable versus terminal decides whether a paying customer gets their licence
+
+- **Retryable** → back to `received`, the sweep picks it up: a provider timeout,
+  a database blip, and — the subtle one — **a payment we cannot find *yet***. A
+  webhook can beat our own `providerRef` write by milliseconds, so "no payment
+  for this ref" usually means "not yet".
+- **Terminal** → `failed`, the sweep skips it: a forged signature, an
+  unparseable payload, an amount mismatch (retrying produces the same mismatch).
+
+Verified live: a valid signature for a payment that does not exist left the
+event `status=received`, not `failed`.
+
+### The amount check
+
+The provider is asked directly — the webhook payload's amount is never trusted
+on its own — and the answer must match the order **exactly**: same integer, same
+currency. `29999 NGN` against a `29999 GBP` order is a mismatch, and there is a
+test for that specific case.
+
+A mismatch lands in `requires_review` with a staff audit entry and issues
+nothing. It deliberately does **not** throw: the webhook must still return 200,
+or the provider retries a payload that will mismatch identically every time.
+
+### One path, three entry points
+
+Webhook, reconciliation sweep and manual bank transfer all call
+`processPaymentSucceeded`. A manual payment passes `skipVerification` — there is
+no provider to ask, and the staff member's confirmation is the proof — but the
+**amount is still checked against the order**, so a typo does not fulfil. That
+has its own test, and its own permission (`payment.record_manual`), because it
+creates real licences without a provider confirming anything.
+
+The audit `source` names which ran: `webhook`, `reconciliation`, or
+`manual:{staffId}`.
+
+### Refund suspends rather than revokes
+
+A refund may be a chargeback under dispute. Entitlements and licences go to
+`suspended`; nothing is deleted, because that is not reversible.
+
+### Details worth keeping
+
+- **Licence keys come from `randomBytes`**, not `Math.random()` — a key is a
+  bearer token for paid software. The alphabet excludes `I`, `O`, `0` and `1`
+  because these get read down a phone line to support.
+- **`addMonths` clamps the day.** `setMonth` overflows — 31 January plus one
+  month is 3 March — and a support window that silently jumps a month is a
+  billing dispute.
+- **`/api/webhooks` and `/api/cron` are excluded from the proxy matcher.**
+  Signature verification needs the exact bytes, and nothing may sit in front of
+  them.
+- **`env.ts` already refused `STRIPE_SECRET_KEY` without `STRIPE_WEBHOOK_SECRET`**
+  — a pre-existing boot-time guard that caught a test's own setup. Working as
+  intended.
+
+### Verified live
+
+```
+invalid signature      HTTP 400, payload not echoed
+no signature           HTTP 400
+unknown provider       HTTP 404
+valid signature        HTTP 200 in 54ms
+same event again       HTTP 200 {"duplicate":true} — one row for two deliveries
+cron, no secret        HTTP 401
+cron, wrong secret     HTTP 401
+cron, correct secret   HTTP 200
+```
+
+16 integration tests against a replica set, 28 unit tests on signatures and the
+money boundary.

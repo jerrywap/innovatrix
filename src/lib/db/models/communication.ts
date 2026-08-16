@@ -7,6 +7,7 @@ import {
   DOMAIN_EVENTS,
   MESSAGE_SENDER_TYPES,
   MESSAGE_VISIBILITIES,
+  NOTIFICATION_CATEGORIES,
   NOTIFICATION_CHANNELS,
   SUBJECT_TYPES,
   type ActorType,
@@ -14,6 +15,8 @@ import {
   type DomainEventType,
   type MessageSenderType,
   type MessageVisibility,
+  type NotificationCategory,
+  type NotificationChannel,
   type SubjectType,
 } from "../enums";
 
@@ -68,6 +71,20 @@ export const Conversation = defineModel<ConversationDoc>("Conversation", convers
 
 /* ────────────────────────────────────────────── Message */
 
+/**
+ * A file on a message.
+ *
+ * The key, and never a URL. Same rule as request attachments and payment
+ * evidence: the bucket serves any known key unsigned, so anything addressable
+ * is world-readable. Read through a participant-checked route.
+ */
+export interface MessageAttachment {
+  storageKey: string;
+  filename?: string;
+  contentType?: string;
+  sizeBytes?: number;
+}
+
 export interface MessageDoc {
   _id: Types.ObjectId;
   conversationId: Types.ObjectId;
@@ -75,7 +92,7 @@ export interface MessageDoc {
   senderType: MessageSenderType;
   senderUserId?: Types.ObjectId;
   body: string;
-  attachments: unknown[];
+  attachments: MessageAttachment[];
   visibility: MessageVisibility;
   readByUserIds: Types.ObjectId[];
 }
@@ -142,6 +159,14 @@ export interface NotificationDoc {
   recipientUserId: Types.ObjectId;
   organizationId?: Types.ObjectId;
   type: DomainEventType | string;
+  /** Which preference bucket this belongs to (§69). */
+  category: NotificationCategory;
+  /**
+   * One event, one notification, per recipient — the "no duplicates on retry"
+   * criterion. A unique index on this is what makes a re-emitted event a
+   * no-op rather than a second bell.
+   */
+  dedupeKey: string;
   title: string;
   body?: string;
   subjectType?: SubjectType;
@@ -157,6 +182,8 @@ const notificationSchema = new Schema<NotificationDoc>(
     recipientUserId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     [ORG_SCOPE_FIELD]: { type: Schema.Types.ObjectId, ref: "Organization" },
     type: { type: String, required: true },
+    category: { type: String, enum: NOTIFICATION_CATEGORIES, required: true },
+    dedupeKey: { type: String, required: true },
     title: { type: String, required: true },
     body: String,
     subjectType: { type: String, enum: SUBJECT_TYPES },
@@ -172,6 +199,13 @@ const notificationSchema = new Schema<NotificationDoc>(
 
 // Backs the unread badge without scanning the collection.
 notificationSchema.index({ recipientUserId: 1, readAt: 1, createdAt: -1 });
+/*
+ * The duplicate guard, enforced by the database rather than by a read-then-
+ * write. Two concurrent deliveries of the same event both find nothing and
+ * both insert otherwise; here the second one gets E11000 and the service
+ * treats that as "already delivered".
+ */
+notificationSchema.index({ recipientUserId: 1, dedupeKey: 1 }, { unique: true });
 
 export const Notification = defineModel<NotificationDoc>("Notification", notificationSchema);
 
@@ -264,6 +298,103 @@ const auditLogSchema = new Schema<AuditLogDoc>(
 auditLogSchema.index({ subjectType: 1, subjectId: 1, createdAt: -1 });
 auditLogSchema.index({ createdAt: -1 });
 
+/**
+ * Append-only, enforced on the model rather than only on the repository — §90.
+ *
+ * `AuditLogRepository` overrides `updateById` and `deleteById` to throw, which
+ * is the right thing and is not sufficient: **`AuditLog.updateOne(...)` never
+ * touches the repository.** Any service that imports the model directly — as
+ * several do, for perfectly good reasons — has an unguarded path to amending
+ * the record of what happened, which is the single thing this collection exists
+ * to make impossible.
+ *
+ * These hooks close it. Every query-level mutation and every save of an
+ * existing document refuses; `create` and a first `save` are untouched, because
+ * appending is the whole point.
+ *
+ * The remaining way through is the **native driver**
+ * (`connection.db.collection("auditLogs")`), which bypasses Mongoose middleware
+ * by design. That is deliberate rather than an oversight: it is what a test
+ * teardown and a retention job legitimately need, and it is not something a
+ * service reaches for by accident.
+ */
+const APPEND_ONLY =
+  "The audit log is append-only (§90). An entry cannot be amended or removed — " +
+  "record a new one describing the correction instead.";
+
+function refuse(): never {
+  throw new Error(APPEND_ONLY);
+}
+
+/*
+ * Written out rather than looped.
+ *
+ * Mongoose types each hook name as its own overload, so a loop over a string
+ * union needs an `any` cast — and a cast in the middle of a security control is
+ * the wrong economy. Eight lines, no cast, and a name that does not compile if
+ * Mongoose renames a hook.
+ */
+auditLogSchema.pre("updateOne", refuse);
+auditLogSchema.pre("updateMany", refuse);
+auditLogSchema.pre("replaceOne", refuse);
+auditLogSchema.pre("findOneAndUpdate", refuse);
+auditLogSchema.pre("findOneAndReplace", refuse);
+auditLogSchema.pre("findOneAndDelete", refuse);
+auditLogSchema.pre("deleteOne", refuse);
+auditLogSchema.pre("deleteMany", refuse);
+
+auditLogSchema.pre("save", function refuseAmendment() {
+  // A brand-new document is an append. Anything else is an edit.
+  if (!this.isNew) throw new Error(APPEND_ONLY);
+});
+
 export const AuditLog = defineModel<AuditLogDoc>("AuditLog", auditLogSchema);
 
 export { DOMAIN_EVENTS };
+
+/* ────────────────────────────────────────────── NotificationPreference */
+
+/**
+ * Per-user, per-category, per-channel — §69.
+ *
+ * ## Absent means on
+ *
+ * A row exists only once somebody has changed something. The alternative —
+ * seeding a full preference document per user — means every new category ships
+ * with a migration, and a user created before it was added silently never hears
+ * about it. So the stored shape is the *exceptions*, and the default lives in
+ * code where it can be read.
+ *
+ * Essential notifications ignore this document entirely (see
+ * `ESSENTIAL_CATEGORIES`). A payment receipt or a licence key is not marketing.
+ */
+export interface NotificationPreferenceDoc {
+  _id: Types.ObjectId;
+  userId: Types.ObjectId;
+  /** `${category}:${channel}` → false. Only the off switches are stored. */
+  muted: string[];
+}
+
+const notificationPreferenceSchema = new Schema<NotificationPreferenceDoc>(
+  {
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      unique: true,
+      index: true,
+    },
+    muted: { type: [String], default: [] },
+  },
+  schemaOptions({ collection: "notificationPreferences" }),
+);
+
+export const NotificationPreference = defineModel<NotificationPreferenceDoc>(
+  "NotificationPreference",
+  notificationPreferenceSchema,
+);
+
+/** The stored key for one switch. Built in one place so it cannot drift. */
+export function mutedKey(category: NotificationCategory, channel: NotificationChannel): string {
+  return `${category}:${channel}`;
+}

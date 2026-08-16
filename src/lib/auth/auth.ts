@@ -192,6 +192,38 @@ function buildAuth() {
               },
             };
           },
+
+          /**
+           * §90's missing entry: a session was created.
+           *
+           * Auth events were the one category of §90-worthy action with no
+           * audit at all, and they are the first thing anybody looks for after
+           * an incident — "when did this account last sign in, and from where".
+           *
+           * Here rather than in `signInAction` because that is not the only way
+           * a session is created: OAuth, an invitation acceptance and a password
+           * reset all produce one without going near it.
+           *
+           * Fire-and-forget: `writeAuditLog` without a session swallows its own
+           * failures, so a logging problem cannot stop somebody signing in.
+           */
+          after: async (session) => {
+            const { writeAuditLog } = await import("@/services/audit");
+            await writeAuditLog({
+              action: "session.created",
+              actor: {
+                type: "customer",
+                userId: String(session.userId),
+                // Absent at signup and for somebody between organisations —
+                // see the note on `AuditActor`.
+                ...(session.activeOrganizationId
+                  ? { organizationId: String(session.activeOrganizationId) }
+                  : {}),
+              },
+              ...(session.ipAddress ? { ip: session.ipAddress } : {}),
+              ...(session.userAgent ? { userAgent: session.userAgent } : {}),
+            });
+          },
         },
       },
     },
@@ -268,6 +300,38 @@ function buildAuth() {
       // has produced and applies them to the Next.js cookie store.
       nextCookies(),
     ],
+
+    /*
+     * §88's auth rate limiting — ticket 26.
+     *
+     * Better Auth ships a limiter and leaves it **off in development**, which
+     * is a sensible library default and the wrong one here: an unthrottled
+     * `/api/auth/sign-in/email` is a credential-stuffing endpoint, and it is
+     * unthrottled in exactly the environment where nobody notices.
+     *
+     * `enabled: true` unconditionally, then per-path budgets on the three that
+     * accept a guess. `window` is in seconds.
+     *
+     * This covers the Better Auth handler's own routes. Everything else that
+     * needs throttling — licence activation, AI turns, downloads — goes through
+     * `src/lib/rate-limit.ts`, which shares the datastore but not the code,
+     * because the library's limiter cannot see our route handlers.
+     */
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 60,
+      customRules: {
+        // Ten in five minutes. A person who has forgotten which password they
+        // used tries three or four; a script tries thousands.
+        "/sign-in/email": { window: 300, max: 10 },
+        "/sign-up/email": { window: 3600, max: 5 },
+        // Each one sends an email to an address the caller chose, so an
+        // unbounded version is a way to use us to send mail at somebody.
+        "/request-password-reset": { window: 3600, max: 5 },
+        "/send-verification-email": { window: 3600, max: 5 },
+      },
+    },
 
     advanced: {
       cookiePrefix: "innovatrix",

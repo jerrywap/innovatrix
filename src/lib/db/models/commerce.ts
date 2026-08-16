@@ -216,6 +216,12 @@ export interface OrderDoc {
   currency: string;
   items: OrderItem[];
   subtotal: MoneyDocument;
+  /**
+   * ⚠️ Mongoose materialises an unset **nested path** as `{}`, not `undefined`.
+   * So `if (order.discount)` is true for an order with no discount, and the
+   * only safe check is on a field: `if (order.discount?.amount)`. The `?` here
+   * describes intent; it does not describe what comes back from the driver.
+   */
   discount?: { code?: string; amount: number; currency: string };
   /**
    * The rule **id and rate**, not a reference to a live rule. A rate change
@@ -231,6 +237,18 @@ export interface OrderDoc {
    * of one cart find the same order rather than creating two (ticket 11).
    */
   idempotencyKey?: string;
+  /**
+   * How the customer said they would pay.
+   *
+   * An explicit field rather than "has no payment yet", because those are
+   * different states that need different words. An **online** order with no
+   * payment abandoned at the provider and should be nudged back to paying; an
+   * **offline** order with no payment is behaving correctly and is waiting on
+   * a bank transfer somebody has to record. Telling a customer in the second
+   * state that their payment failed would be wrong, and inferring from
+   * `paymentId == null` is exactly how that happens.
+   */
+  paymentMethod: "online" | "offline";
   paymentId?: Types.ObjectId;
   paidAt?: Date;
   fulfilledAt?: Date;
@@ -273,6 +291,9 @@ const orderSchema = new Schema<OrderDoc>(
     },
     billingSnapshot: { type: Schema.Types.Mixed, default: {} },
     idempotencyKey: String,
+    // `online` by default, so every order written before this field existed
+    // reads as what it was.
+    paymentMethod: { type: String, enum: ["online", "offline"], default: "online" },
     paymentId: { type: Schema.Types.ObjectId, ref: "Payment" },
     paidAt: Date,
     fulfilledAt: Date,
@@ -307,6 +328,24 @@ export interface PaymentDoc {
   failureReason?: string;
   reviewReason?: string;
   recordedByUserId?: Types.ObjectId;
+  /**
+   * Proof of an offline payment — a bank receipt, a remittance advice.
+   *
+   * **The key only.** This is the most sensitive object the platform stores:
+   * it carries account numbers and somebody's banking, and the dev bucket
+   * serves any known key over plain HTTPS with no signature. So there is no
+   * `url` field here and nothing may build one — `publicObjectUrl()` must
+   * never be called on this key. It is read through
+   * `/api/payment-evidence/[paymentId]`, which checks a permission, writes an
+   * audit row, and redirects to a five-minute presigned GET.
+   */
+  evidence?: {
+    storageKey: string;
+    filename: string;
+    contentType?: string;
+    sizeBytes?: number;
+    uploadedAt: Date;
+  };
 }
 
 const paymentSchema = new Schema<PaymentDoc>(
@@ -338,6 +377,13 @@ const paymentSchema = new Schema<PaymentDoc>(
     reviewReason: String,
     /** Present only for `provider: "manual"` — staff-recorded bank transfers. */
     recordedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
+    evidence: {
+      storageKey: String,
+      filename: String,
+      contentType: String,
+      sizeBytes: Number,
+      uploadedAt: Date,
+    },
   },
   schemaOptions({ collection: "payments" }),
 );
@@ -359,7 +405,17 @@ export interface WebhookEventDoc {
   provider: PaymentProvider;
   eventId: string;
   eventType: string;
-  status: "received" | "processed" | "failed";
+  /**
+   * `processing` is the **claim**, and it is what makes concurrent delivery
+   * safe. A guarded `findOneAndUpdate({ status: "received" } → "processing")`
+   * lets exactly one worker take an event; the webhook and the reconciliation
+   * sweep can then race freely and only one fulfils.
+   *
+   * It also distinguishes "never started" from "started and the app died",
+   * which the sweep needs — both are stuck, but only the second has already
+   * consumed an attempt.
+   */
+  status: "received" | "processing" | "processed" | "failed";
   payload: unknown;
   error?: string;
   attempts: number;
@@ -371,7 +427,11 @@ const webhookEventSchema = new Schema<WebhookEventDoc>(
     provider: { type: String, enum: PAYMENT_PROVIDERS, required: true },
     eventId: { type: String, required: true },
     eventType: { type: String, required: true },
-    status: { type: String, enum: ["received", "processed", "failed"], default: "received" },
+    status: {
+      type: String,
+      enum: ["received", "processing", "processed", "failed"],
+      default: "received",
+    },
     // Raw body retained verbatim: a dispute or a provider-side bug is only
     // arguable with the original payload.
     payload: { type: Schema.Types.Mixed, required: true },
@@ -447,6 +507,20 @@ const activationSchema = new Schema(
   { _id: false },
 );
 
+/**
+ * One installation of a licence — §65.
+ *
+ * `releasedAt` rather than deleting the row: "this licence has been installed
+ * four times and two are still live" is a support question, and a released
+ * activation that leaves no trace makes it unanswerable.
+ */
+export interface LicenceActivation {
+  instanceId: string;
+  domain?: string;
+  activatedAt: Date;
+  releasedAt?: Date;
+}
+
 export interface LicenceDoc {
   _id: Types.ObjectId;
   key: string;
@@ -455,7 +529,7 @@ export interface LicenceDoc {
   entitlementId: Types.ObjectId;
   type: LicenceType;
   activationLimit: number;
-  activations: unknown[];
+  activations: LicenceActivation[];
   status: LicenceStatus;
   expiresAt?: Date;
   supportExpiresAt?: Date;
@@ -545,6 +619,17 @@ export interface PaymentSettingsDoc {
     primary: PaymentProvider;
     fallbacks: PaymentProvider[];
   }[];
+  /**
+   * What a customer paying by transfer needs to know — account name, number,
+   * sort code, the reference to quote.
+   *
+   * A settings row and not a secret: bank details are printed on every invoice
+   * in the world, and the customer cannot pay without them. Distinct from the
+   * provider keys above, which are env-var *names* precisely because they are.
+   */
+  offlineInstructions?: string;
+  /** Off ⇒ the option is not offered at checkout at all. */
+  offlineEnabled: boolean;
   updatedByUserId?: Types.ObjectId;
 }
 
@@ -579,6 +664,10 @@ const paymentSettingsSchema = new Schema<PaymentSettingsDoc>(
       ],
       default: [],
     },
+    offlineInstructions: String,
+    // Default on: the machinery exists, and a platform that cannot take a bank
+    // transfer is the state this ticket set out to fix.
+    offlineEnabled: { type: Boolean, default: true },
     updatedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
   },
   schemaOptions({ collection: "paymentSettings" }),

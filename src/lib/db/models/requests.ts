@@ -32,7 +32,29 @@ import {
 
 /* ────────────────────────────────────────────── AiConversation */
 
-const aiMessageSchema = new Schema(
+/**
+ * One turn of the transcript.
+ *
+ * `withheld` is §73 made durable: when the guardrail check catches an assistant
+ * turn quoting a price or promising a date, the customer is shown a safe reply
+ * and **the original is kept here** rather than discarded. Staff reviewing what
+ * the assistant actually said need the real text; deleting it would hide the
+ * failure the check exists to catch.
+ */
+export interface AiMessage {
+  role: (typeof AI_MESSAGE_ROLES)[number];
+  content: string;
+  at: Date;
+  model?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  costMicros?: number;
+  /** The unedited text, when `content` is a guardrail substitution. */
+  withheldContent?: string;
+  withheldReason?: string;
+}
+
+const aiMessageSchema = new Schema<AiMessage>(
   {
     role: { type: String, enum: AI_MESSAGE_ROLES, required: true },
     content: { type: String, required: true },
@@ -42,11 +64,30 @@ const aiMessageSchema = new Schema(
     promptTokens: Number,
     completionTokens: Number,
     costMicros: Number,
+    withheldContent: String,
+    withheldReason: String,
   },
   { _id: false },
 );
 
-const requirementSchema = new Schema(
+/**
+ * One line of what the customer wants.
+ *
+ * `origin` is the §17 distinction and the reason this is not a plain string
+ * array: `confirmed` is something the customer said yes to, `assumed` is the
+ * model filling a gap, `suggested` is an offer they have not answered. A
+ * suggestion that quietly becomes a requirement is the specific failure §23
+ * names, and keeping the three apart in the schema is what makes it hard.
+ */
+export interface Requirement {
+  key: string;
+  label: string;
+  detail?: string;
+  origin: (typeof REQUIREMENT_ORIGINS)[number];
+  acceptedByCustomer: boolean;
+}
+
+const requirementSchema = new Schema<Requirement>(
   {
     key: { type: String, required: true },
     label: { type: String, required: true },
@@ -68,9 +109,9 @@ export interface AiConversationDoc {
   productId?: Types.ObjectId;
   productVersionId?: Types.ObjectId;
   productVersionNumber?: string;
-  messages: unknown[];
+  messages: AiMessage[];
   structuredAnswers: Record<string, unknown>;
-  requirements: unknown[];
+  requirements: Requirement[];
   summary?: string;
   recommendedProductIds: Types.ObjectId[];
   recommendationChoice?: "existing_product" | "custom_build";
@@ -121,7 +162,24 @@ export const AiConversation = defineModel<AiConversationDoc>(
 
 /* ────────────────────────────────────────────── CustomerRequest */
 
-const assignmentSchema = new Schema(
+/**
+ * §40 — assignment is a log, not a pointer.
+ *
+ * A row is closed with `unassignedAt` rather than removed, so "who had this
+ * before, and who moved it" survives reassignment. `currentAssigneeUserId` on
+ * the request is the denormalised head of this list, kept only because the
+ * staff-queue index needs a single field to sort on.
+ */
+export interface Assignment {
+  staffUserId: Types.ObjectId;
+  role?: (typeof STAFF_ROLES)[number];
+  assignedByUserId?: Types.ObjectId;
+  assignedAt: Date;
+  unassignedAt?: Date;
+  note?: string;
+}
+
+const assignmentSchema = new Schema<Assignment>(
   {
     staffUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     role: { type: String, enum: STAFF_ROLES },
@@ -133,7 +191,16 @@ const assignmentSchema = new Schema(
   { _id: false },
 );
 
-const attachmentSchema = new Schema(
+export interface RequestAttachment {
+  storageKey: string;
+  filename: string;
+  contentType?: string;
+  sizeBytes?: number;
+  uploadedByUserId?: Types.ObjectId;
+  uploadedAt: Date;
+}
+
+const attachmentSchema = new Schema<RequestAttachment>(
   {
     storageKey: { type: String, required: true },
     filename: { type: String, required: true },
@@ -144,6 +211,20 @@ const attachmentSchema = new Schema(
   },
   { _id: false },
 );
+
+/**
+ * §34 — a requirements edit keeps the version it replaced.
+ *
+ * Staff who want a change ask the customer, who edits and re-confirms. That is
+ * only auditable if the previous text survives, so each edit pushes the *old*
+ * array here before overwriting.
+ */
+export interface RequirementsRevision {
+  version: number;
+  requirements: Requirement[];
+  changedByUserId?: Types.ObjectId;
+  changedAt: Date;
+}
 
 export interface CustomerRequestDoc {
   _id: Types.ObjectId;
@@ -156,14 +237,14 @@ export interface CustomerRequestDoc {
   baseProductId?: Types.ObjectId;
   baseProductVersionId?: Types.ObjectId;
   baseProductVersionNumber?: string;
-  customerRequirements: unknown[];
-  assumptions: unknown[];
+  customerRequirements: Requirement[];
+  assumptions: Requirement[];
   requirementsVersion: number;
-  requirementsHistory: unknown[];
+  requirementsHistory: RequirementsRevision[];
   internalInterpretation?: string;
-  attachments: unknown[];
+  attachments: RequestAttachment[];
   status: RequestStatus;
-  assignments: unknown[];
+  assignments: Assignment[];
   currentAssigneeUserId?: Types.ObjectId;
   quoteIds: Types.ObjectId[];
   budgetRange?: { min?: number; max?: number; currency?: string };
@@ -201,10 +282,10 @@ const customerRequestSchema = new Schema<CustomerRequestDoc>(
     requirementsVersion: { type: Number, default: 1 },
     requirementsHistory: {
       type: [
-        new Schema(
+        new Schema<RequirementsRevision>(
           {
-            version: Number,
-            requirements: { type: Schema.Types.Mixed },
+            version: { type: Number, required: true },
+            requirements: { type: [requirementSchema], default: [] },
             changedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
             changedAt: { type: Date, default: () => new Date() },
           },
@@ -242,10 +323,94 @@ customerRequestSchema.index({ status: 1, currentAssigneeUserId: 1, updatedAt: -1
 customerRequestSchema.index({ status: 1, kind: 1, createdAt: 1 });
 customerRequestSchema.index({ waitingOn: 1, updatedAt: 1 });
 
+/**
+ * The "unassigned" queue, which is the staff nav's default landing place.
+ *
+ * The index above has `updatedAt` last, so a query filtering on status and
+ * assignee but sorting by **`createdAt`** cannot use it for the sort — measured
+ * with `npm run db:explain:queues`: an in-memory SORT examining 5,000 documents
+ * to return 100, 84ms at ten thousand rows and linear from there.
+ *
+ * `createdAt` rather than `updatedAt` is the right sort for this one on
+ * purpose. "Nobody has picked this up" is about how long it has been *waiting*,
+ * and `updatedAt` moves every time anything touches the row, which would keep
+ * resetting the age of the thing most at risk.
+ */
+customerRequestSchema.index({ status: 1, currentAssigneeUserId: 1, createdAt: 1 });
+
 export const CustomerRequest = defineModel<CustomerRequestDoc>(
   "CustomerRequest",
   customerRequestSchema,
 );
+
+/* ────────────────────────────────────────────── AiSettings */
+
+/**
+ * Which model the assistants use — §104, ticket 16.
+ *
+ * ## Why this is a row and not just an env var
+ *
+ * §104's requirement is that the platform keeps working when a provider
+ * misbehaves. Doing that from `OPENROUTER_MODEL` alone means a redeploy at the
+ * exact moment something is on fire. A row means an administrator switches
+ * model or reorders the fallbacks in the admin screen, and the next request
+ * uses it.
+ *
+ * ## The key is not here, and must never be
+ *
+ * Same rule as `PaymentSettings` (§88): the database holds *which* model, never
+ * the credential to call it. `OPENROUTER_API_KEY` stays in the environment and
+ * the settings screen reports only whether it is present. A settings row is
+ * readable by every administrator and ends up in backups and exports; an API
+ * key belongs in neither.
+ *
+ * Resolution is `AiSettings` → `OPENROUTER_MODEL` → the built-in default, so an
+ * empty database still boots and still talks.
+ */
+export interface AiSettingsDoc {
+  _id: Types.ObjectId;
+  singleton: "global";
+  /** Off ⇒ every assistant degrades to the manual form, deliberately. */
+  enabled: boolean;
+  /** `vendor/model` as OpenRouter names it. */
+  model: string;
+  /**
+   * Tried in order when the primary errors — OpenRouter's own `models` array.
+   * This is the §104 failover, and it is why a single vendor outage is not an
+   * outage here.
+   */
+  fallbackModels: string[];
+  /**
+   * Extraction may warrant a stronger model than the interview: one is a
+   * conversation, the other decides what a customer is deemed to have asked
+   * for. Empty ⇒ use `model` for both.
+   */
+  extractionModel?: string;
+  temperature: number;
+  maxOutputTokens: number;
+  updatedByUserId?: Types.ObjectId;
+}
+
+const aiSettingsSchema = new Schema<AiSettingsDoc>(
+  {
+    singleton: { type: String, default: "global", enum: ["global"] },
+    enabled: { type: Boolean, default: true },
+    model: { type: String, required: true },
+    fallbackModels: { type: [String], default: [] },
+    extractionModel: String,
+    // Low, not zero. An interview that asks the same question the same way
+    // every time reads as a form with extra steps, which is what §15 is trying
+    // to get away from.
+    temperature: { type: Number, default: 0.4, min: 0, max: 2 },
+    maxOutputTokens: { type: Number, default: 1200, min: 128, max: 32_000 },
+    updatedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
+  },
+  schemaOptions({ collection: "aiSettings" }),
+);
+
+aiSettingsSchema.index({ singleton: 1 }, { unique: true });
+
+export const AiSettings = defineModel<AiSettingsDoc>("AiSettings", aiSettingsSchema);
 
 /* ────────────────────────────────────────────── FollowUp */
 

@@ -24,7 +24,8 @@ export type ReadinessGapCode =
   | "no_package_file"
   | "testing_incomplete"
   | "testing_failed"
-  | "no_description";
+  | "no_description"
+  | "unbuyable_currency";
 
 export interface ReadinessGap {
   code: ReadinessGapCode;
@@ -65,6 +66,15 @@ export interface ReadinessSnapshot {
   hasReleasedVersion: boolean;
   hasReleasedVersionWithPackage: boolean;
   checklist: ReadonlyArray<{ status: TestingChecklistStatus; notes?: string }>;
+  /**
+   * Currencies on `product.prices` that no licence package is priced in.
+   *
+   * The marketplace advertises from `product.prices`; the cart charges from
+   * `licencePackages[].prices`. When those disagree the listing shows a price
+   * in a currency the basket can never build a line in — see
+   * `unbuyable_currency` below.
+   */
+  currenciesWithoutLicencePrice: readonly string[];
 }
 
 export interface Readiness {
@@ -96,6 +106,32 @@ export function computeReadiness(snapshot: ReadinessSnapshot): Readiness {
     gaps.push({
       code: "no_licence_package",
       message: "Add a licence package — without one the product cannot be bought",
+      section: "pricing",
+    });
+  }
+
+  /**
+   * The advertised price and the chargeable price must agree on currency.
+   *
+   * Also not in the ticket, and found the same way — by a customer being unable
+   * to buy. `product.prices` is what the marketplace lists and filters on;
+   * `licencePackages[].prices` is what the cart builds a line from. Give a
+   * product a USD price but leave its licence package GBP-only and the listing
+   * advertises $483, the product page shows it, and Add to basket refuses —
+   * with a currency-conflict message, which sends the customer looking for a
+   * conflict that isn't there.
+   *
+   * A gap rather than a validation error on save, so a half-finished product
+   * can still be saved; it blocks publishing, which is the point at which a
+   * customer could hit it.
+   */
+  if (snapshot.currenciesWithoutLicencePrice.length > 0) {
+    const list = [...snapshot.currenciesWithoutLicencePrice].sort().join(", ");
+    gaps.push({
+      code: "unbuyable_currency",
+      message:
+        `Priced in ${list} but no licence package is — the listing would show a price ` +
+        `nobody can check out with`,
       section: "pricing",
     });
   }

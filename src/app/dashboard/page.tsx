@@ -1,15 +1,16 @@
-import type { Metadata } from "next";
+import type { Metadata, Route } from "next";
+import { Suspense } from "react";
 import Link from "next/link";
-import { ClipboardList, Package, ShoppingBag, Store } from "lucide-react";
+import { ClipboardList, FileText, Package, Receipt, ShoppingBag, Store } from "lucide-react";
 import { Attention, type AttentionItem } from "@/components/attention";
+import { MoneyDisplay } from "@/components/money-display";
 import { PageHeader } from "@/components/page-header";
 import { StatCard, StatGrid } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { money, type CurrencyCode } from "@/lib/money";
 import { requireOrg } from "@/lib/auth/dal";
-
-// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
-// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
-export const instant = false;
+import { attentionItems, dashboardCounts, recentActivity } from "@/features/dashboard/overview";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -27,18 +28,16 @@ export const metadata: Metadata = { title: "Dashboard" };
  *    opens with four counters tells a customer how much they have bought, which
  *    is a fact about us, not a task for them.
  *
- * The attention list is empty until tickets 11, 17 and 22 supply real data; the
- * shape it renders is already the shape those tickets fill in, and `Attention`
- * treats an empty list as a success state rather than a hole.
+ * ## Everything below the header is suspended
+ *
+ * The greeting and the two doors are the same for every visit; the attention
+ * list, the counts and the activity feed each hit the database. Splitting them
+ * into their own boundaries means a slow count does not hold up the rest of the
+ * page, and the shell paints immediately.
  */
 export default async function DashboardPage({ searchParams }: PageProps<"/dashboard">) {
   const { user, organization } = await requireOrg();
   const params = await searchParams;
-
-  // Populated by ticket 17 (requests), 22 (quotes) and 23 (invoices). Each of
-  // those queries is org-scoped through the repositories, which take their
-  // scope from requireOrg() above — never from the request.
-  const attention: AttentionItem[] = [];
 
   return (
     <div className="flex flex-col gap-8">
@@ -62,7 +61,9 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
         </p>
       )}
 
-      <Attention items={attention} />
+      <Suspense fallback={<Skeleton className="h-32 w-full rounded-xl" />}>
+        <NeedsAttention />
+      </Suspense>
 
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-[17px] tracking-[-0.02em]">Start something</h2>
@@ -86,29 +87,116 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
 
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-[17px] tracking-[-0.02em]">Your account</h2>
-        <StatGrid>
-          <StatCard
-            label="Active software"
-            value="—"
-            icon={Package}
-            href="/dashboard/software"
-          />
-          <StatCard
-            label="Open requests"
-            value="—"
-            icon={ClipboardList}
-            href="/dashboard/requests"
-          />
-          <StatCard label="Orders" value="—" icon={ShoppingBag} href="/dashboard/orders" />
-          <StatCard
-            label="Quotes awaiting you"
-            value="—"
-            icon={ClipboardList}
-            href="/dashboard/quotes"
-          />
-        </StatGrid>
+        <Suspense fallback={<Skeleton className="h-24 w-full rounded-xl" />}>
+          <Counts />
+        </Suspense>
       </section>
+
+      <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
+        <Activity />
+      </Suspense>
     </div>
+  );
+}
+
+/**
+ * §27's first question — *what needs my attention*.
+ *
+ * Above the fold and visually dominant, and empty when there is genuinely
+ * nothing: `Attention` renders that as a calm success state rather than a hole,
+ * which is §102's "no fabricated urgency" made concrete.
+ */
+async function NeedsAttention() {
+  const { organizationId } = await requireOrg();
+  const sources = await attentionItems(organizationId);
+
+  const items: AttentionItem[] = sources.map((source) => ({
+    id: source.id,
+    title: source.title,
+    ...(source.detail ? { detail: source.detail } : {}),
+    href: source.href as Route,
+    urgent: source.urgent,
+    icon: ICONS[source.kind],
+    ...(source.amount
+      ? {
+          meta: (
+            <MoneyDisplay
+              value={money(source.amount.amount, source.amount.currency as CurrencyCode)}
+            />
+          ),
+        }
+      : {}),
+  }));
+
+  return <Attention items={items} />;
+}
+
+const ICONS = {
+  quote_awaiting: FileText,
+  invoice_unpaid: Receipt,
+  order_awaiting_payment: ShoppingBag,
+  update_available: Package,
+} as const;
+
+/**
+ * Orientation, last — §102.
+ *
+ * Every figure is an indexed `countDocuments` and reconciles with its list
+ * page, because both apply the same filter.
+ */
+async function Counts() {
+  const { organizationId } = await requireOrg();
+  const counts = await dashboardCounts(organizationId);
+
+  return (
+    <StatGrid>
+      <StatCard
+        label="Active software"
+        value={counts.software}
+        icon={Package}
+        href="/dashboard/software"
+      />
+      <StatCard
+        label="Orders"
+        value={counts.orders}
+        icon={ShoppingBag}
+        href="/dashboard/orders"
+      />
+      <StatCard
+        label="Quotes awaiting you"
+        value={counts.quotes}
+        icon={ClipboardList}
+        href="/dashboard/quotes"
+      />
+      <StatCard
+        label="Unpaid invoices"
+        value={counts.invoices}
+        icon={Receipt}
+        href="/dashboard/invoices"
+      />
+    </StatGrid>
+  );
+}
+
+/** Plain language, customer-visible entries only (§70). */
+async function Activity() {
+  const { organizationId } = await requireOrg();
+  const events = await recentActivity(organizationId);
+
+  if (events.length === 0) return null;
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="font-display text-[17px] tracking-[-0.02em]">Recent activity</h2>
+      <ul className="border-border divide-border divide-y rounded-xl border">
+        {events.map((event) => (
+          <li key={event.id} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
+            <span className="text-[13px]">{event.message}</span>
+            <span className="text-subtle shrink-0 font-mono text-[11px]">{event.at}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

@@ -1,4 +1,5 @@
 import { StateTransitionError } from "@/lib/errors";
+import type { Permission } from "@/lib/auth/permissions";
 import type {
   InvoiceStatus,
   OrderStatus,
@@ -146,6 +147,153 @@ export function nextStates<S extends string>(map: TransitionMap<S>, from: S): re
 
 export function isTerminal<S extends string>(map: TransitionMap<S>, state: S): boolean {
   return (map[state] ?? []).length === 0;
+}
+
+/* ────────────────────────────── who may move a request, and with what */
+
+/**
+ * §91's other half: *which actor* may take each edge.
+ *
+ * `REQUEST_TRANSITIONS` says a move is legal for the machine.  This says it is
+ * legal for **you** — which permission a staff member needs, and whether the
+ * customer who owns the request may do it themselves.
+ *
+ * ## Why this is a second map rather than a richer first one
+ *
+ * `TransitionMap<S>` is one shape across all seven machines. `assertTransition`
+ * and `scripts/generate-docs.ts` both iterate it as `Record<S, readonly S[]>`,
+ * so folding permissions into `REQUEST_TRANSITIONS` would either break the
+ * generator or force every other machine to carry metadata it does not have.
+ * Keeping the graph and the authorisation separate costs one lookup and a test
+ * that they agree — `states.test.ts` asserts every edge has a rule and no rule
+ * invents an edge, in both directions, so the two cannot drift.
+ *
+ * ## `customerMay` is not a UI hint
+ *
+ * A customer cancelling their own request or answering a `waiting_for_customer`
+ * prompt is legitimate; a customer moving their own request to `approved` is
+ * not, however the button was rendered. `RequestService.transition` reads this,
+ * so hiding the control and forbidding the action are the same fact.
+ */
+export interface TransitionRule {
+  /** Permission a staff actor needs. `null` ⇒ no staff route to this edge. */
+  permission: Permission | null;
+  /** May the customer who owns the request perform it? */
+  customerMay: boolean;
+  /** Plain-language label for the staff action button. */
+  label: string;
+}
+
+const edge = (from: RequestStatus, to: RequestStatus) => `${from}->${to}` as const;
+
+export const REQUEST_TRANSITION_RULES: Readonly<Record<string, TransitionRule>> = {
+  // The customer submits their own request; staff never submit on their behalf,
+  // because §34's "customer-confirmed" would then be a fiction.
+  [edge("draft", "submitted")]: {
+    permission: null,
+    customerMay: true,
+    label: "Submit",
+  },
+  [edge("draft", "cancelled")]: {
+    permission: "request.close",
+    customerMay: true,
+    label: "Cancel",
+  },
+  [edge("submitted", "under_review")]: {
+    permission: "request.update_status",
+    customerMay: false,
+    label: "Start review",
+  },
+  [edge("submitted", "cancelled")]: {
+    permission: "request.close",
+    customerMay: true,
+    label: "Cancel",
+  },
+  [edge("under_review", "waiting_for_customer")]: {
+    permission: "request.update_status",
+    customerMay: false,
+    label: "Ask the customer",
+  },
+  [edge("under_review", "technical_review")]: {
+    permission: "request.update_status",
+    customerMay: false,
+    label: "Send to technical review",
+  },
+  [edge("under_review", "quoted")]: {
+    permission: "quote.issue",
+    customerMay: false,
+    label: "Mark as quoted",
+  },
+  [edge("under_review", "rejected")]: {
+    permission: "request.close",
+    customerMay: false,
+    label: "Decline",
+  },
+  [edge("under_review", "cancelled")]: {
+    permission: "request.close",
+    customerMay: true,
+    label: "Cancel",
+  },
+  // The customer answering is what ends the wait, so they may take this edge.
+  [edge("waiting_for_customer", "under_review")]: {
+    permission: "request.update_status",
+    customerMay: true,
+    label: "Return to review",
+  },
+  [edge("waiting_for_customer", "cancelled")]: {
+    permission: "request.close",
+    customerMay: true,
+    label: "Cancel",
+  },
+  [edge("technical_review", "under_review")]: {
+    permission: "request.update_status",
+    customerMay: false,
+    label: "Return to review",
+  },
+  [edge("technical_review", "quoted")]: {
+    permission: "quote.issue",
+    customerMay: false,
+    label: "Mark as quoted",
+  },
+  [edge("technical_review", "rejected")]: {
+    permission: "request.close",
+    customerMay: false,
+    label: "Decline",
+  },
+  // Accepting a quote is the customer's decision — ticket 22 drives this edge
+  // from `QuoteAccepted`, not from a staff button.
+  [edge("quoted", "approved")]: {
+    permission: "request.update_status",
+    customerMay: true,
+    label: "Mark approved",
+  },
+  [edge("quoted", "rejected")]: {
+    permission: "request.close",
+    customerMay: true,
+    label: "Decline",
+  },
+  [edge("quoted", "under_review")]: {
+    permission: "request.update_status",
+    customerMay: false,
+    label: "Reopen review",
+  },
+  [edge("approved", "converted")]: {
+    permission: "request.update_status",
+    customerMay: false,
+    label: "Mark converted",
+  },
+  [edge("approved", "cancelled")]: {
+    permission: "request.close",
+    customerMay: true,
+    label: "Cancel",
+  },
+};
+
+export function requestTransitionRule(
+  from: RequestStatus,
+  to: RequestStatus,
+): TransitionRule | undefined {
+  return REQUEST_TRANSITION_RULES[edge(from, to)];
 }
 
 /** Registry so tooling (docs, tests, the staff UI) can enumerate every machine. */

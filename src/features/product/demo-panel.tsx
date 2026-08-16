@@ -48,6 +48,11 @@ export async function DemoPanel({ product }: { product: ProductDetail }) {
     isAuthenticated: Boolean(session),
     ownsProduct: await viewerOwnsProduct(organizationId, product.id),
     isStaff,
+    // For §90's audit row, which the service writes for a *gated* reveal only.
+    // Nothing here changes what is shown — `canRevealCredentials` decides that
+    // from the three flags above.
+    ...(session?.user.id ? { userId: session.user.id } : {}),
+    ...(organizationId ? { organizationId } : {}),
   });
 
   return (

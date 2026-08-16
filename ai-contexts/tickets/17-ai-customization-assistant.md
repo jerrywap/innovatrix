@@ -57,15 +57,46 @@ Optional file upload during the interview (mockups, spreadsheets, existing docs)
 conversation and carried onto the request.
 
 ## Acceptance criteria
-- [ ] Starting from a product page produces a conversation whose first question references **that product**,
+- [x] Starting from a product page produces a conversation whose first question references **that product**,
       not a generic opener.
-- [ ] The assistant asks one question at a time and adapts to answers (verify against the §16 transcript).
-- [ ] The summary matches what was actually discussed — no invented requirements (§17). Test adversarially by
+- [x] The assistant asks one question at a time and adapts to answers (verify against the §16 transcript).
+- [x] The summary matches what was actually discussed — no invented requirements (§17). Test adversarially by
       giving vague answers and confirming it asks rather than fills gaps.
-- [ ] Customer edits to the summary are what gets submitted, and are marked customer-confirmed.
-- [ ] Assumptions are visually and structurally distinct from confirmed requirements.
-- [ ] The created request records base product **and version** (§20).
-- [ ] Staff can open the request and read the entire transcript (§19).
-- [ ] An anonymous customer's conversation survives sign-up and attaches to their new organization.
-- [ ] Asking "how much will this cost?" gets a helpful non-answer that explains a quote will follow (§73).
-- [ ] With AI unavailable, the manual form produces a request of the same shape.
+- [x] Customer edits to the summary are what gets submitted, and are marked customer-confirmed.
+- [x] Assumptions are visually and structurally distinct from confirmed requirements.
+- [ ] The created request records base product **and version** (§20) — **coded and unit-covered; submission is blocked live**.
+- [ ] Staff can open the request and read the entire transcript (§19) — **built, needs a real request to verify** (see ticket 19's transaction note).
+- [ ] An anonymous customer's conversation survives sign-up — **built (`claimForUser`), not verified live**.
+- [x] Asking "how much will this cost?" gets a helpful non-answer that explains a quote will follow (§73).
+- [x] With AI unavailable, the manual form produces a request of the same shape.
+
+## Implementation notes
+
+Lives at `/customize/[slug]`, a new route. The product page and My Software both
+linked to `/custom-software?product=…`, which conflated the two §5 doors; both
+now point here.
+
+### The anonymous conversation cookie has to come from the proxy
+
+The first version called `ensureAnonymousKey()` from the page and every visit
+500'd — a Server Component cannot set a cookie, which the function's own doc
+comment says. Exactly the mistake ticket 09's recently-viewed cookie made, fixed
+the same way.
+
+The half that is easy to miss: `proxy.ts` must set the cookie on the
+**forwarded request headers** as well as the response. Setting only the response
+tells the browser to store it, but the page renders in the same request and
+`cookies()` reads the *request* — so the visitor would need a second page load
+before the assistant worked.
+
+### The customer's tick decides `origin`, not the model's guess
+
+A line the assistant marked `assumed` that the customer then ticks becomes
+`confirmed`, because they just confirmed it. A line left unticked stays an
+assumption however sure the model sounded. §34's "customer-confirmed" has to
+mean the customer confirmed it, and the review step is where that happens.
+
+### Not verified live
+
+Submitting requires a transaction, and the dev MongoDB is a standalone. Covered
+by `requests.integration.test.ts` against a real replica set. See ticket 19.

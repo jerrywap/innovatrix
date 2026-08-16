@@ -3,10 +3,18 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Sparkles, ShoppingCart } from "lucide-react";
+import { MonitorPlay, Sparkles } from "lucide-react";
 import { MoneyDisplay } from "@/components/money-display";
+import { AddToCart } from "@/features/cart/components/add-to-cart";
 import { money } from "@/lib/money";
 import type { StorefrontCurrency } from "@/config/storefront";
+
+/** What the CTA needs. Deliberately not a credential in sight. */
+export interface DemoCta {
+  publicUrl?: string;
+  hasCredentials: boolean;
+  roleCount: number;
+}
 import type {
   DetailAddon,
   DetailLicencePackage,
@@ -51,6 +59,7 @@ export function PurchasePanel({
   basePrices,
   customisable,
   typicalTurnaround,
+  demo,
   saveButton,
 }: {
   productId: string;
@@ -61,6 +70,13 @@ export function PurchasePanel({
   basePrices: readonly DetailPrice[];
   customisable: boolean;
   typicalTurnaround?: string;
+  /**
+   * Enough to decide whether there is anything to try, and where to send
+   * somebody who wants to. **Never a credential** — the panel further down the
+   * page is the only thing that reveals one, and only server-side after
+   * `revealCredentials` has said the viewer qualifies.
+   */
+  demo: DemoCta;
   /** Rendered as a slot so this island does not also own the save state. */
   saveButton: React.ReactNode;
 }) {
@@ -204,27 +220,26 @@ export function PurchasePanel({
       </div>
 
       <div className="flex flex-col gap-2">
-        {/* Ticket 10 owns the cart. Until then this is honest about what it
-            does rather than a button that silently does nothing. */}
-        <button
-          type="button"
-          disabled
-          title="The cart arrives with ticket 10"
-          className="bg-foreground text-background flex items-center justify-center gap-2 rounded-full px-5 py-3 text-[14px] font-medium transition disabled:opacity-50"
-        >
-          <ShoppingCart className="size-4" aria-hidden />
-          Buy as-is
-        </button>
+        {/* Live as of ticket 10. The selection above decides what goes in —
+            the licence, and whichever add-ons are ticked. */}
+        <AddToCart
+          productId={productId}
+          {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
+          addonKeys={[...chosenAddons]}
+          disabled={licencePackages.length > 0 && !selected}
+        />
 
         {customisable && (
           <Link
-            href={`/custom-software?product=${slug}` as Route}
+            href={`/customize/${slug}` as Route}
             className="border-border hover:bg-surface-muted flex items-center justify-center gap-2 rounded-full border px-5 py-3 text-[14px] font-medium transition"
           >
             <Sparkles className="size-4" aria-hidden />
             Request customization
           </Link>
         )}
+
+        <TryDemo demo={demo} />
 
         {saveButton}
       </div>
@@ -237,6 +252,58 @@ export function PurchasePanel({
 
       <input type="hidden" value={productId} readOnly aria-hidden />
     </div>
+  );
+}
+
+/**
+ * §8's third CTA — "opens the demo panel / external demo".
+ *
+ * ## Two destinations, because there are two situations
+ *
+ * - **A public demo exists** → straight there, in a new tab. Nobody wants a
+ *   scroll when the thing they asked for is a URL away.
+ * - **Only credentials exist** → down to the demo section, which either shows
+ *   them or explains what unlocks them. Sending somebody to a locked panel is
+ *   still better than a dead button, because the panel says *why*.
+ *
+ * ## It renders nothing when there is no demo
+ *
+ * A greyed-out "Try Demo" is a promise the product cannot keep, and four CTAs
+ * where one never works reads as a broken page rather than an honest one.
+ *
+ * ## What it is not allowed to know
+ *
+ * `hasCredentials` is a boolean and `roleCount` is a number. This is a **client
+ * component**, so anything it receives is in the RSC payload — which is exactly
+ * the leak `DemoPanel`'s two-function split exists to prevent. The rule holds
+ * here too.
+ */
+function TryDemo({ demo }: { demo: DemoCta }) {
+  if (!demo.publicUrl && !demo.hasCredentials) return null;
+
+  const label = demo.publicUrl ? "Try the demo" : "See demo access";
+
+  const className =
+    "border-border hover:bg-surface-muted flex items-center justify-center gap-2 " +
+    "rounded-full border px-5 py-3 text-[14px] font-medium transition";
+
+  if (demo.publicUrl) {
+    return (
+      <a href={demo.publicUrl} target="_blank" rel="noopener noreferrer" className={className}>
+        <MonitorPlay className="size-4" aria-hidden />
+        {label}
+        <span className="sr-only">(opens in a new tab)</span>
+      </a>
+    );
+  }
+
+  // A plain anchor, not a router link: `#demo` is on this page, and routing
+  // through Next to reach it would re-render the route to scroll.
+  return (
+    <a href="#demo" className={className}>
+      <MonitorPlay className="size-4" aria-hidden />
+      {label}
+    </a>
   );
 }
 

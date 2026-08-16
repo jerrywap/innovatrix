@@ -275,7 +275,27 @@ function snapshotOf(
       status: item.status,
       ...(item.notes ? { notes: item.notes } : {}),
     })),
+    currenciesWithoutLicencePrice: currenciesWithoutLicencePrice(product),
   };
+}
+
+/**
+ * Advertised currencies no licence package can actually be bought in.
+ *
+ * `product.prices` drives the listing; `licencePackages[].prices` drives the
+ * cart line. Any currency in the first with no match in the second is a price a
+ * customer can see and cannot pay.
+ */
+function currenciesWithoutLicencePrice(product: ProductDoc): string[] {
+  if (product.licencePackages.length === 0) return [];
+
+  const buyable = new Set(
+    product.licencePackages.flatMap((pkg) => pkg.prices.map((price) => price.currency)),
+  );
+
+  return [...new Set(product.prices.map((price) => price.currency))].filter(
+    (currency) => !buyable.has(currency),
+  );
 }
 
 /**

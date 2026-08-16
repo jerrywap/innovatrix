@@ -54,6 +54,7 @@ export type StorageScope =
   | "product-media"
   | "product-file"
   | "attachment"
+  | "payment-proof"
   | "quote-document"
   | "invoice-document"
   | "healthcheck";
@@ -187,6 +188,24 @@ export function attachmentKey(
   const key =
     `${ctx.root}/attachments/${segment(organizationId, "organizationId")}` +
     `/${segment(subjectId, "subjectId")}/${id()}-${safeFilename(filename)}`;
+  return assertKeyInPrefix(key, ctx.root);
+}
+
+/**
+ * Proof of an offline payment.
+ *
+ * Keyed by payment rather than by organisation so `assertKeyBelongsTo` has
+ * something to check against, and so a leaked key cannot be walked sideways
+ * into another customer's banking.
+ */
+export function paymentProofKey(
+  ctx: KeyBuilderContext,
+  paymentId: string,
+  filename: string,
+): string {
+  const key =
+    `${ctx.root}/payments/${segment(paymentId, "paymentId")}` +
+    `/${id()}-${safeFilename(filename)}`;
   return assertKeyInPrefix(key, ctx.root);
 }
 

@@ -52,11 +52,79 @@ Order summary, what happens next, links into My Software once fulfilled. Receipt
 - Staff: read-only order view inside Customer 360 (ticket 20).
 
 ## Acceptance criteria
-- [ ] Editing the total in the browser before submitting changes nothing — the server recomputes from the cart.
-- [ ] An order created from a product that is later re-priced still shows its original line prices forever.
-- [ ] Abandoning payment leaves the order `awaiting_payment` and the cart intact and re-purchasable.
-- [ ] The processing page never shows success on redirect alone; it reflects server state only.
-- [ ] Order creation is atomic — a failure part-way leaves no partial order.
-- [ ] Two rapid submissions of the same cart produce one order, not two (idempotency key on the submit action).
-- [ ] `ORD-` references are unique and sequential within the year.
-- [ ] Checkout is completable on mobile in under two minutes with no dead ends.
+- [x] Editing the total in the browser before submitting changes nothing — the server recomputes from the cart.
+- [x] An order created from a product that is later re-priced still shows its original line prices forever.
+- [x] Abandoning payment leaves the order `awaiting_payment` and the cart intact and re-purchasable.
+- [x] The processing page never shows success on redirect alone; it reflects server state only.
+- [x] Order creation is atomic — a failure part-way leaves no partial order.
+- [x] Two rapid submissions of the same cart produce one order, not two (idempotency key on the submit action).
+- [x] `ORD-` references are unique and sequential within the year.
+- [~] Checkout is completable on mobile in under two minutes with no dead ends — **one page**, not a wizard,
+  and responsive. The stopwatch belongs to ticket 27's device pass.
+
+---
+
+## Implementation notes
+
+### §61, tested by breaking the product afterwards
+
+Every order line copies the product's name, slug, version, licence terms and
+price **into the order**. The tests then rename the product, multiply its price
+by three, shorten its support window and delete it outright — and re-read the
+order. Nothing moves.
+
+The licence terms matter as much as the price: ticket 14 issues entitlements
+from `supportMonths` and `updateMonths` **on the order line**. Reading them live
+would mean an edited package silently shortening a window somebody paid for.
+
+### The reference joins the transaction
+
+`generateReference(counterStore(session), "ORD")`. Without the session, a
+rolled-back order burns an `ORD-` number and leaves a permanent gap in the
+sequence. There is a test that forces a failure *after* the reference is taken
+and asserts the next real order is still `-0001`.
+
+### Idempotency is content-derived
+
+The key is a hash of the cart id, its currency, its total and its line shape.
+The cart id alone would make a customer's second, deliberate purchase of the
+same basket collide with their first. Two rapid submits find the same order; a
+week later, a genuinely different basket does not.
+
+Belt and braces: a unique sparse index on `idempotencyKey`, so two submissions
+that race past the read still produce one order — the loser reads back the
+winner rather than seeing a duplicate-key error.
+
+### The cart is *not* cleared here
+
+Ticket 13 clears it on **confirmed payment**. An abandoned payment must leave
+the basket intact and re-purchasable — the difference between a customer
+retrying and a customer starting again.
+
+### The processing page reflects server state and nothing else
+
+`/checkout/processing` renders a poller and reads no order itself. It does not
+check for `?success=true`, and it does not assume anything from having been
+navigated to: the provider's redirect fires when the *browser* comes back,
+which happens before — and sometimes without — the webhook. The poll backs off
+and, after ninety seconds, stops and offers support rather than spinning
+forever.
+
+### Deviations
+
+1. **Guests do not create an account inline.** `/checkout` redirects a
+   signed-out visitor to `/login?next=/checkout`, which is §13's account step
+   with one fewer page and a working Back button. Inline registration is a real
+   §13 requirement and is **not** built — flagged rather than half-done.
+2. **Billing address validation is deliberately thin.** Only the country is
+   validated, because it decides the tax rule. §13 says "resist adding steps",
+   and a checkout that rejects a postcode format it has never seen loses a sale.
+
+### A Mongoose footgun, documented rather than worked around
+
+An unset **nested path** comes back as `{}`, not `undefined` — so
+`if (order.discount)` is true for an order with no discount. The only safe check
+is `order.discount?.amount`. Recorded on `OrderDoc` where the next person will
+read it; a test asserts the field rather than the object for the same reason.
+
+16 integration tests against a replica set.

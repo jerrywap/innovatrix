@@ -187,6 +187,106 @@ export const saveMediaAction = sectionAction({
   toUpdate: (input) => ({ media: input.media }),
 });
 
+/**
+ * A presigned PUT for one screenshot — §42 step 5.
+ *
+ * Ticket 05 deferred this on the grounds that bucket CORS was unset, so a
+ * browser upload would die at the preflight. That was true then and is not now:
+ * a real `OPTIONS` against a signed URL from `http://127.0.0.1:3000` returns
+ * `200` with `access-control-allow-origin`, and the PUT that follows returns
+ * `200`. `npm run storage:media-probe` is that check, kept so the answer can be
+ * re-established rather than argued about.
+ *
+ * ## The browser never learns anything it could reuse
+ *
+ * The key is built **here** from the product id, not accepted from the client —
+ * `productMediaKey` puts it under `innovatrix/{env}/products/{id}/media/` and
+ * `assertKeyInPrefix` refuses anything that escapes. The signature is bound to
+ * the exact content type and byte length, so the ticket cannot be replayed to
+ * upload something else. It expires in minutes.
+ *
+ * ## Replacing an image overwrites the object rather than orphaning it
+ *
+ * When the row already has a `storageKey`, that key is **reused verbatim** and
+ * the PUT overwrites in place. S3 identifies an object by its key, so writing
+ * the same key replaces the bytes — no `s3:DeleteObject` involved, which
+ * matters because that permission is still denied for this IAM user. Correcting
+ * a mistaken upload therefore leaves nothing behind, which was the whole reason
+ * to care.
+ *
+ * The reused key is checked with `assertKeyBelongsTo` and not merely for being
+ * inside our prefix. Otherwise this action would accept any key the client
+ * chose to send and overwrite **another product's** screenshot with one of
+ * theirs — the two-step upload flow's classic hole.
+ *
+ * The key keeps the extension it was minted with, so replacing a `.png` with a
+ * JPEG leaves a `.png` URL serving `image/jpeg`. Harmless: browsers and
+ * `next/image` both go by `Content-Type`, which is re-set on every write, and
+ * the alternative is a new key and the orphan we are avoiding.
+ *
+ * ## What still does not work
+ *
+ * `s3:DeleteObject` remains denied — verified by `npm run storage:media-probe`,
+ * not assumed. *Deleting* a screenshot row still leaves its object in the
+ * bucket; only replacement is clean. Named in `MediaForm` so nobody
+ * rediscovers it.
+ */
+export async function createMediaUploadAction(input: unknown): Promise<
+  ActionResult<{
+    /** Where the browser PUTs the bytes. Signed, short-lived, single-purpose. */
+    uploadUrl: string;
+    key: string;
+    headers: Record<string, string>;
+    /** Where the image is read back from afterwards — what the form stores. */
+    publicUrl: string;
+  }>
+> {
+  return withAction(async () => {
+    await requirePermission("product.update");
+
+    const parsed = parseInput(
+      z.object({
+        productId: objectIdSchema,
+        filename: z.string().trim().min(1).max(255),
+        contentType: z.string().trim().min(1).max(120),
+        sizeBytes: z.coerce.number().int().positive(),
+        /** The key this row already points at, when the image is being replaced. */
+        replaceKey: z.string().trim().max(400).optional(),
+      }),
+      input,
+    );
+
+    const storage = await import("@/services/storage");
+
+    const key = parsed.replaceKey
+      ? // Overwrite in place. Bound to this product, so a client cannot name
+        // somebody else's object and have us hand back a signature for it.
+        storage.assertProductMediaKey(parsed.replaceKey, parsed.productId)
+      : // Built from the product id server-side. A client-supplied key is an
+        // untrusted claim about where bytes may land, and this bucket is shared
+        // with unrelated live applications.
+        storage.productMediaPath(parsed.productId, parsed.filename);
+
+    const ticket = await storage.createUploadUrl({
+      scope: "product-media",
+      key,
+      filename: parsed.filename,
+      contentType: parsed.contentType,
+      sizeBytes: parsed.sizeBytes,
+    });
+
+    return ok({
+      uploadUrl: ticket.url,
+      key: ticket.key,
+      // Version-stamped. Overwriting a key leaves every browser that has seen
+      // the old bytes holding them, so a corrected screenshot would keep
+      // rendering as the mistake — which is precisely the case this exists for.
+      publicUrl: storage.publicObjectUrl(ticket.key, { version: Date.now() }),
+      headers: ticket.headers,
+    });
+  });
+}
+
 export const savePricingAction = sectionAction({
   section: "pricing",
   // §77 gives this to `sales` and `finance` and withholds it from

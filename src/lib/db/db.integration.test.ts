@@ -1,6 +1,5 @@
-import { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose, { Schema, Types, type Model } from "mongoose";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, inject } from "vitest";
 import { generateReference, parseReference } from "@/lib/references";
 import { BaseRepository, OrgScopedRepository, RepositoryError } from "@/repositories/base";
 import { MoneySchema, orgScoped, schemaOptions, softDeletable } from "./base";
@@ -14,7 +13,6 @@ import { MoneySchema, orgScoped, schemaOptions, softDeletable } from "./base";
  * the client reads validated env at module load and its `globalThis` cache is
  * deliberately process-wide. Connection caching is exercised separately.
  */
-let replSet: MongoMemoryReplSet;
 
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({
@@ -29,7 +27,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mongoose.disconnect();
-  await replSet?.stop();
 });
 
 /* ────────────────────────────────────────────── fixtures */

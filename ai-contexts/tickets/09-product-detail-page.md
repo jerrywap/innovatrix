@@ -51,6 +51,7 @@ currency, availability) and `AggregateRating` only if reviews exist (they don't 
 - [~] "Request Customization" is hidden when the product has customization disabled, and the corresponding
       server action refuses the request too — the **hiding** is done; the action is ticket 17's and does not
       exist yet. Flagged there rather than stubbed here.
+- [x] All four §8 CTAs present — Buy As-Is, Request Customization, **Try Demo**, Save for Later.
 - [x] Demo credentials for an `owners_only` product are absent from the HTML and the RSC payload for a
       non-owner — verified against the **raw response body**, not the rendered tree.
 - [x] Price and licence selection update the CTA without a full page reload.
@@ -144,6 +145,47 @@ would pass for the wrong reason.
 Verified: page load records · prefetch does not · `purpose: prefetch` does not ·
 Googlebot does not · a category page is not mistaken for a product · revisiting
 moves an entry to the front rather than duplicating it.
+
+### Try Demo was missed on the first pass
+
+Three of §8's four CTAs shipped; "Try Demo" did not. The demo *panel* existed
+further down the page, but the CTA beside the price — which is what the ticket
+specifies — was absent, so a product with a demo looked like one without.
+
+It now renders only when there is something to try, and goes to one of two
+places:
+
+| state | CTA | destination |
+|---|---|---|
+| public URL configured | "Try the demo" | the URL, new tab |
+| credentials only | "See demo access" | `#demo`, which shows them or says what unlocks them |
+| neither | *nothing* | — |
+
+Nothing rather than a disabled button: a greyed-out CTA is a promise the
+product cannot keep, and four CTAs where one never works reads as broken.
+
+`DemoCta` carries a URL, a boolean and a count. It is a **client** component
+prop, so anything on it is in the RSC payload — the same discipline
+`publicDemoView` enforces server-side, and there is now a test asserting the
+type cannot grow a password, a username or a gated URL.
+
+### The seed had no demos at all, so none of this was visible
+
+Every product had `exposure: "authenticated"` and nothing else — no URL, no
+credentials — so `DemoPanel` correctly rendered `null` everywhere and the whole
+§9 surface was invisible in development. Four products now cover four states:
+
+```
+atlas-crm    public           URL + 2 credentials   → anyone sees them
+tenancy      authenticated    2 credentials         → locked until sign-in
+roster       owners_only      URL + 1 credential    → locked until purchase
+freightline  none             nothing               → no panel at all
+```
+
+Passwords are sealed with the same `seal()` the admin form uses, with the
+product id as AAD — a seed storing plaintext would make every §89 assertion
+vacuous. Verified: no plaintext in any stored document, and an anonymous
+request for `roster` contains no password, username or gated URL.
 
 ### Client islands, each with a nameable reason
 

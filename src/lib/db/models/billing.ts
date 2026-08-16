@@ -10,6 +10,7 @@ import {
   type InvoiceSourceType,
   type InvoiceStatus,
   type PaymentTerms,
+  type QuoteItemKind,
   type QuoteStatus,
 } from "../enums";
 
@@ -27,7 +28,22 @@ import {
 
 /* ────────────────────────────────────────────── Quote */
 
-const quoteItemSchema = new Schema(
+/**
+ * One line of a quote — §51.
+ *
+ * `lineTotal` is stored rather than derived on read. §61's habit: a quote is a
+ * commercial commitment, and re-deriving a total at render time means a change
+ * to the arithmetic silently changes what somebody already agreed to.
+ */
+export interface QuoteItem {
+  kind: QuoteItemKind;
+  description: string;
+  quantity: number;
+  unitPrice: { amount: number; currency: string };
+  lineTotal: { amount: number; currency: string };
+}
+
+const quoteItemSchema = new Schema<QuoteItem>(
   {
     kind: { type: String, enum: QUOTE_ITEM_KINDS, required: true },
     description: { type: String, required: true },
@@ -50,7 +66,7 @@ export interface QuoteDoc {
   deliverables: string[];
   exclusions: string[];
   notes?: string;
-  items: unknown[];
+  items: QuoteItem[];
   currency: string;
   subtotal: { amount: number; currency: string };
   discount?: { amount: number; currency: string };
@@ -74,7 +90,17 @@ export interface QuoteDoc {
 
 const quoteSchema = new Schema<QuoteDoc>(
   {
-    reference: referenceField,
+    /*
+     * `referenceField` minus its `unique`, because a quote's reference is
+     * **not** unique — a revision keeps it and bumps `version`. That is
+     * deliberate: a customer talking about "QUO-2026-0004" means the quote, not
+     * one revision of it, and renumbering on every revision would make their
+     * emails stop matching our records.
+     *
+     * Uniqueness moves to `{reference, version}` below. Found by an integration
+     * test: `E11000 ... reference_1 dup key` the first time a v2 was created.
+     */
+    reference: { ...referenceField, unique: false },
     // A revision creates v2 and supersedes v1 — never edits in place (ticket 22).
     version: { type: Number, default: 1 },
     supersedesQuoteId: { type: Schema.Types.ObjectId, ref: "Quote" },
@@ -128,6 +154,9 @@ const quoteSchema = new Schema<QuoteDoc>(
   schemaOptions({ collection: "quotes" }),
 );
 
+// One row per version of a reference. Replaces the plain `unique` on
+// `reference`, which made revisions impossible.
+quoteSchema.index({ reference: 1, version: 1 }, { unique: true });
 quoteSchema.index({ organizationId: 1, createdAt: -1 });
 // §31 "Quotes Awaiting Approval" + the ticket-25 expiry sweep.
 quoteSchema.index({ status: 1, expiresAt: 1 });
@@ -138,6 +167,10 @@ export const Quote = defineModel<QuoteDoc>("Quote", quoteSchema);
 
 const invoiceItemSchema = new Schema(
   {
+    // Carried over from the quote line. Without it here Mongoose strips `kind`
+    // on the way in and the stored document quietly stops matching `QuoteItem`,
+    // which is the type this field claims to hold.
+    kind: { type: String, enum: QUOTE_ITEM_KINDS, required: true },
     description: { type: String, required: true },
     quantity: { type: Number, default: 1, min: 1 },
     unitPrice: { type: MoneySchema, required: true },
@@ -154,7 +187,7 @@ export interface InvoiceDoc {
   sourceId: Types.ObjectId;
   /** "deposit" / "balance" when a quote splits into two (ticket 23). */
   portion?: "full" | "deposit" | "balance";
-  items: unknown[];
+  items: QuoteItem[];
   currency: string;
   subtotal: { amount: number; currency: string };
   tax?: { basisPoints?: number; amount: number; currency: string };

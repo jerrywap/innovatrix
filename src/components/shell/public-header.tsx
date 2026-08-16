@@ -3,6 +3,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Brand } from "./brand";
 import { PUBLIC_NAV } from "@/lib/navigation";
 import { getSession } from "@/lib/auth/dal";
+import { CartBadge } from "@/features/cart/components/cart-badge";
 
 /**
  * Marketing header.
@@ -26,6 +27,10 @@ import { getSession } from "@/lib/auth/dal";
  * would show "Sign in" to a signed-in customer for a beat before correcting
  * itself, which is the flash this used to exist to prevent. Suspense keeps that
  * guarantee: the fallback is a neutral placeholder, never the wrong state.
+ *
+ * The basket badge shares that slot for the same reason — it reads the cart
+ * cookie, so it is dynamic too, and giving it its own boundary would just mean
+ * two skeletons resolving a moment apart.
  */
 export function PublicHeader({ account }: { account: React.ReactNode }) {
   return (
@@ -67,6 +72,10 @@ export async function HeaderAccount() {
 
   return (
     <>
+      {/* Inside the same boundary as the session, because both are dynamic and
+          a second Suspense here would mean two skeletons popping in a row. */}
+      <CartBadge />
+
       {isStaff && (
         <Link
           href="/staff"

@@ -108,6 +108,16 @@ export const PERMISSIONS = [
   /* Platform administration (§89, §90) */
   "settings.manage",
   "payment_provider.configure",
+  /**
+   * Which model the assistants use, and the failover order (ticket 16).
+   *
+   * Separate from `settings.manage` because it has its own blast radius: this
+   * one changes what every customer conversation costs per turn and how well it
+   * behaves, and §104 makes it the lever somebody reaches for during an
+   * incident. Worth being able to grant on its own, and worth auditing on its
+   * own. It never grants access to the API key, which is not in the database.
+   */
+  "ai.configure",
   "staff.manage",
   "audit.view",
   "system.manage_jobs",

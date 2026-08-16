@@ -78,6 +78,26 @@ export class ProductRepository extends BaseRepository<ProductDoc> {
   }
 
   /** Products referencing a taxonomy — for the rename re-derive and the delete guard. */
+  /**
+   * Several products by id, in one query.
+   *
+   * The cart's read path needs the live product for every line, and asking per
+   * line is the N+1 that makes a five-item basket five round trips on every
+   * page load. Bounded, like every list here.
+   */
+  async findManyByIds(
+    ids: readonly string[],
+    options: { session?: ClientSession } = {},
+  ): Promise<ProductDoc[]> {
+    if (ids.length === 0) return [];
+
+    return this.model
+      .find({ _id: { $in: ids.map((id) => toObjectId(id)) } })
+      .limit(200)
+      .session(options.session ?? null)
+      .lean<ProductDoc[]>();
+  }
+
   async idsReferencingTaxonomy(taxonomyId: string): Promise<string[]> {
     const id = toObjectId(taxonomyId);
     const docs = await this.model
