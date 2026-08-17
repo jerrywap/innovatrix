@@ -33,13 +33,18 @@ type Phase =
  * The row owns the URL and the storage key, so an upload is just a second way
  * of filling in the address a human could have pasted — and the preview updates
  * because the row re-renders, not because anything was poked.
+ *
+ * ## `uploadAction` is a prop, for the same reason every other step's is
+ *
+ * It was a hard import of the staff action, which begins
+ * `requirePermission("product.update")` — so on the vendor surface the media step refused with
+ * "This area is for Innovatrix staff" and no screenshot could be uploaded at all. Vendor ticket 04
+ * parameterised the wizard by passing each surface's action in; this control sits one level below
+ * the form that receives it and was missed.
+ *
+ * Defaulted to the staff action so every admin caller is unchanged.
  */
-export function MediaUpload({
-  productId,
-  replaceKey,
-  onUploaded,
-  maxBytes = 10 * 1024 * 1024,
-}: {
+export interface MediaUploadProps {
   productId: string;
   /**
    * The object this row already points at, if any. Passing it makes the upload
@@ -49,8 +54,18 @@ export function MediaUpload({
    */
   replaceKey?: string;
   onUploaded: (result: { url: string; storageKey: string }) => void;
+  /** The surface's own presigned-PUT action. Staff by default; the vendor wizard passes its own. */
+  uploadAction?: typeof createMediaUploadAction;
   maxBytes?: number;
-}) {
+}
+
+export function MediaUpload({
+  productId,
+  replaceKey,
+  onUploaded,
+  uploadAction = createMediaUploadAction,
+  maxBytes = 10 * 1024 * 1024,
+}: MediaUploadProps) {
   const [phase, setPhase] = useState<Phase>({ status: "idle" });
   const inputId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -76,7 +91,7 @@ export function MediaUpload({
      */
     let ticket: Awaited<ReturnType<typeof createMediaUploadAction>>;
     try {
-      ticket = await createMediaUploadAction({
+      ticket = await uploadAction({
         productId,
         filename: file.name,
         contentType: file.type || "application/octet-stream",

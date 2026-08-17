@@ -22,6 +22,7 @@ import * as demoService from "@/services/catalog/demo-service";
 import * as productService from "@/services/catalog/product-service";
 import * as reviewService from "@/services/catalog/review-service";
 import * as testingService from "@/services/catalog/testing-service";
+import { requireOwnedProduct } from "@/services/catalog/ownership";
 import {
   BASICS_SECTION,
   CONTENT_SECTION,
@@ -464,4 +465,79 @@ function parseDescription(value: unknown): RichTextDocument | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A presigned `PUT` for a screenshot on the vendor's own product — vendor ticket 04.
+ *
+ * ## Why this exists rather than reusing the staff one
+ *
+ * `MediaUpload` hard-imported `createMediaUploadAction`, which begins
+ * `requirePermission("product.update")`. On the vendor surface that refuses with **"This area is
+ * for Innovatrix staff"** — so the media step of the vendor wizard could not upload anything at
+ * all. Every other step had been parameterised by passing its action in; the upload inside the
+ * media row had been missed, because it is one level below the form that takes the prop.
+ *
+ * ## What makes it safe
+ *
+ * `requireOwnedProduct` — a `vendorId`-scoped read that answers **404** for somebody else's
+ * product rather than 403, the position this codebase takes everywhere a vendor names an id. That
+ * matters more here than on a save: this action hands back a *signature* that authorises writing
+ * bytes into the bucket, so an unscoped version would let any vendor mint an upload ticket for any
+ * product's media prefix.
+ *
+ * The key is still built server-side from the product id, and a `replaceKey` from the client is
+ * checked against *this* product before it is signed. Both halves are the same as the staff
+ * action's, deliberately: the difference between the two is who is allowed to ask, and nothing else.
+ */
+export async function createVendorMediaUploadAction(input: unknown): Promise<
+  ActionResult<{
+    uploadUrl: string;
+    key: string;
+    headers: Record<string, string>;
+    publicUrl: string;
+  }>
+> {
+  return withAction(async () => {
+    const context = await requireVendorOrForbid();
+
+    const parsed = parseInput(
+      z.object({
+        productId: objectIdSchema,
+        filename: z.string().trim().min(1).max(255),
+        contentType: z.string().trim().min(1).max(120),
+        sizeBytes: z.coerce.number().int().positive(),
+        replaceKey: z.string().trim().max(400).optional(),
+      }),
+      input,
+    );
+
+    // The ownership gate. Before any key is built, so a refusal never reveals whether the product
+    // exists by the shape of what comes back.
+    await requireOwnedProduct(parsed.productId, { vendorId: context.vendorId });
+
+    const storage = await import("@/services/storage");
+
+    const key = parsed.replaceKey
+      ? storage.assertProductMediaKey(parsed.replaceKey, parsed.productId)
+      : storage.productMediaPath(parsed.productId, parsed.filename);
+
+    const ticket = await storage.createUploadUrl({
+      scope: "product-media",
+      key,
+      filename: parsed.filename,
+      contentType: parsed.contentType,
+      sizeBytes: parsed.sizeBytes,
+    });
+
+    return ok({
+      uploadUrl: ticket.url,
+      key: ticket.key,
+      // Version-stamped, like the staff action: overwriting a key leaves every browser that has
+      // seen the old bytes holding them, and a corrected screenshot would keep rendering as the
+      // mistake.
+      publicUrl: storage.publicObjectUrl(ticket.key, { version: Date.now() }),
+      headers: ticket.headers,
+    });
+  });
 }
