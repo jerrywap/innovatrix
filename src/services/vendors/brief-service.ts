@@ -578,3 +578,109 @@ export async function countAwaitingVendor(scope: VendorScope): Promise<number> {
 
   return VendorBrief.countDocuments({ ...vendorFilter(scope), status: "sent" });
 }
+
+/* ────────────────────────────────────────────── turning a price into a quote */
+
+export interface QuotableBrief {
+  briefId: string;
+  requestId: string;
+  organizationId: string;
+  vendorId: string;
+  vendorName: string;
+  productName: string;
+  title: string;
+  requirements: BriefRequirement[];
+  /** The vendor's own figure, in minor units. */
+  amount: number;
+  currency: string;
+  effort: string;
+  caveats?: string;
+  /** Resolved now and snapshotted onto the quote — never re-read afterwards. */
+  commissionBasisPoints: number;
+}
+
+/**
+ * Everything staff need to draft the customer's quote from a vendor's price — milestone B.
+ *
+ * ## Why the commission is resolved *here* and not at payment
+ *
+ * `resolveCommissionForVendor()` reads the rate that is in force **today**. Reading it when the
+ * invoice is paid — weeks later, possibly after a renegotiation — would mean a rate change silently
+ * altering what a vendor is owed on work they already priced and agreed. So it is resolved at the
+ * moment of quoting and written onto the quote, which is the same rule
+ * `OrderLine.commissionBasisPoints` follows at checkout: *resolved once, never re-read*.
+ *
+ * ## Two numbers, and this returns the vendor's
+ *
+ * `amount` is what the vendor priced. The customer's total is staff's to set — defaulting to this
+ * figure — and any excess is platform margin on top of commission. That is why the quote stores both:
+ * deriving the vendor's share from the total would let a staff member raise what we owe by raising
+ * the price, which is not what "the vendor prices the work" promised.
+ *
+ * Refuses a brief that is not `answered`, because there is no price on it to quote.
+ */
+export async function quotableBrief(briefId: string): Promise<QuotableBrief> {
+  await connectToDatabase();
+
+  const brief = await VendorBrief.findById(toObjectId(briefId)).lean<VendorBriefDoc>().exec();
+  if (!brief) throw new NotFoundError("brief", { id: briefId });
+
+  if (brief.status !== "answered" || !brief.proposal) {
+    throw new ValidationError(
+      brief.status === "declined"
+        ? "The vendor declined this one, so there is no price to quote."
+        : "The vendor has not priced this yet.",
+      { briefId: ["Wait for their figure, or send a fresh brief."] },
+    );
+  }
+
+  const vendor = await Vendor.findById(brief.vendorId)
+    .select({ displayName: 1 })
+    .lean<{ displayName: string }>()
+    .exec();
+
+  const { resolveCommissionForVendor } = await import("./commission-service");
+  const commission = await resolveCommissionForVendor(String(brief.vendorId));
+
+  return {
+    briefId: String(brief._id),
+    requestId: String(brief.requestId),
+    organizationId: String(brief.organizationId),
+    vendorId: String(brief.vendorId),
+    vendorName: vendor?.displayName ?? "The vendor",
+    productName: brief.productName,
+    title: brief.title,
+    requirements: brief.requirements,
+    amount: brief.proposal.amount,
+    currency: brief.proposal.currency,
+    effort: brief.proposal.effort,
+    ...(brief.proposal.caveats ? { caveats: brief.proposal.caveats } : {}),
+    commissionBasisPoints: commission.basisPoints,
+  };
+}
+
+/**
+ * The newest priced brief for a request, if there is one — what the quote builder prefills from.
+ *
+ * Newest rather than only: a withdrawn-and-resent round leaves several, and the last price given is
+ * the live one. Returns `null` rather than throwing when there is nothing to quote from, because the
+ * quote screen is reachable for every request and a vendor price is the exception.
+ */
+export async function latestPricedBrief(requestId: string): Promise<QuotableBrief | null> {
+  await connectToDatabase();
+
+  const brief = await VendorBrief.findOne({
+    requestId: toObjectId(requestId),
+    status: "answered",
+  })
+    .sort({ sentAt: -1 })
+    .select({ _id: 1 })
+    .lean<{ _id: unknown }>()
+    .exec();
+
+  if (!brief) return null;
+
+  // Through `quotableBrief` rather than mapping here, so the commission is resolved and snapshotted
+  // by the one function that knows to do it.
+  return quotableBrief(String(brief._id));
+}

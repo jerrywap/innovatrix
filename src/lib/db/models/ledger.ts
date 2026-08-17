@@ -53,6 +53,19 @@ export interface LedgerEntryDoc {
   /** The order line that produced it, so a figure is traceable to a purchase. */
   orderId?: Types.ObjectId;
   orderLineId?: string;
+  /**
+   * The invoice that produced it — vendor ticket 14, custom work.
+   *
+   * Custom work arrives through an `Invoice` against a `Quote`, never an `Order`, so the order pair
+   * above cannot describe it and `recordEarnings()` — which filters `order.items` — never sees it.
+   * A vendor who delivered a customization would otherwise earn nothing at all.
+   *
+   * Additive rather than a replacement: every existing row keeps its meaning, and a row has exactly
+   * one provenance — an order line or an invoice, never both.
+   */
+  invoiceId?: Types.ObjectId;
+  /** The quote the invoice collected, for the audit trail back to the vendor's own price. */
+  quoteId?: Types.ObjectId;
   /** The payout that settled it — vendor ticket 09. */
   payoutId?: Types.ObjectId;
   /** Required on an adjustment. A ledger without adjustments grows a spreadsheet beside it. */
@@ -70,6 +83,9 @@ const ledgerEntrySchema = new Schema<LedgerEntryDoc>(
     clearsAt: Date,
     orderId: { type: Schema.Types.ObjectId, ref: "Order" },
     orderLineId: String,
+    // Vendor ticket 14 — the other provenance. Absent on every row that predates it.
+    invoiceId: { type: Schema.Types.ObjectId, ref: "Invoice" },
+    quoteId: { type: Schema.Types.ObjectId, ref: "Quote" },
     payoutId: { type: Schema.Types.ObjectId, ref: "Payout" },
     note: { type: String, trim: true },
   },
@@ -91,6 +107,21 @@ ledgerEntrySchema.index(
   { unique: true, partialFilterExpression: { orderId: { $exists: true } } },
 );
 
+/**
+ * The same double-pay guard, for custom work — vendor ticket 14.
+ *
+ * `{invoiceId, kind}` rather than `{invoiceId, quoteId, kind}`: a deposit and a balance invoice
+ * against one quote are **two** earnings and must both be allowed, so the quote cannot be in the
+ * key. The invoice can, because one invoice is paid once — and a retried `InvoicePaid` webhook is
+ * exactly the case this stops, the same way the order-line index stops a retried fulfilment.
+ *
+ * Partial for the same reason as its sibling: rows with no invoice would all collide on `null`.
+ */
+ledgerEntrySchema.index(
+  { invoiceId: 1, kind: 1 },
+  { unique: true, partialFilterExpression: { invoiceId: { $exists: true } } },
+);
+
 /** The sweep's filter, and the balance query. */
 ledgerEntrySchema.index({ status: 1, clearsAt: 1 });
 ledgerEntrySchema.index({ vendorId: 1, status: 1, createdAt: -1 });
@@ -108,7 +139,17 @@ ledgerEntrySchema.index({ payoutId: 1 });
  * is narrower than the audit log's blanket refusal. Amount, kind, vendor and the order
  * link are immutable; a correction is an `adjustment` row.
  */
-const IMMUTABLE = ["amount", "kind", "vendorId", "orderId", "orderLineId"] as const;
+// The invoice provenance joins this list for the same reason the order pair is on it: an entry whose
+// link can be re-pointed is a balance whose history is fiction — vendor tickets 08 and 14.
+const IMMUTABLE = [
+  "amount",
+  "kind",
+  "vendorId",
+  "orderId",
+  "orderLineId",
+  "invoiceId",
+  "quoteId",
+] as const;
 
 const APPEND_ONLY =
   "Ledger entries are append-only (vendor ticket 08). Reverse one with a negative entry " +

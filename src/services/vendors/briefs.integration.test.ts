@@ -629,3 +629,94 @@ describe("a request knows whose software it is about", () => {
     expect(created.vendorId).toBeUndefined();
   });
 });
+
+/* ────────────────────────────────────────────── milestone B: the quote */
+
+describe("staff quote the customer from the vendor's price", () => {
+  async function pricedBrief() {
+    await seed();
+    const brief = await briefs.routeToVendor(
+      { requestId: REQUEST },
+      { ...STAFF_ACTOR, userId: STAFF_USER },
+    );
+    await briefs.submitProposal(
+      {
+        briefId: String(brief._id),
+        amount: 240_000,
+        currency: "GBP",
+        effort: "About a week",
+        caveats: "Assumes PHP 8.2.",
+      },
+      { vendorId: VENDOR },
+      { ...VENDOR_ACTOR, userId: VENDOR_USER },
+    );
+    return String(brief._id);
+  }
+
+  it("hands staff the price and the commission rate, resolved now", async () => {
+    const briefId = await pricedBrief();
+
+    const quotable = await briefs.quotableBrief(briefId);
+    expect(quotable.amount).toBe(240_000);
+    expect(quotable.currency).toBe("GBP");
+    expect(quotable.effort).toBe("About a week");
+    expect(quotable.vendorName).toBe("Northwind Labs");
+    // Resolved at quoting time, not at payment: a rate change must not rewrite the arithmetic on
+    // work already priced and agreed.
+    expect(quotable.commissionBasisPoints).toBeGreaterThan(0);
+  });
+
+  it("refuses a brief with no price on it", async () => {
+    await seed();
+    const brief = await briefs.routeToVendor(
+      { requestId: REQUEST },
+      { ...STAFF_ACTOR, userId: STAFF_USER },
+    );
+
+    await expect(briefs.quotableBrief(String(brief._id))).rejects.toThrow(
+      /has not priced this/,
+    );
+  });
+
+  it("says so when the vendor declined, rather than reporting no price", async () => {
+    await seed();
+    const brief = await briefs.routeToVendor(
+      { requestId: REQUEST },
+      { ...STAFF_ACTOR, userId: STAFF_USER },
+    );
+    await briefs.decline(
+      { briefId: String(brief._id), reason: "No capacity." },
+      { vendorId: VENDOR },
+      { ...VENDOR_ACTOR, userId: VENDOR_USER },
+    );
+
+    // Two different problems with two different answers — the same reason `releaseVersion`
+    // distinguishes "still fetching" from "you never gave us a file".
+    await expect(briefs.quotableBrief(String(brief._id))).rejects.toThrow(/declined/);
+  });
+
+  it("finds the newest price when a brief was resent", async () => {
+    const first = await pricedBrief();
+    await briefs.withdraw(first, { ...STAFF_ACTOR, userId: STAFF_USER });
+
+    const second = await briefs.routeToVendor(
+      { requestId: REQUEST },
+      { ...STAFF_ACTOR, userId: STAFF_USER },
+    );
+    await briefs.submitProposal(
+      { briefId: String(second._id), amount: 300_000, currency: "GBP", effort: "Ten days" },
+      { vendorId: VENDOR },
+      { ...VENDOR_ACTOR, userId: VENDOR_USER },
+    );
+
+    const latest = await briefs.latestPricedBrief(REQUEST);
+    expect(latest?.amount).toBe(300_000);
+  });
+
+  it("returns null when there is nothing priced, rather than throwing", async () => {
+    await seed();
+    // The quote screen is reachable for every request; a vendor price is the exception, so the
+    // absence of one must not be an error page.
+    expect(await briefs.latestPricedBrief(REQUEST)).toBeNull();
+  });
+});

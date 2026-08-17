@@ -9,6 +9,8 @@ import { connectToDatabase } from "@/lib/db/client";
 import { Organization } from "@/lib/db/models/identity";
 import { loadRequest } from "@/features/requests/request-view";
 import { QuoteBuilder } from "@/features/quotes/components/quote-builder";
+import { money, toDecimal, type CurrencyCode } from "@/lib/money";
+import { latestPricedBrief } from "@/services/vendors/brief-service";
 
 export const metadata: Metadata = { title: "New quote" };
 
@@ -43,6 +45,25 @@ export default async function Page({
   // yet, so GBP is the platform default rather than a guess dressed as one.
   const currency = organization?.billingCurrency ?? "GBP";
 
+  /*
+   * Vendor ticket 14 — a vendor's price, if one has been given.
+   *
+   * `quotableBrief` refuses a brief that is not `answered`, so a `null` here means either no vendor
+   * or no price yet, and the builder simply behaves as it did before. The currency comparison is the
+   * guard that matters: `money.ts` refuses cross-currency arithmetic, so a vendor priced in one
+   * currency and a customer billed in another cannot be reconciled and must not be silently mixed.
+   */
+  const priced = await latestPricedBrief(request.id);
+  const vendorQuote =
+    priced && priced.currency === currency
+      ? {
+          briefId: priced.briefId,
+          vendorName: priced.vendorName,
+          amountDecimal: String(toDecimal(money(priced.amount, currency as CurrencyCode))),
+          effort: priced.effort,
+        }
+      : undefined;
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -66,6 +87,7 @@ export default async function Page({
           organizationId={request.organizationId}
           currency={currency}
           defaultTitle={request.title}
+          {...(vendorQuote ? { vendorQuote } : {})}
         />
 
         <aside className="flex flex-col gap-4">
@@ -108,6 +130,21 @@ export default async function Page({
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {priced && priced.currency !== currency && (
+            <section className="flex flex-col gap-2 rounded-xl border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-4">
+              <h2 className="font-display text-[15.5px] tracking-[-0.02em]">
+                Currencies don&rsquo;t match
+              </h2>
+              {/* Not silently dropped: `money.ts` refuses cross-currency arithmetic on purpose, and
+                  a prefilled figure in the wrong currency is worse than none. */}
+              <p className="text-[13px]">
+                {priced.vendorName} priced this in {priced.currency} and this quote is in{" "}
+                {currency}. Their figure is not prefilled — converting it is a decision nobody
+                has taken.
+              </p>
             </section>
           )}
 

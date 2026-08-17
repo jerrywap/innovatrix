@@ -153,6 +153,8 @@ async function Earnings({ vendorId, kind }: { vendorId: string; kind?: LedgerEnt
                       <span className="text-subtle font-mono text-[11px]">
                         {formatDateTime(entry.createdAt)}
                         {entry.orderReference ? ` · ${entry.orderReference}` : ""}
+                        {/* Custom work has an invoice rather than an order — vendor ticket 14. */}
+                        {entry.invoiceReference ? ` · ${entry.invoiceReference}` : ""}
                         {entry.status === "pending" && entry.clearsAt
                           ? ` · payable ${formatDay(entry.clearsAt)}`
                           : ""}

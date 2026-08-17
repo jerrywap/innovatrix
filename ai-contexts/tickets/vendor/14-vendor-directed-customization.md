@@ -141,18 +141,91 @@ parts, so it is recorded per invoice, not per quote.
 
 ## Acceptance criteria
 
-- [ ] A customization request against a vendor-owned product carries that vendor, resolved from the product at submission.
-- [ ] A customization against a first-party product is unchanged, and cannot be routed to a vendor.
-- [ ] The vendor is not notified at submission — staff triage first.
-- [ ] Staff can send a request to its vendor, which moves it to `technical_review`.
-- [ ] The brief a vendor reads contains no customer name, organisation or user id — asserted against the serialised payload.
-- [ ] A vendor cannot reach another vendor's brief, and the refusal is a 404.
-- [ ] A vendor cannot reach the customer's request thread at all.
-- [ ] Staff can post into the brief thread, and the vendor can reply.
-- [ ] Nothing a vendor writes reaches the customer without a staff member relaying it.
-- [ ] A revision of the requirements creates a new brief rather than editing the one already sent.
-- [ ] The vendor submits a price, an effort estimate and caveats; staff issue the customer's quote from it.
-- [ ] The commission rate is snapshotted at issue and never re-read.
-- [ ] The vendor never sees the total the customer is quoted.
-- [ ] Paying a customization invoice records a vendor earning that appears on `/dashboard/selling/earnings` and clears on the usual terms.
-- [ ] A deposit and a balance invoice against one quote record two earnings, not one doubled.
+- [x] A customization request against a vendor-owned product carries that vendor, resolved from the product at submission.
+- [x] A customization against a first-party product is unchanged, and cannot be routed to a vendor.
+- [x] The vendor is not notified at submission — staff triage first.
+- [x] Staff can send a request to its vendor, which moves it to `technical_review`.
+- [x] The brief a vendor reads contains no customer name, organisation or user id — asserted against the serialised payload.
+- [x] A vendor cannot reach another vendor's brief, and the refusal is a 404.
+- [x] A vendor cannot reach the customer's request thread at all.
+- [x] Staff can post into the brief thread, and the vendor can reply.
+- [x] Nothing a vendor writes reaches the customer without a staff member relaying it.
+- [x] A revision of the requirements creates a new brief rather than editing the one already sent.
+- [x] The vendor submits a price, an effort estimate and caveats; staff issue the customer's quote from it.
+- [x] The commission rate is snapshotted at issue and never re-read.
+- [x] The vendor never sees the total the customer is quoted.
+- [x] Paying a customization invoice records a vendor earning that appears on `/dashboard/selling/earnings` and clears on the usual terms.
+- [x] A deposit and a balance invoice against one quote record two earnings, not one doubled.
+
+## Implementation notes — 2026-08-17
+
+### Two findings shrank this ticket before it was written
+
+Both were expected to be the largest part of it and neither survived contact with the code:
+
+- **`technical_review` already existed.** `under_review → technical_review → {under_review, quoted,
+  rejected}`, with the edge already labelled "Send to technical review". *With the vendor* is what
+  that state means for a vendor-owned request, so `REQUEST_TRANSITIONS` is untouched.
+- **`TransitionRule` needed no `vendorMay`.** The vendor never moves the customer's request — staff
+  take every transition, and the vendor acts on the **brief**. Declining is a brief outcome, after
+  which staff decide what the request does, because only they can see the customer it belongs to. So
+  `TransitionRule`, `RequestActor` and `RequestStatusChanged.actorType` all stay two-actor where
+  `PRODUCT_TRANSITION_RULES` needed a third in vendor ticket 05.
+
+### Mediation could not have been a visibility level
+
+The §37 table makes a `customer` message visible to the **vendor** — that is what makes a support
+thread three-party — and `VendorMessage extends CustomerMessage`, so it carries `senderName` too. A
+fourth level (`customer_only`) was considered and rejected: `visibility` defaults to `customer` on a
+customer's own message, so one missed case exposes the whole history, and **no visibility rule stops
+a customer typing their own phone number into a body**. There is a test that plants exactly that and
+proves the vendor's thread cannot return it.
+
+So `vendor_brief` is a fifth `CONVERSATION_SUBJECT_TYPES` value, keyed by the brief. The unique
+`{subjectType, subjectId}` index is what makes a separate subject *necessary* rather than tidy.
+
+### The brief carries two fields about the customer's side, and the boundary is at the type
+
+`requestId` (staff need it) and `organizationId` (the tenant scope `Conversation` and `Message` both
+require). The alternative was making the vendor's own page load the customer's request to find the
+organisation, which is worse — it puts the request document in the one code path that must not touch
+it. So `VendorBriefView` has no field either could occupy, and the tests assert against
+`JSON.stringify` of the vendor payload rather than field-by-field, because serialising is what
+reaches a screen.
+
+### Two numbers, deliberately
+
+`quote.vendorAmount` is the vendor's own price and the basis for their earning; `quote.total` is what
+the customer pays. Staff may quote higher and the difference is platform margin on top of commission.
+Deriving the vendor's share from the total would mean a staff member raising the price silently
+raising what we owe — the opposite of what "the vendor prices the work" promised. The quote stores
+both, plus `vendorCommissionBasisPoints` **snapshotted at issue**, following
+`OrderLine.commissionBasisPoints`: resolved once, never re-read.
+
+The vendor prices in the **product's** currency, which they set themselves, not the customer's.
+`money.ts` refuses cross-currency arithmetic and the README excludes multi-currency payouts, so a
+mismatch is surfaced on the quote screen — "converting it is a decision nobody has taken" — rather
+than silently converted.
+
+### The money path had nothing to build on
+
+`LedgerEntry`'s only provenance was `orderId` + `orderLineId`; `recordEarnings()` filters
+`order.items`; and `InvoicePaid` never touched the ledger. So `invoiceId`/`quoteId` were added
+alongside the order pair (additive — every existing row keeps its meaning), with a matching unique
+`{invoiceId, kind}` partial index and both fields added to `IMMUTABLE`.
+
+`recordCustomWorkEarning` runs on **every** paid invoice, deliberately separate from
+`convertRequest`, which runs only on the first: starting work is once per quote, earning is once per
+collection. A deposit and a balance each take their proportion of the vendor's price, and the test
+asserts the two sum to exactly the single-invoice figure. Its failure is logged and swallowed — the
+customer's money has arrived and the request is converted, and a throw would retry a chain whose
+other half is idempotent only by state check.
+
+### What was left out, and why
+
+**A vendor-visible quote total.** They see their own figure and nothing else, per the two-numbers
+rule above.
+
+**Staff composing to both parties from one control.** Two composers on two screens instead. One
+control with an audience switch would put "who reads this" one mis-click from leaking a customer's
+identity to a vendor, and that is the one mistake this ticket exists to make impossible.
