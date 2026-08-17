@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import type { Route } from "next";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { parseNestedFormData } from "@/lib/form-data";
-import { requirePermission } from "@/lib/auth/dal";
+import { requireAnyPermission, requirePermission } from "@/lib/auth/dal";
 import { objectIdSchema } from "@/validators/common";
 import {
   productBasicsSchema,
@@ -17,6 +17,7 @@ import {
 } from "@/validators/product-sections";
 import { richTextDocumentSchema, type RichTextDocument } from "@/lib/rich-text/schema";
 import { PRODUCT_STATUSES, type ProductStatus } from "@/lib/db/enums";
+import { productPermissionsForTarget } from "@/lib/db/states";
 import { descriptionFields } from "@/lib/db/models/catalog";
 import {
   BASICS_SECTION,
@@ -357,16 +358,20 @@ export async function transitionProductAction(
     const raw = parseNestedFormData(formData);
     const input = parseInput(transitionSchema, raw);
 
-    // Publishing and unpublishing are their own permissions — `product.update`
-    // is not enough to put something in front of customers.
-    const permission =
-      input.to === "published"
-        ? "product.publish"
-        : input.to === "deprecated" || input.to === "archived"
-          ? "product.unpublish"
-          : "product.update";
-
-    const staff = await requirePermission(permission);
+    /*
+     * Publishing and unpublishing are their own permissions — `product.update` is not
+     * enough to put something in front of customers.
+     *
+     * **Derived** from `PRODUCT_TRANSITION_RULES` rather than a ternary here. The
+     * ternary this replaces existed in this file *and* in `bulkTransitionAction`, so
+     * an edge added to the machine meant remembering two places; vendor ticket 05
+     * added three edges and that is how the second copy would have gone stale.
+     *
+     * Coarse by necessity — the exact rule is keyed by `(from, to)` and the guard runs
+     * before the read. `productService.transition` has the document and enforces the
+     * precise rule, including that a vendor cannot take a staff edge.
+     */
+    const staff = await requireAnyPermission(productPermissionsForTarget(input.to));
 
     const product = await productService.transition(
       input.productId,
@@ -411,14 +416,10 @@ export async function bulkTransitionAction(
     const raw = parseNestedFormData(formData);
     const input = parseInput(bulkSchema, raw);
 
-    const permission =
-      input.to === "published"
-        ? "product.publish"
-        : input.to === "deprecated" || input.to === "archived"
-          ? "product.unpublish"
-          : "product.update";
+    // Same derivation as the single transition above — one source, not two ternaries.
+    const permissions = productPermissionsForTarget(input.to);
 
-    const staff = await requirePermission(permission);
+    const staff = await requireAnyPermission(permissions);
 
     const outcome = await productService.bulkTransition(
       input.productIds,

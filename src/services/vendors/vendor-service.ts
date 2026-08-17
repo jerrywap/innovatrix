@@ -9,6 +9,7 @@ import { VENDOR_TRANSITIONS, assertTransition } from "@/lib/db/states";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify } from "@/lib/slug";
 import { statusChange, writeAuditLog, type AuditActor } from "@/services/audit";
+import { emit } from "@/lib/events";
 
 /**
  * Vendor identity — vendor tickets 01 and 02.
@@ -118,7 +119,17 @@ export async function apply(
     return vendor.toObject() as VendorDoc;
   };
 
-  return supportsTransactions() ? withTransaction(write) : write();
+  const vendor = supportsTransactions() ? await withTransaction(write) : await write();
+
+  // After the transaction, never inside it — a handler that throws must not
+  // un-apply an application, and `withTransaction`'s callback may run twice.
+  await emit("VendorApplied", {
+    vendorId: String(vendor._id),
+    displayName: vendor.displayName,
+    country: vendor.country,
+  });
+
+  return vendor;
 }
 
 /**
@@ -221,7 +232,30 @@ export async function transition(
     return updated;
   };
 
-  return supportsTransactions() ? withTransaction(write) : write();
+  const updated = supportsTransactions() ? await withTransaction(write) : await write();
+
+  // Vendor ticket 01's events, emitted after the commit. `rejected` and `suspended`
+  // carry the reason because the vendor reads it verbatim — which is also why
+  // `transition` refuses those edges without one.
+  if (to === "verified") {
+    await emit("VendorVerified", { vendorId, displayName: updated.displayName });
+  }
+  if (to === "rejected") {
+    await emit("VendorRejected", {
+      vendorId,
+      displayName: updated.displayName,
+      reason: options.reason ?? "",
+    });
+  }
+  if (to === "suspended") {
+    await emit("VendorSuspended", {
+      vendorId,
+      displayName: updated.displayName,
+      reason: options.reason ?? "",
+    });
+  }
+
+  return updated;
 }
 
 /**

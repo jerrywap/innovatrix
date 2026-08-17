@@ -234,6 +234,154 @@ async function main() {
       : fail(`expected ScopeError, got ${(e as Error).name}`);
   }
 
+  /* 11. submission and review — vendor ticket 05 */
+  const reviewService = await import("@/services/catalog/review-service");
+
+  // The submission gate is the publication gate, so a draft with nothing on it is
+  // refused — and that refusal naming a real gap is the useful half.
+  try {
+    await reviewService.submit(
+      { productId, scope: { vendorId: id }, attested: true },
+      { type: "vendor", userId, vendorId: id },
+    );
+    fail("an incomplete product was submitted");
+  } catch (e) {
+    /(price|screenshot|description|version)/i.test((e as Error).message)
+      ? pass("submission is refused while readiness reports a gap, and names it")
+      : fail(`expected a readiness message, got: ${(e as Error).message}`);
+  }
+
+  try {
+    await reviewService.submit(
+      { productId, scope: { vendorId: id }, attested: false },
+      { type: "vendor", userId, vendorId: id },
+    );
+    fail("a product was submitted without the attestation");
+  } catch {
+    pass("submission is refused without the attestation");
+  }
+
+  // Make it submittable, then walk the cycle.
+  await Product.updateOne(
+    { _id: productId },
+    {
+      $set: {
+        description: {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "What it does." }] }],
+        },
+        descriptionText: "What it does.",
+        prices: [{ currency: "GBP", amount: 19900 }],
+        licencePackages: [
+          {
+            key: "single",
+            name: "Single installation",
+            licenceType: "single_installation",
+            activationLimit: 1,
+            supportMonths: 12,
+            updateMonths: 12,
+            prices: [{ currency: "GBP", amount: 19900 }],
+          },
+        ],
+        media: [
+          {
+            kind: "screenshot",
+            url: "https://example.test/a.png",
+            sortOrder: 0,
+            isPrimary: true,
+          },
+        ],
+        testingChecklist: [{ item: "Installs cleanly", status: "pass" }],
+      },
+    },
+  );
+
+  const { ProductVersion, ProductFile } = await import("@/lib/db/models/catalog");
+  const [version] = await ProductVersion.create([
+    { productId, version: "1.0.0", status: "released", releasedAt: new Date() },
+  ]);
+  await ProductFile.create([
+    {
+      productId,
+      versionId: version!._id,
+      kind: "application_package",
+      storageKey: `probe/${productId}/pkg.zip`,
+      filename: "pkg.zip",
+      contentType: "application/zip",
+      sizeBytes: 1024,
+      scanStatus: "pending",
+    },
+  ]);
+  await Product.updateOne({ _id: productId }, { $set: { currentVersionId: version!._id } });
+
+  const submitted = await reviewService.submit(
+    { productId, scope: { vendorId: id }, attested: true },
+    { type: "vendor", userId, vendorId: id },
+  );
+  submitted.status === "submitted"
+    ? pass("submitted, with the attestation recorded")
+    : fail(`expected submitted, got ${submitted.status}`);
+
+  // The ceiling on a vendor, asserted rather than assumed absent from a screen.
+  try {
+    await productService.transition(productId, "internal_review", {
+      type: "vendor",
+      userId,
+      vendorId: id,
+    });
+    fail("a vendor claimed their own submission");
+  } catch (e) {
+    (e as Error).name === "ForbiddenError"
+      ? pass("a vendor cannot move a product past submitted")
+      : fail(`expected ForbiddenError, got ${(e as Error).name}`);
+  }
+
+  const INTERNAL = "Probe internal note — must never reach the vendor.";
+  await reviewService.requestChanges(
+    {
+      productId,
+      reasons: ["metadata"],
+      detail: "The summary needs to say what it does.",
+      internalNote: INTERNAL,
+    },
+    { ...staff(userId) },
+  );
+
+  const afterReview = await Product.findById(productId).lean();
+  afterReview!.status === "changes_requested"
+    ? pass("sent back as changes_requested")
+    : fail(`expected changes_requested, got ${afterReview!.status}`);
+
+  // §37, against the real projection rather than the intent.
+  const view = await import("@/services/catalog/product-view");
+  const vendorPayload = JSON.stringify(view.toVendorReviewNotes(afterReview!));
+  !vendorPayload.includes(INTERNAL) && !vendorPayload.includes("internalNote")
+    ? pass("the internal note is absent from the vendor projection")
+    : fail("an internal note reached the vendor projection");
+
+  view.toStaffReviewNotes(afterReview!).at(-1)?.internalNote === INTERNAL
+    ? pass("and staff can still read it")
+    : fail("staff cannot read the internal note they wrote");
+
+  const resubmitted = await reviewService.submit(
+    { productId, scope: { vendorId: id }, attested: true },
+    { type: "vendor", userId, vendorId: id },
+  );
+  resubmitted.status === "submitted"
+    ? pass("resubmitted after changes")
+    : fail("resubmission failed");
+
+  const withHistory = await Product.findById(productId).lean();
+  withHistory!.reviewNotes.length >= 3
+    ? pass(`review notes accumulate (${withHistory!.reviewNotes.length} entries)`)
+    : fail("review notes were overwritten rather than appended");
+
+  await reviewService.approve({ productId, detail: "Looks good." }, { ...staff(userId) });
+  const approved = await Product.findById(productId).lean();
+  approved!.status === "internal_review"
+    ? pass("approved into internal_review — not straight onto sale")
+    : fail(`expected internal_review, got ${approved!.status}`);
+
   console.log(
     [
       "",
@@ -251,6 +399,8 @@ async function main() {
       "And as market@innovatrix.test:",
       `  /staff/vendor-applications/${id}`,
       "  /admin/products                     — the Seller column, and ?vendor= to filter",
+      "  /staff/vendor-submissions           — the review queue, oldest first",
+      `  /staff/vendor-submissions/${productId}`,
       "",
       process.exitCode ? "PROBE FAILED" : "probe complete — all checks passed",
     ].join("\n"),

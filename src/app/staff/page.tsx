@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { AlarmClock, Building, FileText } from "lucide-react";
+import { AlarmClock, Building, ClipboardCheck, FileText } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/money-display";
@@ -109,6 +109,18 @@ async function Counters() {
             icon={Building}
             label="Vendor applications waiting"
             count={counts.vendorApplications}
+          />
+          {/*
+            Vendor ticket 05. Urgent when non-zero, unlike the applications card: a
+            product waiting on a review is a vendor earning nothing, so the queue's own
+            oldest-first ordering has a counterpart here.
+          */}
+          <PlainCard
+            href="/staff/vendor-submissions"
+            icon={ClipboardCheck}
+            label="Submissions waiting for review"
+            count={counts.vendorSubmissions}
+            urgent={counts.vendorSubmissions > 0}
           />
         </div>
       </section>

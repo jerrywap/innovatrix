@@ -11,6 +11,7 @@ import {
   PRODUCT_MEDIA_KINDS,
   PRODUCT_STATUSES,
   PRODUCT_VERSION_STATUSES,
+  REVIEW_REASON_CODES,
   TAXONOMY_KINDS,
   TESTING_CHECKLIST_STATUSES,
   type AddonPricingType,
@@ -21,6 +22,7 @@ import {
   type ProductMediaKind,
   type ProductStatus,
   type ProductVersionStatus,
+  type ReviewReasonCode,
   type TaxonomyKind,
   type TestingChecklistStatus,
 } from "../enums";
@@ -160,6 +162,52 @@ export interface TestingChecklistItem {
   checkedAt?: Date;
 }
 
+/**
+ * One entry in a product's review history — vendor ticket 05.
+ *
+ * ## `internalNote` and the rule that keeps it internal
+ *
+ * §37's discipline, applied to a second audience. The guarantee is **not** that a
+ * component hides the field: it is that the vendor-facing loader never selects it,
+ * so it is absent from the payload rather than present-and-unrendered. A reviewer's
+ * private assessment of somebody's code is exactly the note that must not reach
+ * them, and "we styled it away" is how that leaks.
+ *
+ * `detail` is the opposite — it is shown to the vendor **verbatim**, which is why
+ * `requestChanges` refuses an empty one.
+ */
+export interface ProductReviewNote {
+  at: Date;
+  byUserId: Types.ObjectId;
+  outcome: "submitted" | "changes_requested" | "approved" | "withdrawn";
+  /** Categories, so "what do reviewers keep sending back" is a query. */
+  reasons: ReviewReasonCode[];
+  /** Shown to the vendor verbatim. */
+  detail: string;
+  /** §37 — staff only. Never selected by a vendor-facing loader. */
+  internalNote?: string;
+  /**
+   * Which sections changed since the previous approval, at the moment of this
+   * submission.
+   *
+   * Derived from the audit log rather than stored as a diff: the audit log already
+   * records changed field *names* per section save (never values — a pricing save
+   * would otherwise put every price in an append-only collection), so this is a
+   * summary of rows that already exist. A resubmission is usually a small change,
+   * and re-reviewing the whole product is how a queue falls behind.
+   */
+  changedSections?: string[];
+}
+
+export interface ProductAttestation {
+  at: Date;
+  byUserId: Types.ObjectId;
+  /** The version string the declaration was made about. */
+  versionAtSubmission?: string;
+  /** The exact wording accepted, so a later change of wording is visible. */
+  statementVersion: string;
+}
+
 const priceSchema = new Schema(
   {
     currency: { type: String, required: true, uppercase: true },
@@ -249,6 +297,38 @@ const testingChecklistItemSchema = new Schema(
   { _id: false },
 );
 
+/* Vendor ticket 05 — the review history and the vendor's declaration. */
+
+const productReviewNoteSchema = new Schema(
+  {
+    at: { type: Date, required: true },
+    byUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    outcome: {
+      type: String,
+      enum: ["submitted", "changes_requested", "approved", "withdrawn"],
+      required: true,
+    },
+    reasons: { type: [String], enum: REVIEW_REASON_CODES, default: [] },
+    detail: { type: String, required: true, trim: true },
+    // §37. Present on the document, absent from every vendor-facing projection —
+    // `toVendorProductView()` is the only reader a vendor gets, and it does not
+    // select this field. The guarantee is the absence, not a hidden component.
+    internalNote: { type: String, trim: true },
+    changedSections: { type: [String], default: [] },
+  },
+  { _id: false },
+);
+
+const productAttestationSchema = new Schema(
+  {
+    at: { type: Date, required: true },
+    byUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    versionAtSubmission: { type: String, trim: true },
+    statementVersion: { type: String, required: true },
+  },
+  { _id: false },
+);
+
 /* ────────────────────────────────────────────── Product */
 
 export interface ProductDoc {
@@ -284,6 +364,23 @@ export interface ProductDoc {
    */
   vendorSlug?: string;
   vendorName?: string;
+  /**
+   * What reviewers have said about this product — vendor ticket 05.
+   *
+   * **Appended, never overwritten.** The third submission of a product is only
+   * comprehensible next to what was said about the first two, and a single "latest
+   * feedback" field turns a conversation into a rumour.
+   */
+  reviewNotes: ProductReviewNote[];
+  /**
+   * The vendor's declaration, recorded with the submission that carried it.
+   *
+   * Not a boolean: a tick box with no timestamp and no name is a claim, and the
+   * whole point of this field is to be a **defence** in a takedown (vendor ticket
+   * 13). Replaced on each submission, because the attestation is about the version
+   * being submitted now.
+   */
+  attestation?: ProductAttestation;
   /**
    * The long description, as a **ProseMirror node tree** — never an HTML
    * string, so nothing downstream is ever tempted to render it with
@@ -413,6 +510,10 @@ const productSchema = new Schema<ProductDoc>(
 
     seo: { title: String, description: String, ogImageUrl: String },
     testingChecklist: { type: [testingChecklistItemSchema], default: [] },
+
+    // Vendor ticket 05 — appended, never replaced.
+    reviewNotes: { type: [productReviewNoteSchema], default: [] },
+    attestation: { type: productAttestationSchema },
 
     isFeatured: { type: Boolean, default: false },
     orderCount: { type: Number, default: 0 },

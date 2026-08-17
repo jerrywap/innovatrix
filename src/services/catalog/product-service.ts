@@ -2,10 +2,10 @@ import "server-only";
 import type { ClientSession } from "mongoose";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase, supportsTransactions } from "@/lib/db/client";
-import { PRODUCT_TRANSITIONS, assertTransition } from "@/lib/db/states";
+import { PRODUCT_TRANSITIONS, assertTransition, productTransitionRule } from "@/lib/db/states";
 import { descriptionFields, type ProductDoc } from "@/lib/db/models/catalog";
 import type { ProductStatus } from "@/lib/db/enums";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { vendorFilter, type VendorScope } from "@/lib/auth/scope";
 import type { Paginated } from "@/repositories/base";
 import { isEmptyDocument, type RichTextDocument } from "@/lib/rich-text/schema";
@@ -15,6 +15,7 @@ import { products } from "@/repositories/product.repository";
 import { productFiles } from "@/repositories/product-file.repository";
 import { productVersions } from "@/repositories/product-version.repository";
 import { statusChange, writeAuditLog, type AuditActor } from "@/services/audit";
+import { emit } from "@/lib/events";
 import { deriveFacets } from "./facets";
 import {
   DEFAULT_TESTING_CHECKLIST,
@@ -490,8 +491,39 @@ export async function transition(
   const from = product.status;
   assertTransition("product", PRODUCT_TRANSITIONS, from, to);
 
+  /*
+   * Who may take this edge — vendor ticket 05.
+   *
+   * `assertTransition` says the move is legal for the *machine*; this says it is
+   * legal for **this actor**. Read from `PRODUCT_TRANSITION_RULES` rather than
+   * branched on here, so the screen that hides a control and the service that
+   * refuses the POST are reading the same fact.
+   *
+   * Ordered after `assertTransition` deliberately, matching the publish path: a
+   * vendor attempting `draft → published` should be told the transition is illegal,
+   * not that they lack a permission for an edge that does not exist.
+   */
+  const rule = productTransitionRule(from, to);
+  if (!rule) {
+    // The drift test makes this unreachable. If it ever fires, the graph gained an
+    // edge whose authorisation nobody decided — refuse rather than assume.
+    throw new ForbiddenError(`No rule governs moving a product from ${from} to ${to}.`);
+  }
+  if (actor.type === "vendor" && !rule.vendorMay) {
+    throw new ForbiddenError(`A vendor cannot move a product from ${from} to ${to}.`);
+  }
+  if (rule.requiresReason && !options.reason?.trim()) {
+    throw new ValidationError("Say what needs changing — the vendor reads this.", {
+      detail: ["A reason is required to send a submission back."],
+    });
+  }
+
   if (to === "published") await assertPublishable(product);
   if (to === "ready") await assertTestingComplete(product);
+  // The submission gate, and it is the *same* gate as publication: one pure
+  // `computeReadiness()` shared by both, so a vendor sees exactly the gaps a
+  // reviewer would and "why can't I submit" needs no support thread.
+  if (to === "submitted") await assertSubmittable(product);
 
   const extra: Record<string, unknown> = {};
   // Set once, on first publish. Re-publishing after deprecation must not
@@ -515,7 +547,9 @@ export async function transition(
         ...statusChange(from, to, options.reason ? { reason: options.reason } : {}),
         ...(options.ip ? { ip: options.ip } : {}),
         ...(options.userAgent ? { userAgent: options.userAgent } : {}),
-        source: "admin",
+        // Who drove it, not which screen. A vendor's own transition recorded as
+        // `admin` is wrong in the one collection that exists to be trusted later.
+        source: actor.type === "vendor" ? "vendor" : "admin",
       },
       session,
     );
@@ -526,7 +560,28 @@ export async function transition(
   // Local development runs a standalone mongod, which cannot transact. The
   // guarded update still gives concurrency safety there; only the atomicity of
   // status-plus-audit is lost, and the audit write is retried best-effort.
-  return supportsTransactions() ? withTransaction(write) : write();
+  const updated = supportsTransactions() ? await withTransaction(write) : await write();
+
+  /*
+   * `ProductPublished` — emitted **after** the transaction commits, never inside it.
+   *
+   * The event bus dispatches synchronously and its handlers write notifications and
+   * queue email; doing that inside the transaction would send mail for a status change
+   * that then rolled back. `withTransaction` also warns its callback may run twice.
+   *
+   * The event has existed in `DOMAIN_EVENTS` since ticket 02 and was emitted nowhere,
+   * so nothing could be told a product went live. Vendor ticket 05 is what needed it.
+   */
+  if (to === "published") {
+    await emit("ProductPublished", {
+      productId,
+      productName: updated.name,
+      productSlug: updated.slug,
+      ...(updated.vendorId ? { vendorId: String(updated.vendorId) } : {}),
+    });
+  }
+
+  return updated;
 }
 
 async function assertPublishable(product: ProductDoc): Promise<void> {
@@ -536,6 +591,28 @@ async function assertPublishable(product: ProductDoc): Promise<void> {
   throw new ValidationError(
     `This product can't be published yet: ${gaps.map((gap) => gap.message.toLowerCase()).join("; ")}.`,
     // Keyed by gap code so the form can link each one to its step.
+    Object.fromEntries(gaps.map((gap) => [gap.code, [gap.message]])),
+  );
+}
+
+/**
+ * The submission gate — vendor ticket 05.
+ *
+ * The **same** `computeReadiness()` the publish gate uses, unchanged. That is the
+ * cheapest possible way to make "why can't I submit" answerable: a vendor sees the
+ * identical checklist a reviewer sees, each gap links to the step that fixes it, and
+ * the two cannot disagree because there is one function.
+ *
+ * `snapshot.status` is available to `computeReadiness` if submission ever needs a
+ * different set of gaps from publication. It does not today, and inventing a second
+ * set now would mean two things to keep in step for no demand.
+ */
+async function assertSubmittable(product: ProductDoc): Promise<void> {
+  const { gaps } = await readinessFor(product);
+  if (gaps.length === 0) return;
+
+  throw new ValidationError(
+    `This isn't ready to submit yet: ${gaps.map((gap) => gap.message.toLowerCase()).join("; ")}.`,
     Object.fromEntries(gaps.map((gap) => [gap.code, [gap.message]])),
   );
 }

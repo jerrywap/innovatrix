@@ -43,6 +43,15 @@ export const PERMISSIONS = [
   "product.view_all",
   "product.create",
   "product.update",
+  /**
+   * Deciding a **submission** — vendor ticket 05.
+   *
+   * Separate from `product.publish` because they are different jobs at different
+   * points: reading somebody else's submission and sending it back with a reason is
+   * review work, and putting a finished product on sale is a commercial call. The
+   * same split §46 already makes between editing and publishing, one step earlier.
+   */
+  "product.review",
   "product.publish",
   "product.unpublish",
   "product.delete",
@@ -247,6 +256,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     "product.view_all",
     "product.create",
     "product.update",
+    "product.review",
     "product.publish",
     "product.unpublish",
     "product.delete",

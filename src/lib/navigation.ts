@@ -271,6 +271,16 @@ export const STAFF_NAV: readonly NavSection[] = [
         permission: ["vendor.review", "vendor.verify"],
         matchNested: true,
       },
+      {
+        // Vendor ticket 05. Its own item rather than a tab under Vendors: deciding
+        // *who may sell* and deciding *what goes on sale* are different jobs held by
+        // different permissions, and `finance` holds the first without the second.
+        label: "Submissions",
+        href: "/staff/vendor-submissions",
+        icon: "checklist",
+        permission: "product.review",
+        matchNested: true,
+      },
     ],
   },
   {

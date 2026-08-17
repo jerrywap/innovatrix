@@ -16,8 +16,10 @@ which for `order.paid` means fulfilling twice.
 
 | From | To | |
 |---|---|---|
-| `draft` | `internal_review` · `archived` |  |
-| `internal_review` | `testing` · `draft` · `archived` |  |
+| `draft` | `submitted` · `internal_review` · `archived` |  |
+| `submitted` | `internal_review` · `changes_requested` · `draft` · `archived` |  |
+| `changes_requested` | `submitted` · `draft` · `archived` |  |
+| `internal_review` | `testing` · `changes_requested` · `draft` · `archived` |  |
 | `testing` | `ready` · `internal_review` · `archived` |  |
 | `ready` | `published` · `testing` · `archived` |  |
 | `published` | `deprecated` · `archived` |  |
@@ -26,9 +28,18 @@ which for `order.paid` means fulfilling twice.
 
 ```mermaid
 stateDiagram-v2
+    draft --> submitted
     draft --> internal_review
     draft --> archived
+    submitted --> internal_review
+    submitted --> changes_requested
+    submitted --> draft
+    submitted --> archived
+    changes_requested --> submitted
+    changes_requested --> draft
+    changes_requested --> archived
     internal_review --> testing
+    internal_review --> changes_requested
     internal_review --> draft
     internal_review --> archived
     testing --> ready

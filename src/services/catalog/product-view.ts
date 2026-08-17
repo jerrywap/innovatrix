@@ -138,6 +138,61 @@ export interface AdminProductView {
   updatedAt?: string;
 }
 
+/**
+ * The review history, for the **vendor** — vendor ticket 05.
+ *
+ * ## The guarantee is the absence, not a hidden component
+ *
+ * §37's rule, applied to a second audience: `internalNote` is not selected here, so it
+ * is not in the object, so it is not in the RSC payload. A reviewer's private
+ * assessment of somebody's code cannot leak from a field that was never read.
+ *
+ * The alternative — pass the note and let the component skip it — puts the whole
+ * guarantee in a JSX branch, and the payload still carries the text for anybody who
+ * opens the network tab. `AdminProductView` already takes exactly this position on
+ * demo credentials, which is why it has no credentials field at all.
+ *
+ * Deliberately a **separate function** rather than a flag on `toAdminProductView`. A
+ * boolean parameter is one wrong call site away from leaking, and `includeInternal:
+ * false` is easy to forget; a function that cannot produce the field is not.
+ */
+export interface VendorReviewNoteView {
+  at: string;
+  outcome: string;
+  reasons: string[];
+  detail: string;
+  changedSections: string[];
+}
+
+export function toVendorReviewNotes(product: ProductDoc): VendorReviewNoteView[] {
+  return (product.reviewNotes ?? []).map((note) => ({
+    at: note.at.toISOString(),
+    outcome: note.outcome,
+    reasons: note.reasons,
+    detail: note.detail,
+    changedSections: note.changedSections ?? [],
+    // `internalNote` is absent. Do not add it here — see above.
+  }));
+}
+
+/** The same history for staff, who wrote the internal notes and may read them. */
+export interface StaffReviewNoteView extends VendorReviewNoteView {
+  byUserId: string;
+  internalNote?: string;
+}
+
+export function toStaffReviewNotes(product: ProductDoc): StaffReviewNoteView[] {
+  return (product.reviewNotes ?? []).map((note) => ({
+    at: note.at.toISOString(),
+    outcome: note.outcome,
+    reasons: note.reasons,
+    detail: note.detail,
+    changedSections: note.changedSections ?? [],
+    byUserId: String(note.byUserId),
+    ...(note.internalNote ? { internalNote: note.internalNote } : {}),
+  }));
+}
+
 export function toAdminProductView(product: ProductDoc): AdminProductView {
   return {
     id: String(product._id),

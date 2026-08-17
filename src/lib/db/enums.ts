@@ -124,9 +124,22 @@ export const TAXONOMY_KINDS = values([
 ] as const);
 export type TaxonomyKind = (typeof TAXONOMY_KINDS)[number];
 
-/** §46 — products are not publicly purchasable the moment they are uploaded. */
+/**
+ * §46 — products are not publicly purchasable the moment they are uploaded.
+ *
+ * `submitted` and `changes_requested` are vendor ticket 05's, and they sit at the
+ * *front* of the pipeline rather than replacing any of it: a vendor hands a product
+ * over at `submitted`, and from `internal_review` onwards it takes exactly the path
+ * the platform already uses for its own. Same testing checklist, same readiness gate.
+ *
+ * `changes_requested` is deliberately distinct from `draft`. It carries a reason and
+ * a history, and a vendor's list has to be able to tell "not finished" from
+ * "sent back".
+ */
 export const PRODUCT_STATUSES = values([
   "draft",
+  "submitted",
+  "changes_requested",
   "internal_review",
   "testing",
   "ready",
@@ -135,6 +148,24 @@ export const PRODUCT_STATUSES = values([
   "archived",
 ] as const);
 export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
+
+/**
+ * Why a submission was sent back — vendor ticket 05.
+ *
+ * A category alongside the prose, so "what do reviewers keep rejecting" is a query
+ * rather than a reading exercise.
+ */
+export const REVIEW_REASON_CODES = values([
+  "quality",
+  "security",
+  "licensing",
+  "metadata",
+  "pricing",
+  "demo",
+  "duplicate",
+  "policy",
+] as const);
+export type ReviewReasonCode = (typeof REVIEW_REASON_CODES)[number];
 
 export const PRODUCT_VERSION_STATUSES = values(["draft", "released", "deprecated"] as const);
 export type ProductVersionStatus = (typeof PRODUCT_VERSION_STATUSES)[number];
@@ -370,11 +401,28 @@ export const DOMAIN_EVENTS = values([
   "MessagePosted",
   "WorkReadyToStart",
   "RequestProgressPosted",
+  /*
+   * Live and emitted, and missing from this list until vendor ticket 05's drift test
+   * asked. An event absent here is one a timeline cannot describe — `ActivityEventDoc`
+   * and `NotificationDoc` take their vocabulary from it — so the rows existed and had
+   * no name. Safe to widen: both fields are typed `DomainEventType | string` over a
+   * bare `String` path, so nothing stored becomes invalid.
+   */
+  "RequestStatusChanged",
+  "RequirementsRevised",
+  "InvoicePaid",
+  "InvoiceDueSoon",
+  "InvoiceOverdue",
+  "FollowUpDue",
   // Vendor tickets 01–03.
   "VendorApplied",
   "VendorVerified",
   "VendorRejected",
   "VendorSuspended",
+  // Vendor ticket 05.
+  "ProductSubmitted",
+  "ProductChangesRequested",
+  "ProductApproved",
 ] as const);
 export type DomainEventType = (typeof DOMAIN_EVENTS)[number];
 

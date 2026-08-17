@@ -80,6 +80,10 @@ const STATUS_TONES: Record<string, StatusTone> = {
   overdue: "negative",
 
   /* catalogue */
+  // Vendor ticket 05. `submitted` already means "handed over, waiting on the other
+  // side" for requests and reads the same way here. `changes_requested` is the
+  // vendor's move, so it takes the attention tone — the one tone that means "you".
+  changes_requested: "attention",
   internal_review: "progress",
   testing: "progress",
   ready: "progress",
@@ -159,6 +163,9 @@ const STATUS_LABELS: Record<string, string> = {
   fail: "Failed",
   in_review: "In review",
   unstarted: "Not started",
+  // "Changes requested" is what a reviewer did; "Needs your changes" is what the
+  // vendor has to do about it, which is the useful half on their own list.
+  changes_requested: "Needs your changes",
 };
 
 export function statusLabel(status: string): string {

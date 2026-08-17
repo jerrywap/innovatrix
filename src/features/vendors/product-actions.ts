@@ -20,6 +20,7 @@ import { vendorActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
 import * as productService from "@/services/catalog/product-service";
+import * as reviewService from "@/services/catalog/review-service";
 import * as testingService from "@/services/catalog/testing-service";
 import {
   BASICS_SECTION,
@@ -64,6 +65,20 @@ import {
  */
 
 const productIdSchema = z.object({ productId: objectIdSchema });
+
+/**
+ * The attestation checkbox.
+ *
+ * `z.literal("on")` rather than a coerced boolean: an unchecked box sends **nothing**,
+ * so a `z.coerce.boolean()` would read `undefined` as `false` and produce a confusing
+ * "expected boolean" rather than the sentence a person needs. Required here and
+ * re-checked in the service, which is where it is recorded.
+ */
+const submitSchema = z.object({
+  attested: z.literal("on", {
+    error: "Confirm the declaration before submitting.",
+  }),
+});
 
 const BASE = "/dashboard/selling/products";
 
@@ -317,6 +332,80 @@ export async function saveVendorTestingAction(
 
   if (result.ok && target) redirect(target);
   return result;
+}
+
+/* ────────────────────────────────────────────── submission */
+
+/**
+ * Hand a product over for review — vendor ticket 05.
+ *
+ * Everything that decides *whether* this may happen is in the service:
+ * `PRODUCT_TRANSITION_RULES` says a vendor may take `draft → submitted`,
+ * `computeReadiness()` says the product is complete, and `assertTransition` refuses a
+ * second submission while one is open because `submitted` has no edge to itself.
+ *
+ * The attestation is a checkbox here and a record with a name, a timestamp and a
+ * version there. That difference is the whole point: a tick is a claim, and what a
+ * takedown needs is a defence.
+ */
+export async function submitForReviewAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ submitted: true }>> {
+  return withAction(async () => {
+    const context = await requireVendorOrForbid();
+    if (context.vendor.status !== "verified") {
+      throw new ForbiddenError("Your vendor account is not active.");
+    }
+
+    const raw = parseNestedFormData(formData);
+    const { productId } = parseInput(productIdSchema, raw);
+    const { attested } = parseInput(submitSchema, raw);
+
+    await reviewService.submit(
+      { productId, scope: { vendorId: context.vendorId }, attested: attested === "on" },
+      { ...vendorActor(context.user, context.vendorId), userId: context.user.id },
+    );
+
+    catalogChanged();
+    refresh(productId);
+    revalidatePath("/staff/vendor-submissions");
+
+    return ok({ submitted: true as const });
+  });
+}
+
+/**
+ * Withdraw a submission nobody has claimed yet.
+ *
+ * Only legal from `submitted` — once a reviewer has it, the way back is
+ * `changes_requested`, which carries a reason. That is the machine's rule, not this
+ * action's: `PRODUCT_TRANSITIONS` has no `internal_review → draft` edge a vendor may
+ * take.
+ */
+export async function withdrawSubmissionAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ withdrawn: true }>> {
+  return withAction(async () => {
+    const context = await requireVendorOrForbid();
+
+    const raw = parseNestedFormData(formData);
+    const { productId } = parseInput(productIdSchema, raw);
+
+    await productService.transition(
+      productId,
+      "draft",
+      vendorActor(context.user, context.vendorId),
+      { scope: { vendorId: context.vendorId } },
+    );
+
+    catalogChanged();
+    refresh(productId);
+    revalidatePath("/staff/vendor-submissions");
+
+    return ok({ withdrawn: true as const });
+  });
 }
 
 /* ────────────────────────────────────────────── create */

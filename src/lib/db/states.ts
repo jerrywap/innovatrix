@@ -25,10 +25,36 @@ import type {
 
 export type TransitionMap<S extends string> = Readonly<Record<S, readonly S[]>>;
 
-/** §46 — publishing lifecycle. */
+/**
+ * §46 — publishing lifecycle, extended by vendor ticket 05 with an external
+ * submitter.
+ *
+ * ```
+ * draft ──submit──→ submitted ──approve──→ internal_review → testing → ready → published
+ *   ↑                    │
+ *   └── changes_requested ←── request-changes ──┘
+ * ```
+ *
+ * The two new states sit at the **front**. Everything from `internal_review`
+ * onwards is untouched, which is the point: a vendor's product joins the pipeline
+ * the platform already uses for its own, so the same testing checklist and the same
+ * readiness gate apply to both.
+ *
+ * `draft → internal_review` stays, so a first-party product still skips the
+ * submission step it has no submitter for.
+ *
+ * `changes_requested → submitted` rather than only back through `draft`: a
+ * resubmission is the common case and routing it through `draft` would lose the
+ * distinction between "not finished" and "fixed and sent back".
+ *
+ * Who may take each edge is `PRODUCT_TRANSITION_RULES` below — this map is the
+ * graph, not the authorisation.
+ */
 export const PRODUCT_TRANSITIONS: TransitionMap<ProductStatus> = {
-  draft: ["internal_review", "archived"],
-  internal_review: ["testing", "draft", "archived"],
+  draft: ["submitted", "internal_review", "archived"],
+  submitted: ["internal_review", "changes_requested", "draft", "archived"],
+  changes_requested: ["submitted", "draft", "archived"],
+  internal_review: ["testing", "changes_requested", "draft", "archived"],
   testing: ["ready", "internal_review", "archived"],
   ready: ["published", "testing", "archived"],
   published: ["deprecated", "archived"],
@@ -366,6 +392,224 @@ export function requestTransitionRule(
   to: RequestStatus,
 ): TransitionRule | undefined {
   return REQUEST_TRANSITION_RULES[edge(from, to)];
+}
+
+/* ────────────────────────── who may move a product, and with what */
+
+/**
+ * The same idea for products — vendor ticket 05.
+ *
+ * ## What this replaces
+ *
+ * The permission for a product transition was computed from the target state by an
+ * ad-hoc ternary, and it appeared **twice** — in `transitionProductAction` and again
+ * in `bulkTransitionAction`. Two copies of an authorisation rule is one copy too
+ * many; the first time they disagree, one screen enforces something the other does
+ * not. Expressing it as data means one function reads it and one test iterates it.
+ *
+ * ## `vendorMay` is not a UI hint
+ *
+ * A vendor submitting their own product, or withdrawing a submission before anybody
+ * has looked at it, is legitimate. A vendor moving their own product to `published`
+ * is not, however the button was rendered — and a vendor product id is a URL
+ * somebody will POST to. `productService.transition` reads this, so hiding the
+ * control and refusing the action are the same fact.
+ *
+ * `permission: null` means there is **no staff route** to that edge: nobody submits
+ * on a vendor's behalf, because the attestation recorded with a submission would
+ * then be a statement somebody else made about their code.
+ */
+export interface ProductTransitionRule {
+  /** Permission a staff actor needs. `null` ⇒ no staff route to this edge. */
+  permission: Permission | null;
+  /** May a member of the vendor that owns the product perform it? */
+  vendorMay: boolean;
+  /** Plain-language label for the action button. */
+  label: string;
+  /** Does taking this edge require a reason the vendor will read? */
+  requiresReason?: true;
+}
+
+const productEdge = (from: ProductStatus, to: ProductStatus) => `${from}->${to}` as const;
+
+export const PRODUCT_TRANSITION_RULES: Readonly<Record<string, ProductTransitionRule>> = {
+  /* ── the vendor's half ── */
+
+  // Nobody submits for a vendor: the attestation is theirs to make.
+  [productEdge("draft", "submitted")]: {
+    permission: null,
+    vendorMay: true,
+    label: "Submit for review",
+  },
+  // Withdrawing is only meaningful before a reviewer claims it; once it is in
+  // `internal_review` the way back is `changes_requested`, which carries a reason.
+  [productEdge("submitted", "draft")]: {
+    permission: "product.update",
+    vendorMay: true,
+    label: "Withdraw",
+  },
+  [productEdge("changes_requested", "submitted")]: {
+    permission: null,
+    vendorMay: true,
+    label: "Resubmit",
+  },
+  [productEdge("changes_requested", "draft")]: {
+    permission: "product.update",
+    vendorMay: true,
+    label: "Back to draft",
+  },
+
+  /* ── the reviewer's half ── */
+
+  // Claiming a submission. `product.review` rather than `product.publish`: reading a
+  // submission and deciding it may be sold are different jobs, and §77 already
+  // separates editing from publishing for the same reason.
+  [productEdge("submitted", "internal_review")]: {
+    permission: "product.review",
+    vendorMay: false,
+    label: "Start review",
+  },
+  [productEdge("submitted", "changes_requested")]: {
+    permission: "product.review",
+    vendorMay: false,
+    label: "Request changes",
+    requiresReason: true,
+  },
+  [productEdge("internal_review", "changes_requested")]: {
+    permission: "product.review",
+    vendorMay: false,
+    label: "Request changes",
+    requiresReason: true,
+  },
+
+  /* ── the pipeline that already existed, now written down ── */
+
+  [productEdge("draft", "internal_review")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Send to review",
+  },
+  [productEdge("internal_review", "testing")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Send to testing",
+  },
+  [productEdge("internal_review", "draft")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Back to draft",
+  },
+  [productEdge("testing", "ready")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Mark ready",
+  },
+  [productEdge("testing", "internal_review")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Back to review",
+  },
+  [productEdge("ready", "published")]: {
+    permission: "product.publish",
+    vendorMay: false,
+    label: "Publish",
+  },
+  [productEdge("ready", "testing")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Back to testing",
+  },
+  [productEdge("published", "deprecated")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Deprecate",
+  },
+  [productEdge("deprecated", "published")]: {
+    permission: "product.publish",
+    vendorMay: false,
+    label: "Republish",
+  },
+
+  /* ── archiving, from everywhere ── */
+
+  [productEdge("draft", "archived")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Archive",
+  },
+  [productEdge("submitted", "archived")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Archive",
+  },
+  [productEdge("changes_requested", "archived")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Archive",
+  },
+  [productEdge("internal_review", "archived")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Archive",
+  },
+  [productEdge("testing", "archived")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Archive",
+  },
+  [productEdge("ready", "archived")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Archive",
+  },
+  [productEdge("published", "archived")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Archive",
+  },
+  [productEdge("deprecated", "archived")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Archive",
+  },
+};
+
+export function productTransitionRule(
+  from: ProductStatus,
+  to: ProductStatus,
+): ProductTransitionRule | undefined {
+  return PRODUCT_TRANSITION_RULES[productEdge(from, to)];
+}
+
+/**
+ * Every permission that could govern *any* edge into `to`.
+ *
+ * ## Why an action needs this rather than the exact rule
+ *
+ * The precise rule is keyed by `(from, to)`, and an action does not know `from` without
+ * reading the product — while the guard has to run before the work. So the action
+ * guards on "holds a permission that could govern this target" and the service, which
+ * has the document, enforces the exact rule.
+ *
+ * That is exactly as coarse as the ad-hoc ternary this replaces, and the improvement is
+ * that it is **derived**. The ternary read `to === "published" ? "product.publish" : …`
+ * in two separate files, so adding an edge meant remembering both; a rule added to the
+ * map now widens this automatically.
+ *
+ * Returns `[]` when no edge into `to` has a staff route — `submitted` is the case, and
+ * an empty list means `requireAnyPermission([])` refuses everybody, which is correct:
+ * nobody submits on a vendor's behalf.
+ */
+export function productPermissionsForTarget(to: ProductStatus): Permission[] {
+  const suffix = `->${to}`;
+  const permissions = new Set<Permission>();
+
+  for (const [key, rule] of Object.entries(PRODUCT_TRANSITION_RULES)) {
+    if (!key.endsWith(suffix)) continue;
+    if (rule.permission) permissions.add(rule.permission);
+  }
+
+  return [...permissions];
 }
 
 /** Registry so tooling (docs, tests, the staff UI) can enumerate every machine. */

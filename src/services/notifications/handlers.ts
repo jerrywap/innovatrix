@@ -95,6 +95,61 @@ export function registerNotificationHandlers(): void {
   });
 
   /*
+   * Vendor tickets 01–03. `VendorApplied` is a permission audience and needs no
+   * lookup; the other three resolve a `vendor_member` audience from the payload's
+   * `vendorId`.
+   */
+  on("VendorApplied", async (payload) => {
+    await dispatch("VendorApplied", payload, { vendorId: payload.vendorId });
+  });
+
+  on("VendorVerified", async (payload) => {
+    await dispatch("VendorVerified", payload, { vendorId: payload.vendorId });
+  });
+
+  on("VendorRejected", async (payload) => {
+    await dispatch("VendorRejected", payload, { vendorId: payload.vendorId });
+  });
+
+  on("VendorSuspended", async (payload) => {
+    await dispatch("VendorSuspended", payload, { vendorId: payload.vendorId });
+  });
+
+  /*
+   * Vendor ticket 05. `ProductSubmitted` goes to a *permission* audience and needs no
+   * lookup at all; the other three resolve a `vendor_member` audience from the
+   * `vendorId` on the payload — a query, never a list of user ids in the event.
+   *
+   * `ProductPublished` tolerates a missing `vendorId`: a first-party product has none,
+   * `resolveAudience` returns nothing for the vendor audience, and `dispatch` writes
+   * nothing. That is correct rather than defensive — there is no vendor to tell.
+   */
+  on("ProductSubmitted", async (payload) => {
+    await dispatch("ProductSubmitted", payload, { productId: payload.productId });
+  });
+
+  on("ProductChangesRequested", async (payload) => {
+    await dispatch("ProductChangesRequested", payload, {
+      productId: payload.productId,
+      vendorId: payload.vendorId,
+    });
+  });
+
+  on("ProductApproved", async (payload) => {
+    await dispatch("ProductApproved", payload, {
+      productId: payload.productId,
+      vendorId: payload.vendorId,
+    });
+  });
+
+  on("ProductPublished", async (payload) => {
+    await dispatch("ProductPublished", payload, {
+      productId: payload.productId,
+      ...(payload.vendorId ? { vendorId: payload.vendorId } : {}),
+    });
+  });
+
+  /*
    * A follow-up is a private note-to-self (§39), so the audience is the one
    * person who set it. `assignee` is the audience kind that reads a single
    * staff user id out of the context, which is exactly the shape needed —

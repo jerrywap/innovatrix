@@ -6,6 +6,7 @@ import { CustomerRequest, FollowUp, type CustomerRequestDoc } from "@/lib/db/mod
 import { Quote } from "@/lib/db/models/billing";
 import { Organization, User } from "@/lib/db/models/identity";
 import { Vendor } from "@/lib/db/models/vendors";
+import { Product } from "@/lib/db/models/catalog";
 import { formatDateTime } from "@/lib/dates";
 
 /**
@@ -175,6 +176,8 @@ export interface StaffCounts {
    * one — same reason `quotesAwaiting` is a field.
    */
   vendorApplications: number;
+  /** Vendor ticket 05 — products handed over and not yet picked up. */
+  vendorSubmissions: number;
 }
 
 /**
@@ -187,14 +190,18 @@ export interface StaffCounts {
 export async function staffCounts(staffUserId: string): Promise<StaffCounts> {
   await connectToDatabase();
 
-  const [counts, quotesAwaiting, overdueFollowUps, vendorApplications] = await Promise.all([
-    Promise.all(
-      QUEUES.map((queue) => CustomerRequest.countDocuments(queue.filter({ staffUserId }))),
-    ),
-    Quote.countDocuments({ status: "issued" }),
-    FollowUp.countDocuments({ status: "open", dueAt: { $lt: new Date() } }),
-    Vendor.countDocuments({ status: { $in: ["applied", "in_review"] }, deletedAt: null }),
-  ]);
+  const [counts, quotesAwaiting, overdueFollowUps, vendorApplications, vendorSubmissions] =
+    await Promise.all([
+      Promise.all(
+        QUEUES.map((queue) => CustomerRequest.countDocuments(queue.filter({ staffUserId }))),
+      ),
+      Quote.countDocuments({ status: "issued" }),
+      FollowUp.countDocuments({ status: "open", dueAt: { $lt: new Date() } }),
+      Vendor.countDocuments({ status: { $in: ["applied", "in_review"] }, deletedAt: null }),
+      // `submitted` only, not `internal_review`: once a reviewer has claimed it, it is
+      // no longer waiting on anybody at the queue level.
+      Product.countDocuments({ status: "submitted", deletedAt: null }),
+    ]);
 
   return {
     queues: Object.fromEntries(
@@ -203,6 +210,7 @@ export async function staffCounts(staffUserId: string): Promise<StaffCounts> {
     quotesAwaiting,
     overdueFollowUps,
     vendorApplications,
+    vendorSubmissions,
   };
 }
 
