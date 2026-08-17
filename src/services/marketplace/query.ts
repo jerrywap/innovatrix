@@ -133,6 +133,41 @@ export function marketplaceHref(
   return query ? `${basePath}?${query}` : basePath;
 }
 
+/**
+ * Which query keys are *filters* — as opposed to sort, page or currency.
+ *
+ * One list, because it has already been duplicated once and drifted: vendor ticket 04 added the
+ * `vendor` dimension and missed the copy behind "Clear all filters", so a vendor-only filter
+ * rendered a view with no way back out of it. The mobile drawer needs the same list a third time,
+ * to badge its trigger, which is the point at which the list stops being copied.
+ *
+ * `sort`, `page` and `currency` are deliberately absent. None of them narrows the result set, and a
+ * trigger reading "2 filters" because somebody chose a sort order and a currency would be lying.
+ */
+export const FILTER_KEYS = [
+  "q",
+  "category",
+  "industry",
+  "technology",
+  "productType",
+  "vendor",
+  "minPrice",
+  "maxPrice",
+  "customisable",
+] as const;
+
+/**
+ * How many filters are on — counting *terms*, not keys.
+ *
+ * Two categories and a price floor is three, because that is what a person would say if asked. The
+ * number goes on the mobile drawer's trigger, where the rail itself is out of sight: a closed drawer
+ * has to say that the grid behind it is filtered, or the empty result set below it looks like the
+ * catalogue rather than like a filter.
+ */
+export function activeFilterCount(raw: RawSearchParams): number {
+  return FILTER_KEYS.reduce((total, key) => total + asArray(raw[key]).length, 0);
+}
+
 /** Toggle one term within a dimension, which is what a filter checkbox does. */
 export function toggleTerm(
   current: RawSearchParams,

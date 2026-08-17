@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchBox } from "@/features/marketplace/components/search-box";
 import { MarketplaceResults } from "@/features/marketplace/results-section";
+import { ResultsSkeleton } from "@/features/marketplace/components/results-skeleton";
 import { pageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
@@ -50,33 +51,6 @@ export default function Page({ searchParams }: PageProps<"/marketplace">) {
         <Suspense fallback={<ResultsSkeleton />}>
           <MarketplaceResults searchParams={searchParams} basePath="/marketplace" />
         </Suspense>
-      </div>
-    </div>
-  );
-}
-
-function ResultsSkeleton() {
-  return (
-    <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-      <div className="hidden flex-col gap-6 lg:flex">
-        {Array.from({ length: 4 }, (_, index) => (
-          <div key={index} className="flex flex-col gap-2">
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-6 w-3/4" />
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {Array.from({ length: 6 }, (_, index) => (
-          <div key={index} className="flex flex-col gap-3">
-            <Skeleton className="aspect-[16/10] w-full rounded-xl" />
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-3 w-full" />
-          </div>
-        ))}
       </div>
     </div>
   );

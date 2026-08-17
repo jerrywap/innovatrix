@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import {
+  activeFilterCount,
   marketplaceHref,
   toggleTerm,
   type RawSearchParams,
@@ -312,20 +313,16 @@ function RailLink({
   );
 }
 
+/*
+ * The list this used to hold inline now lives in `query.ts` as `FILTER_KEYS`.
+ *
+ * It had already drifted once — vendor ticket 04 added the `vendor` dimension and missed the copy
+ * here, so "Clear all filters" did not appear for a vendor-only filter, which is a view with no way
+ * back out of it. The mobile drawer needs the same list to badge its trigger, and a third copy is
+ * where that stops being a near miss.
+ */
 function hasAnyFilter(raw: RawSearchParams): boolean {
-  return [
-    "q",
-    "category",
-    "industry",
-    "technology",
-    "productType",
-    // Vendor ticket 04 added the dimension and missed this list, so "Clear all filters"
-    // did not appear for a vendor-only filter — a dead end with no way back.
-    "vendor",
-    "minPrice",
-    "maxPrice",
-    "customisable",
-  ].some((key) => asArray(raw[key]).length > 0);
+  return activeFilterCount(raw) > 0;
 }
 
 function first(value: string | string[] | undefined): string | undefined {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  FILTER_KEYS,
+  activeFilterCount,
   currencyMustBeInUrl,
   marketplaceHref,
   parseMarketplaceQuery,
@@ -181,5 +183,60 @@ describe("currencyMustBeInUrl", () => {
     expect(currencyMustBeInUrl(base)).toBe(false);
     expect(currencyMustBeInUrl({ ...base, minPrice: 1000 })).toBe(true);
     expect(currencyMustBeInUrl({ ...base, maxPrice: 1000 })).toBe(true);
+  });
+});
+
+describe("activeFilterCount", () => {
+  it("counts terms rather than keys", () => {
+    // "2 filters" is what a person would say about two categories, so that is what the drawer's
+    // trigger says.
+    expect(activeFilterCount({ category: ["crm", "property"] })).toBe(2);
+    expect(activeFilterCount({ category: ["crm"], minPrice: "1000" })).toBe(2);
+    expect(activeFilterCount({})).toBe(0);
+  });
+
+  it("ignores sort, page and currency", () => {
+    // None of the three narrows the result set. A trigger badged "3" because somebody chose a sort
+    // order and a currency would be telling the reader their grid is filtered when it is not.
+    expect(activeFilterCount({ sort: "price_asc", page: "3", currency: "USD" })).toBe(0);
+  });
+
+  it("covers every dimension the parser accepts", () => {
+    /*
+     * The drift check, and the reason this list lives in one place.
+     *
+     * `FILTER_KEYS` had already been copied once and gone stale: vendor ticket 04 added the `vendor`
+     * dimension and missed the copy behind "Clear all filters", so a vendor-only filter rendered a
+     * view with no way out of it. This asserts against `parseMarketplaceQuery` itself, so the next
+     * dimension fails here rather than silently going uncounted.
+     */
+    const raw = Object.fromEntries(FILTER_KEYS.map((key) => [key, "x"]));
+    expect(activeFilterCount(raw)).toBe(FILTER_KEYS.length);
+
+    const parsed = parseMarketplaceQuery({
+      q: "crm",
+      category: ["a"],
+      industry: ["b"],
+      technology: ["c"],
+      productType: ["d"],
+      vendor: ["e"],
+      minPrice: "100",
+      maxPrice: "200",
+      customisable: "true",
+    });
+
+    // Every key the parser reads as a filter must be one this counts. The exceptions are the four
+    // that do not narrow the result set, plus `raw` — the parser echoes its own input back under
+    // that name, so it is the whole query rather than a dimension of it.
+    const parsedFilterKeys = Object.entries(parsed)
+      .filter(([key]) => !["sort", "page", "limit", "currency", "raw"].includes(key))
+      .filter(([, value]) => value !== undefined)
+      .map(([key]) => key);
+
+    for (const key of parsedFilterKeys) {
+      expect(FILTER_KEYS as readonly string[], `${key} is parsed but not counted`).toContain(
+        key,
+      );
+    }
   });
 });
