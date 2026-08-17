@@ -236,8 +236,20 @@ describe("toFacetCounts", () => {
 });
 
 describe("dimensionsWithHonestCounts", () => {
+  /**
+   * Every dimension, named rather than counted. The count used to be `4`, which
+   * meant adding the vendor dimension failed here with "expected 5 to be 4" — a
+   * true statement that says nothing about what is wrong. Naming them makes the
+   * failure read as "vendor is missing" instead.
+   */
   it("shows counts everywhere when nothing is selected", () => {
-    expect(dimensionsWithHonestCounts(base).size).toBe(4);
+    expect([...dimensionsWithHonestCounts(base)].sort()).toEqual([
+      "category",
+      "industry",
+      "productType",
+      "technology",
+      "vendor",
+    ]);
   });
 
   it("hides the count on a dimension that is already filtering", () => {
@@ -247,5 +259,11 @@ describe("dimensionsWithHonestCounts", () => {
     const honest = dimensionsWithHonestCounts({ ...base, category: ["crm"] });
     expect(honest.has("category")).toBe(false);
     expect(honest.has("technology")).toBe(true);
+  });
+
+  it("hides the vendor count once a vendor is selected", () => {
+    const honest = dimensionsWithHonestCounts({ ...base, vendor: ["northwind-labs"] });
+    expect(honest.has("vendor")).toBe(false);
+    expect(honest.has("category")).toBe(true);
   });
 });

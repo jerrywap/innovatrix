@@ -127,3 +127,24 @@ export function isObjectIdLike(value: unknown): value is string | Types.ObjectId
     (typeof value === "string" && Types.ObjectId.isValid(value))
   );
 }
+
+/**
+ * Is this a unique-index violation?
+ *
+ * Three copies of this predicate already existed — `webhook-event.repository.ts`,
+ * `product-service.ts`, `version-service.ts` — which is three chances to write `1100` and
+ * silently stop catching the case. This is the shared one for new callers; the existing
+ * three are left alone rather than swept into an unrelated change.
+ *
+ * MongoDB reports every duplicate key as 11000 regardless of which index it was, so a
+ * caller that cares *which* constraint fired has to look at the message. Most do not: they
+ * are handling a race whose remedy is "read what the winner wrote".
+ */
+export function isDuplicateKeyError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === 11000
+  );
+}

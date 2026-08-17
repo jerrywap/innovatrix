@@ -91,6 +91,12 @@ export const LIMITS = {
   /** Generous but bounded — a provider retrying is normal (§87). */
   webhook: { name: "webhook", limit: 600, windowSeconds: 60 },
   search: { name: "search", limit: 300, windowSeconds: 60 },
+  /**
+   * Vendor ticket 03. Sends an email to an address the caller chose, which is the
+   * same property that earns `passwordReset` its limit. A real vendor invites a
+   * colleague or two; twenty in an hour is somebody using us as a mailer.
+   */
+  vendorInvite: { name: "vendor-invite", limit: 20, windowSeconds: 3600 },
 } as const satisfies Record<string, LimitRule>;
 
 export interface LimitResult {

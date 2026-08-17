@@ -4,9 +4,40 @@ import { loadWizardProduct } from "@/features/products/wizard";
 import { stepHref } from "@/features/products/steps";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { loadVersions } from "@/features/versions/view";
+import type { VersionActionSet } from "@/features/versions/action-set";
+import {
+  confirmUploadAction,
+  createVersionAction,
+  deleteVersionAction,
+  deprecateVersionAction,
+  releaseVersionAction,
+  removeFileAction,
+  requestUploadAction,
+  staffDownloadUrlAction,
+  updateVersionAction,
+} from "@/features/versions/actions";
 import { NewVersionForm } from "@/features/versions/components/new-version-form";
 import { VersionPanel } from "@/features/versions/components/version-panel";
 import { nextPatch } from "@/features/versions/suggest";
+
+/**
+ * This surface's actions — vendor ticket 06 gave the components two.
+ *
+ * Declared here rather than in the action module because `"use server"` files may only
+ * export async functions, and because a page naming its own set is what stops a
+ * component importing an action for the other surface.
+ */
+const STAFF_VERSION_ACTIONS: VersionActionSet = {
+  createVersion: createVersionAction,
+  updateVersion: updateVersionAction,
+  releaseVersion: releaseVersionAction,
+  deprecateVersion: deprecateVersionAction,
+  deleteVersion: deleteVersionAction,
+  removeFile: removeFileAction,
+  requestUpload: requestUploadAction,
+  confirmUpload: confirmUploadAction,
+  downloadUrl: staffDownloadUrlAction,
+};
 
 export const metadata: Metadata = { title: "Versions" };
 
@@ -38,7 +69,11 @@ export default async function Page({ params }: PageProps<"/admin/products/[id]/v
             ? "No versions yet. Publishing needs one released version with an application package."
             : `${versions.length} version${versions.length === 1 ? "" : "s"}, newest first.`}
         </p>
-        <NewVersionForm productId={product.id} suggested={nextPatch(versions)} />
+        <NewVersionForm
+          actions={STAFF_VERSION_ACTIONS}
+          productId={product.id}
+          suggested={nextPatch(versions)}
+        />
       </div>
 
       <div className="flex flex-col gap-3">
@@ -49,6 +84,7 @@ export default async function Page({ params }: PageProps<"/admin/products/[id]/v
             productId={product.id}
             isCurrent={product.currentVersionId === version.id}
             defaultOpen={index === 0}
+            actions={STAFF_VERSION_ACTIONS}
           />
         ))}
       </div>

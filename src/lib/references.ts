@@ -24,6 +24,12 @@ export const REFERENCE_PREFIXES = {
   INV: "Invoice",
   QUO: "Quote",
   PAY: "Payment",
+  /**
+   * Vendor ticket 09. Its own prefix because `PAY` is inbound — a payout and a payment
+   * are opposite directions of money and sharing a sequence would make
+   * "PAY-2026-0031" ambiguous in a bank statement, which is the one place it must not be.
+   */
+  POU: "Vendor payout",
 } as const;
 
 export type ReferencePrefix = keyof typeof REFERENCE_PREFIXES;

@@ -79,6 +79,22 @@ export function ProductCardTile({
           )}
         </div>
 
+        {/*
+          Attribution — vendor ticket 04.
+
+          Text, not a link: `/vendors/[slug]` is vendor ticket 11's route and
+          `typedRoutes` will not compile a link to a route nobody has built. It becomes
+          a link in the same commit that gives it somewhere to go.
+
+          Absent for a first-party product, deliberately — "by Innovatrix" on a
+          platform called Innovatrix tells a buyer nothing.
+        */}
+        {card.vendor && (
+          <p className="text-subtle text-[12px]">
+            by <span className="text-muted-foreground">{card.vendor.name}</span>
+          </p>
+        )}
+
         <p className="text-muted-foreground line-clamp-2 text-[13px] leading-relaxed">
           {card.summary}
         </p>

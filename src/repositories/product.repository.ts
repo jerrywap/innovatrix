@@ -1,16 +1,20 @@
-import type { ClientSession } from "mongoose";
-import { BaseRepository } from "./base";
+import type { ClientSession, UpdateQuery } from "mongoose";
+import { BaseRepository, RepositoryError } from "./base";
 import { toObjectId } from "@/lib/db/base";
+import { vendorFilter, type VendorScope } from "@/lib/auth/scope";
 import { Product, type ProductDoc } from "@/lib/db/models/catalog";
 import type { ProductStatus } from "@/lib/db/enums";
 
 /**
  * Products.
  *
- * Not org-scoped: a product belongs to Innovatrix, not to a customer, so this
- * extends `BaseRepository` rather than `OrgScopedRepository`. `ProductDoc`
- * *does* carry `deletedAt`, so `deleteById` soft-deletes and every read here
- * excludes deleted rows through `baseFilter()`.
+ * Not org-scoped: a product belongs to Innovatrix or to a **vendor**, never to a
+ * customer, so this extends `BaseRepository` rather than `OrgScopedRepository`.
+ * Vendor ownership arrives as a *second* axis — `findScoped` / `updateScoped`
+ * below — rather than as a base filter, because staff read across every vendor and
+ * most products have no vendor at all. `ProductDoc` *does* carry `deletedAt`, so
+ * `deleteById` soft-deletes and every read here excludes deleted rows through
+ * `baseFilter()`.
  *
  * Queries only. Anything that decides *whether* a change is allowed —
  * transitions, publish readiness, facet derivation — lives in
@@ -154,6 +158,107 @@ export class ProductRepository extends BaseRepository<ProductDoc> {
       { session: session ?? undefined },
     );
 
+    return result.modifiedCount ?? 0;
+  }
+
+  /* ────────────────────────────────────────────── vendor ownership */
+
+  /**
+   * One product, scoped to its owner — vendor ticket 04.
+   *
+   * `vendorFilter` throws on a blank scope rather than widening to every vendor,
+   * which is the whole reason it exists. Omitting `vendorId` is a *staff* read and
+   * has to be deliberate at the call site.
+   *
+   * Returns `null` for a product belonging to somebody else, which is what lets the
+   * service answer **404 rather than 403**: distinguishing the two turns the
+   * workspace into an oracle for which product ids are real, and the platform
+   * already takes that position on downloads and AI conversations.
+   */
+  async findScoped(id: string, scope: VendorScope, options: { session?: ClientSession } = {}) {
+    this.assertVendorPathExists();
+    return this.findOne({ _id: toObjectId(id), ...vendorFilter(scope) }, options);
+  }
+
+  /**
+   * Refuse to run a vendor-scoped query against a schema that has no `vendorId`.
+   *
+   * ## The fail-open this closes
+   *
+   * `connectToDatabase()` sets **`strictQuery: true`**, which makes Mongoose silently
+   * drop filter conditions on paths the registered schema does not declare. Combined
+   * with `defineModel()` — idempotent by design, so a long-running process keeps the
+   * schema it first registered — a scoped read can lose its scope and become a read
+   * across **every vendor**, with no error anywhere.
+   *
+   * Found exactly that way: a dev server started before `vendorId` was added to
+   * `productSchema` served one vendor a first-party product's edit form, while the
+   * same call in a fresh process correctly returned `null`. Nothing was wrong with the
+   * query, the scope, or the session — the *schema* in that process predated the field,
+   * so `{ vendorId }` was stripped before it reached Mongo.
+   *
+   * In production the schema always matches the process, so this cannot happen. That
+   * is precisely why it is worth asserting: the failure mode is invisible, it appears
+   * only in the environment where nobody is looking for it, and it fails **open**.
+   * `products.test.ts` asserts the path exists so a removal is caught at test time
+   * rather than here.
+   */
+  private assertVendorPathExists(): void {
+    if (!this.model.schema.path("vendorId")) {
+      throw new RepositoryError(
+        "Product schema has no `vendorId` path, so a vendor-scoped query would be " +
+          "silently unscoped (strictQuery drops unknown paths). Refusing to run it. " +
+          "If this is a dev server, restart it — `defineModel` keeps the schema it " +
+          "first registered, so a field added since startup is not in it.",
+      );
+    }
+  }
+
+  /**
+   * Update a product only if it belongs to this vendor.
+   *
+   * The predicate is **in the filter**, not in a read-then-write. Two reasons: a
+   * check-then-update is a race, and more importantly a caller who forgets the
+   * check gets nothing rather than somebody else's product — removing the
+   * page-level guard alone opens nothing.
+   */
+  async updateScoped(
+    id: string,
+    scope: VendorScope,
+    update: UpdateQuery<ProductDoc>,
+    options: { session?: ClientSession } = {},
+  ): Promise<ProductDoc | null> {
+    this.assertVendorPathExists();
+    return this.model
+      .findOneAndUpdate(
+        { _id: toObjectId(id), deletedAt: null, ...vendorFilter(scope) },
+        update,
+        {
+          returnDocument: "after",
+          runValidators: true,
+          session: options.session ?? null,
+        },
+      )
+      .lean<ProductDoc>();
+  }
+
+  /**
+   * Re-denormalise a vendor's display name across their products.
+   *
+   * `vendorName` is a cache on `Product` so a marketplace card can attribute itself
+   * without a query per row (§94). `Vendor` remains the source of truth (§103), so
+   * a rename has to sweep — the alternative is cards that name the vendor something
+   * they no longer call themselves.
+   *
+   * The **slug** is not swept because it cannot change once a vendor is verified.
+   * That is what keeps the `vend:` facet and the storefront URL stable, and it is
+   * why the two are separate fields.
+   */
+  async renameVendor(vendorId: string, displayName: string): Promise<number> {
+    const result = await this.model.updateMany(
+      { vendorId: toObjectId(vendorId) },
+      { $set: { vendorName: displayName } },
+    );
     return result.modifiedCount ?? 0;
   }
 

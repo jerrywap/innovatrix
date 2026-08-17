@@ -13,6 +13,11 @@ import {
   PRODUCT_VERSION_STATUSES,
   QUOTE_STATUSES,
   REQUEST_STATUSES,
+  VENDOR_INVITATION_STATUSES,
+  VENDOR_STATUSES,
+  VENDOR_VERIFICATION_STATUSES,
+  LEDGER_ENTRY_STATUSES,
+  PAYOUT_STATUSES,
 } from "@/lib/db/enums";
 
 /**
@@ -77,6 +82,10 @@ const STATUS_TONES: Record<string, StatusTone> = {
   overdue: "negative",
 
   /* catalogue */
+  // Vendor ticket 05. `submitted` already means "handed over, waiting on the other
+  // side" for requests and reads the same way here. `changes_requested` is the
+  // vendor's move, so it takes the attention tone — the one tone that means "you".
+  changes_requested: "attention",
   internal_review: "progress",
   testing: "progress",
   ready: "progress",
@@ -124,6 +133,24 @@ const STATUS_TONES: Record<string, StatusTone> = {
   /* follow-ups */
   open: "attention",
   done: "positive",
+
+  /* vendors. `applied` is neutral and `in_review` is progress, mirroring
+     draft/internal_review — nothing is wrong with an application nobody has
+     picked up yet. `offboarded` is muted rather than negative: a vendor may
+     leave amicably, and the customers who bought from them keep everything. */
+  applied: "neutral",
+  in_review: "progress",
+  verified: "positive",
+  offboarded: "muted",
+  unstarted: "neutral",
+
+  /* money owed and money sent — vendor tickets 08, 09. `cleared` is progress rather than
+     positive: the vendor is owed it and has not been paid, so it is not settled yet.
+     `reversed` is muted rather than negative — a refund reversing an unpaid earning is
+     ordinary commerce, not a failure. */
+  cleared: "progress",
+  reversed: "muted",
+  sending: "progress",
 };
 
 /**
@@ -144,6 +171,11 @@ const STATUS_LABELS: Record<string, string> = {
   na: "Not applicable",
   pass: "Passed",
   fail: "Failed",
+  in_review: "In review",
+  unstarted: "Not started",
+  // "Changes requested" is what a reviewer did; "Needs your changes" is what the
+  // vendor has to do about it, which is the useful half on their own list.
+  changes_requested: "Needs your changes",
 };
 
 export function statusLabel(status: string): string {
@@ -196,6 +228,11 @@ const ALL_STATUS_ENUMS: ReadonlyArray<readonly string[]> = [
   QUOTE_STATUSES,
   INVOICE_STATUSES,
   TESTING_CHECKLIST_STATUSES,
+  VENDOR_STATUSES,
+  VENDOR_INVITATION_STATUSES,
+  VENDOR_VERIFICATION_STATUSES,
+  LEDGER_ENTRY_STATUSES,
+  PAYOUT_STATUSES,
 ];
 
 /**

@@ -16,8 +16,10 @@ which for `order.paid` means fulfilling twice.
 
 | From | To | |
 |---|---|---|
-| `draft` | `internal_review` · `archived` |  |
-| `internal_review` | `testing` · `draft` · `archived` |  |
+| `draft` | `submitted` · `internal_review` · `archived` |  |
+| `submitted` | `internal_review` · `changes_requested` · `draft` · `archived` |  |
+| `changes_requested` | `submitted` · `draft` · `archived` |  |
+| `internal_review` | `testing` · `changes_requested` · `draft` · `archived` |  |
 | `testing` | `ready` · `internal_review` · `archived` |  |
 | `ready` | `published` · `testing` · `archived` |  |
 | `published` | `deprecated` · `archived` |  |
@@ -26,9 +28,18 @@ which for `order.paid` means fulfilling twice.
 
 ```mermaid
 stateDiagram-v2
+    draft --> submitted
     draft --> internal_review
     draft --> archived
+    submitted --> internal_review
+    submitted --> changes_requested
+    submitted --> draft
+    submitted --> archived
+    changes_requested --> submitted
+    changes_requested --> draft
+    changes_requested --> archived
     internal_review --> testing
+    internal_review --> changes_requested
     internal_review --> draft
     internal_review --> archived
     testing --> ready
@@ -41,6 +52,20 @@ stateDiagram-v2
     published --> archived
     deprecated --> published
     deprecated --> archived
+```
+
+## productVersion
+
+| From | To | |
+|---|---|---|
+| `draft` | `released` |  |
+| `released` | `deprecated` |  |
+| `deprecated` | — | **terminal** |
+
+```mermaid
+stateDiagram-v2
+    draft --> released
+    released --> deprecated
 ```
 
 ## order
@@ -97,7 +122,10 @@ stateDiagram-v2
 | `technical_review` | `under_review` · `quoted` · `rejected` |  |
 | `quoted` | `approved` · `rejected` · `under_review` |  |
 | `approved` | `converted` · `cancelled` |  |
-| `converted` | — | **terminal** |
+| `converted` | `in_progress` · `cancelled` |  |
+| `in_progress` | `delivered` · `cancelled` |  |
+| `delivered` | `completed` · `in_progress` |  |
+| `completed` | — | **terminal** |
 | `rejected` | — | **terminal** |
 | `cancelled` | — | **terminal** |
 
@@ -122,6 +150,12 @@ stateDiagram-v2
     quoted --> under_review
     approved --> converted
     approved --> cancelled
+    converted --> in_progress
+    converted --> cancelled
+    in_progress --> delivered
+    in_progress --> cancelled
+    delivered --> completed
+    delivered --> in_progress
 ```
 
 ## quote
@@ -173,4 +207,50 @@ stateDiagram-v2
     overdue --> paid
     overdue --> cancelled
     paid --> refunded
+```
+
+## vendor
+
+| From | To | |
+|---|---|---|
+| `applied` | `in_review` · `rejected` |  |
+| `in_review` | `verified` · `rejected` |  |
+| `verified` | `suspended` · `offboarded` |  |
+| `suspended` | `verified` · `offboarded` |  |
+| `rejected` | — | **terminal** |
+| `offboarded` | — | **terminal** |
+
+```mermaid
+stateDiagram-v2
+    applied --> in_review
+    applied --> rejected
+    in_review --> verified
+    in_review --> rejected
+    verified --> suspended
+    verified --> offboarded
+    suspended --> verified
+    suspended --> offboarded
+```
+
+## payout
+
+| From | To | |
+|---|---|---|
+| `draft` | `approved` · `cancelled` |  |
+| `approved` | `sending` · `cancelled` |  |
+| `sending` | `paid` · `failed` |  |
+| `failed` | `approved` · `cancelled` |  |
+| `paid` | — | **terminal** |
+| `cancelled` | — | **terminal** |
+
+```mermaid
+stateDiagram-v2
+    draft --> approved
+    draft --> cancelled
+    approved --> sending
+    approved --> cancelled
+    sending --> paid
+    sending --> failed
+    failed --> approved
+    failed --> cancelled
 ```

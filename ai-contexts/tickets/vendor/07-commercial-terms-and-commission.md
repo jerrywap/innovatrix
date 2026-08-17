@@ -40,6 +40,15 @@ configuration. A vendor override is set on the vendor by staff. **A vendor canno
 change their own rate**, which is worth stating because every other field on
 their product is theirs.
 
+> **Implemented 2026-08-17 — its own route, not a panel on Payments setup.**
+> `/admin/settings/commission`, gated on a new `vendor.manage_commission`. The natural
+> home looked like `/admin/settings/payments`, since the default is stored on
+> `PaymentSettings` — but that page is gated on `payment_provider.configure`, which
+> `marketplace_manager` does not hold. Putting the rate there would have meant either
+> widening that permission (handing whoever sets our cut the provider configuration too)
+> or granting a permission for a *page* rather than for a capability. The vendor override
+> lives on the staff vendor screen, in a "Money" section beside the ledger.
+
 ### The rate is snapshotted onto the order line
 
 At checkout, the resolved rate and the vendor id are written onto the order
@@ -78,6 +87,19 @@ the fee is taken on the **net line total, after discount and before tax**,
 because tax is never the platform's revenue and a platform-funded discount
 should not be charged to the vendor.
 
+> **Implemented 2026-08-17 — `subtract`, not `allocate`.** The text above suggests
+> `allocate()`; the implementation uses `percentage()` for the fee and `subtract()` for the
+> earning, which makes `fee + earning === lineTotal` exactly, in every currency including a
+> zero-exponent one, with **one** rounding rather than two. `allocate()` is for apportioning
+> something *across* parties; this is two halves of one number, and subtraction is the
+> arithmetic that cannot drift. A test walks 9 rates × 13 amounts × 2 currencies asserting
+> the sum, because the failure mode is a penny per line and nobody notices it until a vendor
+> adds their own figures up.
+>
+> The discount **is** apportioned, and there `allocate()`'s guarantee is the one that
+> matters — a line's share is proportional to its share of the subtotal, rounded once. The
+> fee is then taken on the net.
+
 ### Add-ons and services
 
 An add-on line (installation, branding) is platform-delivered work. It carries
@@ -107,16 +129,16 @@ and vendor-funded discounts. Each changes the arithmetic here and none is asked
 for; the resolution order leaves room for a third level if one is ever wanted.
 
 ## Acceptance criteria
-- [ ] Rates are stored and computed in basis points; no float appears in the split anywhere.
-- [ ] Resolution is platform → vendor, most specific winning, and the effective rate is derivable from one function.
-- [ ] Adding a third resolution level would touch `resolveCommission()` and nothing else.
-- [ ] A vendor cannot change any rate, in the action and not only in the UI.
-- [ ] The resolved rate and vendor id are written onto the order line at checkout.
-- [ ] Changing a rate does not alter the split on any order placed before the change.
-- [ ] The split is computed in the order's currency, and an attempt to cross currencies throws.
-- [ ] Platform fee plus vendor earning equals the line total exactly, for every currency including a zero-exponent one.
-- [ ] An add-on line carries no vendor and no commission.
-- [ ] A first-party line is distinguishable from a vendor line by the absence of `vendorId`, not by a sentinel.
-- [ ] A vendor sees their effective rate and where it came from.
-- [ ] A new agreement version blocks new submissions until accepted, without affecting products already on sale.
-- [ ] Every rate change is audited with the before and after and the staff member who made it.
+- [x] Rates are stored and computed in basis points; no float appears in the split anywhere.
+- [x] Resolution is platform → vendor, most specific winning, and the effective rate is derivable from one function.
+- [x] Adding a third resolution level would touch `resolveCommission()` and nothing else.
+- [x] A vendor cannot change any rate, in the action and not only in the UI.
+- [x] The resolved rate and vendor id are written onto the order line at checkout.
+- [x] Changing a rate does not alter the split on any order placed before the change.
+- [x] The split is computed in the order's currency, and an attempt to cross currencies throws.
+- [x] Platform fee plus vendor earning equals the line total exactly, for every currency including a zero-exponent one.
+- [x] An add-on line carries no vendor and no commission.
+- [x] A first-party line is distinguishable from a vendor line by the absence of `vendorId`, not by a sentinel.
+- [x] A vendor sees their effective rate and where it came from.
+- [x] A new agreement version blocks new submissions until accepted, without affecting products already on sale.
+- [x] Every rate change is audited with the before and after and the staff member who made it.

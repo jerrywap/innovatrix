@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Field, FieldGroup, SectionForm } from "./section-form";
+import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { saveClassificationAction } from "../actions";
 import type { AdminProductView } from "@/services/catalog/product-view";
 import type { TaxonomyKind } from "@/lib/db/enums";
@@ -29,18 +29,25 @@ export interface TaxonomyOption {
  * Checkbox lists rather than a combobox: there are tens of taxonomies, not
  * hundreds, and a plain list works inside a `<form>` with no JavaScript at all.
  * A searchable multi-select would be more code and less reliable.
+ *
+ * `action` is a prop so this form serves both wizard surfaces — vendor ticket 04.
+ * Defaulted to the staff action, so every existing caller is unchanged and the
+ * vendor pages pass their own. A second copy of the form per surface is how one of
+ * them quietly stops having a field the other has.
  */
 export function ClassificationForm({
   product,
   options,
   nextHref,
+  action = saveClassificationAction,
 }: {
   product: AdminProductView;
   options: Record<TaxonomyKind, TaxonomyOption[]>;
   nextHref: string;
+  action?: SectionFormProps["action"];
 }) {
   return (
-    <SectionForm action={saveClassificationAction} productId={product.id} nextHref={nextHref}>
+    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <FieldGroup
         title="Categories"
         description="What kind of software this is. Shown as a filter and as a landing page."

@@ -59,6 +59,16 @@ export type AuditActor =
    * user, which is the one field an incident review starts from.
    */
   | { type: "customer"; userId: string; organizationId?: string; name?: string }
+  /**
+   * A third-party seller acting on their own behalf — vendor ticket 01.
+   *
+   * Its own variant rather than a `customer` with a note, because a vendor
+   * editing their own product recorded as `customer` is wrong in the one
+   * collection that exists to be trustworthy later. `vendorId` is required here:
+   * unlike a customer's organisation, there is no signup-shaped moment when
+   * somebody acts as a vendor without being one.
+   */
+  | { type: "vendor"; userId: string; vendorId: string; name?: string }
   | { type: "system" }
   | { type: "webhook"; source: string };
 
@@ -101,6 +111,9 @@ export async function writeAuditLog(entry: AuditEntry, session?: ClientSession):
       : "organizationId" in entry.actor && entry.actor.organizationId
         ? { organizationId: toObjectId(entry.actor.organizationId) }
         : {}),
+    ...("vendorId" in entry.actor && entry.actor.vendorId
+      ? { vendorId: toObjectId(entry.actor.vendorId) }
+      : {}),
     ...(entry.subject
       ? { subjectType: entry.subject.type, subjectId: toObjectId(entry.subject.id) }
       : {}),
@@ -137,6 +150,16 @@ export async function writeAuditLog(entry: AuditEntry, session?: ClientSession):
 /** Build a staff actor from a DAL `StaffContext`. */
 export function staffActor(user: { id: string; name?: string }): AuditActor {
   return { type: "staff", userId: user.id, ...(user.name ? { name: user.name } : {}) };
+}
+
+/** Build a vendor actor from a DAL `VendorContext`. */
+export function vendorActor(user: { id: string; name?: string }, vendorId: string): AuditActor {
+  return {
+    type: "vendor",
+    userId: user.id,
+    vendorId,
+    ...(user.name ? { name: user.name } : {}),
+  };
 }
 
 /**

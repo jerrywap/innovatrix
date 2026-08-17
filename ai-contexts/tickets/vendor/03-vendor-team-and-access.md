@@ -99,12 +99,22 @@ backed by `OrganizationInvitationDoc` — and they are org-scoped. A vendor is
 deliberately not an `Organization` (vendor ticket 01), so that flow cannot be
 reused as it stands.
 
-The layer underneath it can be. The `Verification` collection already exists for
-"single-use tokens: email verification, password reset, invitation lookups", and
-`src/lib/crypto.ts` already holds the signing primitives. A vendor invitation is
-therefore a `Verification` row carrying the vendor, the role and an expiry, plus
-an email, accepted through a second branch on the existing `/accept-invite`
-page — not a parallel invitation subsystem with its own token scheme.
+> **Corrected during implementation.** This section originally said to reuse the
+> `Verification` collection and that `src/lib/crypto.ts` "already holds the
+> signing primitives". Neither survives contact: `Verification` has **no
+> application reads or writes at all** — Better Auth owns it through the raw
+> MongoDB driver, and our Mongoose model exists only so `npm run db:indexes`
+> creates its TTL index — and `crypto.ts` has AES-256-GCM sealing but **no HMAC
+> helper**. The only `createHmac` in the repo verifies payment webhooks.
+
+So: a **`VendorInvitation` collection we own outright**, mirroring
+`OrganizationInvitationDoc`. No new crypto is involved, because the existing
+organization invitation is not a bearer token either — `/accept-invite?id=<id>`
+carries an unguessable id, and the check that actually protects it is that the
+invitation's email matches the **verified** email on the session. Same strength,
+one collection where Mongoose defaults and indexes fire, accepted through a
+second branch on the existing `/accept-invite` page rather than a parallel
+invitation subsystem.
 
 Backing a `Vendor` with an `Organization` to inherit membership for free was
 considered and rejected: it puts the vendor in the customer org switcher and

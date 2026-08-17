@@ -45,6 +45,23 @@ export interface VersionView {
     note?: string;
   };
   files: VersionFileView[];
+  /**
+   * Vendor ticket 06 — the mirror/pull source, when there is one.
+   *
+   * `hasToken` rather than the token: the ciphertext is `select: false` and there is no
+   * read path that returns plaintext to a browser. A boolean is the only honest thing to
+   * put in a view.
+   */
+  artefactSource?: {
+    status: string;
+    url?: string;
+    checksumSha256?: string;
+    repositoryUrl?: string;
+    tag?: string;
+    hasToken: boolean;
+    lastAttemptAt?: string;
+    failureReason?: string;
+  };
 }
 
 const KIND_LABELS: Record<ProductFileKind, string> = {
@@ -94,6 +111,31 @@ function toVersionView(version: ProductVersionDoc, files: ProductFileDoc[]): Ver
               ? { freeFromVersion: version.updateEligibility.freeFromVersion }
               : {}),
             ...(version.updateEligibility.note ? { note: version.updateEligibility.note } : {}),
+          },
+        }
+      : {}),
+    // `hasToken` is derived from the presence of a sealed value, never the value —
+    // `tokenCipher` is `select: false`, so a plain read leaves it undefined and this
+    // stays honest even if a caller forgets to project it.
+    ...(version.artefactSource && version.artefactSource.status
+      ? {
+          artefactSource: {
+            status: version.artefactSource.status,
+            ...(version.artefactSource.url ? { url: version.artefactSource.url } : {}),
+            ...(version.artefactSource.checksumSha256
+              ? { checksumSha256: version.artefactSource.checksumSha256 }
+              : {}),
+            ...(version.artefactSource.repositoryUrl
+              ? { repositoryUrl: version.artefactSource.repositoryUrl }
+              : {}),
+            ...(version.artefactSource.tag ? { tag: version.artefactSource.tag } : {}),
+            hasToken: Boolean(version.artefactSource.tokenCipher?.ciphertext),
+            ...(version.artefactSource.lastAttemptAt
+              ? { lastAttemptAt: formatDay(version.artefactSource.lastAttemptAt) }
+              : {}),
+            ...(version.artefactSource.failureReason
+              ? { failureReason: version.artefactSource.failureReason }
+              : {}),
           },
         }
       : {}),

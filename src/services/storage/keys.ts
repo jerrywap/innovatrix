@@ -57,6 +57,8 @@ export type StorageScope =
   | "payment-proof"
   | "quote-document"
   | "invoice-document"
+  | "vendor-document"
+  | "payout-evidence"
   | "healthcheck";
 
 /* ────────────────────────────────────────────── prefix */
@@ -205,6 +207,42 @@ export function paymentProofKey(
 ): string {
   const key =
     `${ctx.root}/payments/${segment(paymentId, "paymentId")}` +
+    `/${id()}-${safeFilename(filename)}`;
+  return assertKeyInPrefix(key, ctx.root);
+}
+
+/**
+ * A vendor's verification document — vendor ticket 02.
+ *
+ * `vendors/{vendorId}/documents/…`, deliberately its own top-level branch rather
+ * than nested under anything: these objects are the most sensitive the platform
+ * stores, and a prefix that is trivially greppable is a prefix an operator can
+ * write a lifecycle rule against.
+ */
+export function vendorDocumentKey(
+  ctx: KeyBuilderContext,
+  vendorId: string,
+  filename: string,
+): string {
+  const key =
+    `${ctx.root}/vendors/${segment(vendorId, "vendorId")}/documents` +
+    `/${id()}-${safeFilename(filename)}`;
+  return assertKeyInPrefix(key, ctx.root);
+}
+
+/**
+ * Remittance advice for a payout — vendor ticket 09.
+ *
+ * Under `payouts/{payoutId}/`, not under the vendor: a payout is the thing the evidence is
+ * evidence *of*, and keying by vendor would make "which transfer is this?" a search.
+ */
+export function payoutEvidenceKey(
+  ctx: KeyBuilderContext,
+  payoutId: string,
+  filename: string,
+): string {
+  const key =
+    `${ctx.root}/payouts/${segment(payoutId, "payoutId")}/evidence` +
     `/${id()}-${safeFilename(filename)}`;
   return assertKeyInPrefix(key, ctx.root);
 }

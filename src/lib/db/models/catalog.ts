@@ -11,6 +11,9 @@ import {
   PRODUCT_MEDIA_KINDS,
   PRODUCT_STATUSES,
   PRODUCT_VERSION_STATUSES,
+  ARTEFACT_SOURCE_STATUSES,
+  DELIVERY_METHODS,
+  REVIEW_REASON_CODES,
   TAXONOMY_KINDS,
   TESTING_CHECKLIST_STATUSES,
   type AddonPricingType,
@@ -21,6 +24,9 @@ import {
   type ProductMediaKind,
   type ProductStatus,
   type ProductVersionStatus,
+  type ArtefactSourceStatus,
+  type DeliveryMethod,
+  type ReviewReasonCode,
   type TaxonomyKind,
   type TestingChecklistStatus,
 } from "../enums";
@@ -160,6 +166,52 @@ export interface TestingChecklistItem {
   checkedAt?: Date;
 }
 
+/**
+ * One entry in a product's review history — vendor ticket 05.
+ *
+ * ## `internalNote` and the rule that keeps it internal
+ *
+ * §37's discipline, applied to a second audience. The guarantee is **not** that a
+ * component hides the field: it is that the vendor-facing loader never selects it,
+ * so it is absent from the payload rather than present-and-unrendered. A reviewer's
+ * private assessment of somebody's code is exactly the note that must not reach
+ * them, and "we styled it away" is how that leaks.
+ *
+ * `detail` is the opposite — it is shown to the vendor **verbatim**, which is why
+ * `requestChanges` refuses an empty one.
+ */
+export interface ProductReviewNote {
+  at: Date;
+  byUserId: Types.ObjectId;
+  outcome: "submitted" | "changes_requested" | "approved" | "withdrawn";
+  /** Categories, so "what do reviewers keep sending back" is a query. */
+  reasons: ReviewReasonCode[];
+  /** Shown to the vendor verbatim. */
+  detail: string;
+  /** §37 — staff only. Never selected by a vendor-facing loader. */
+  internalNote?: string;
+  /**
+   * Which sections changed since the previous approval, at the moment of this
+   * submission.
+   *
+   * Derived from the audit log rather than stored as a diff: the audit log already
+   * records changed field *names* per section save (never values — a pricing save
+   * would otherwise put every price in an append-only collection), so this is a
+   * summary of rows that already exist. A resubmission is usually a small change,
+   * and re-reviewing the whole product is how a queue falls behind.
+   */
+  changedSections?: string[];
+}
+
+export interface ProductAttestation {
+  at: Date;
+  byUserId: Types.ObjectId;
+  /** The version string the declaration was made about. */
+  versionAtSubmission?: string;
+  /** The exact wording accepted, so a later change of wording is visible. */
+  statementVersion: string;
+}
+
 const priceSchema = new Schema(
   {
     currency: { type: String, required: true, uppercase: true },
@@ -249,6 +301,49 @@ const testingChecklistItemSchema = new Schema(
   { _id: false },
 );
 
+/* Vendor ticket 05 — the review history and the vendor's declaration. */
+
+/** AES-256-GCM output. Shared, because two things now store one. */
+const cipherSchema = new Schema(
+  {
+    iv: { type: String, required: true },
+    tag: { type: String, required: true },
+    ciphertext: { type: String, required: true },
+    keyVersion: { type: Number, default: 1 },
+  },
+  { _id: false },
+);
+
+const productReviewNoteSchema = new Schema(
+  {
+    at: { type: Date, required: true },
+    byUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    outcome: {
+      type: String,
+      enum: ["submitted", "changes_requested", "approved", "withdrawn"],
+      required: true,
+    },
+    reasons: { type: [String], enum: REVIEW_REASON_CODES, default: [] },
+    detail: { type: String, required: true, trim: true },
+    // §37. Present on the document, absent from every vendor-facing projection —
+    // `toVendorProductView()` is the only reader a vendor gets, and it does not
+    // select this field. The guarantee is the absence, not a hidden component.
+    internalNote: { type: String, trim: true },
+    changedSections: { type: [String], default: [] },
+  },
+  { _id: false },
+);
+
+const productAttestationSchema = new Schema(
+  {
+    at: { type: Date, required: true },
+    byUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    versionAtSubmission: { type: String, trim: true },
+    statementVersion: { type: String, required: true },
+  },
+  { _id: false },
+);
+
 /* ────────────────────────────────────────────── Product */
 
 export interface ProductDoc {
@@ -256,6 +351,59 @@ export interface ProductDoc {
   slug: string;
   name: string;
   summary: string;
+  /**
+   * Who sells this — vendor ticket 04.
+   *
+   * **Absent means first-party**, published by Innovatrix, and that is the only
+   * meaning absence carries. Optional rather than required because the seeded
+   * products and everything the platform sells itself have no vendor and must keep
+   * working untouched; there is no house `Vendor` row and no sentinel.
+   *
+   * Ownership is a new axis on this collection — there was no owner field of any
+   * kind before, only two audit breadcrumbs — so it needs its own index rather than
+   * an extension of an existing one. `ProductVersion` and `ProductFile` derive
+   * ownership through `productId` and gain no field, which is already how storage
+   * authorisation works.
+   */
+  vendorId?: Types.ObjectId;
+  /**
+   * The vendor's slug and display name, denormalised.
+   *
+   * `vendorSlug` feeds the `vend:` facet; `vendorName` lets a marketplace card
+   * attribute itself without a `$lookup` or a query per row (§94). Both are
+   * derived — `Vendor` is the source of truth (§103).
+   *
+   * The slug is immutable once a vendor is verified, so it cannot drift. The
+   * display name can change, which is why the two are separate fields and why a
+   * rename has to sweep this collection.
+   */
+  vendorSlug?: string;
+  vendorName?: string;
+  /**
+   * How this vendor supplies their bytes — vendor ticket 06.
+   *
+   * The seam, declared with all three values from the start so switching does not need
+   * a migration. Absent means `archive`, which is what every first-party product uses
+   * and what a vendor gets by default.
+   */
+  deliveryMethod?: DeliveryMethod;
+  /**
+   * What reviewers have said about this product — vendor ticket 05.
+   *
+   * **Appended, never overwritten.** The third submission of a product is only
+   * comprehensible next to what was said about the first two, and a single "latest
+   * feedback" field turns a conversation into a rumour.
+   */
+  reviewNotes: ProductReviewNote[];
+  /**
+   * The vendor's declaration, recorded with the submission that carried it.
+   *
+   * Not a boolean: a tick box with no timestamp and no name is a claim, and the
+   * whole point of this field is to be a **defence** in a takedown (vendor ticket
+   * 13). Replaced on each submission, because the attestation is about the version
+   * being submitted now.
+   */
+  attestation?: ProductAttestation;
   /**
    * The long description, as a **ProseMirror node tree** — never an HTML
    * string, so nothing downstream is ever tempted to render it with
@@ -322,6 +470,11 @@ const productSchema = new Schema<ProductDoc>(
     slug: { type: String, required: true, lowercase: true, trim: true },
     name: { type: String, required: true, trim: true },
     summary: { type: String, required: true },
+    // Vendor ticket 04. Absent ⇒ first-party.
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
+    vendorSlug: { type: String, lowercase: true, trim: true },
+    vendorName: { type: String, trim: true },
+    deliveryMethod: { type: String, enum: DELIVERY_METHODS },
     // Mixed, because the tree's shape is defined by Zod rather than by
     // Mongoose. A Mongoose sub-schema here would be a second, weaker copy of
     // `richTextDocumentSchema` that could drift from it.
@@ -382,6 +535,10 @@ const productSchema = new Schema<ProductDoc>(
     seo: { title: String, description: String, ogImageUrl: String },
     testingChecklist: { type: [testingChecklistItemSchema], default: [] },
 
+    // Vendor ticket 05 — appended, never replaced.
+    reviewNotes: { type: [productReviewNoteSchema], default: [] },
+    attestation: { type: productAttestationSchema },
+
     isFeatured: { type: Boolean, default: false },
     orderCount: { type: Number, default: 0 },
     adaptedCount: { type: Number, default: 0 },
@@ -423,6 +580,18 @@ productSchema.index({ status: 1, orderCount: -1 });
 // The admin product list's default sort. The storefront indexes above are
 // ordered for browsing, not for "what did we touch most recently".
 productSchema.index({ status: 1, updatedAt: -1 });
+/**
+ * The vendor workspace's list — vendor ticket 04.
+ *
+ * A new index rather than an extension: none of the four above has room for a
+ * vendor prefix, and a vendor's list is scoped *first* by owner and only then by
+ * status, so the prefix has to be `vendorId`.
+ *
+ * Sparse, because most products have no vendor and a first-party product has no
+ * business occupying a key here. The `vend:` facet serves the *marketplace*
+ * filter; this serves the workspace, which needs the id rather than the slug.
+ */
+productSchema.index({ vendorId: 1, status: 1, updatedAt: -1 }, { sparse: true });
 // Single-field multikey indexes for admin views that filter by one taxonomy.
 productSchema.index({ categoryIds: 1 });
 productSchema.index({ industryIds: 1 });
@@ -464,6 +633,16 @@ export const FACET_PREFIX = {
   industry: "ind",
   technology: "tech",
   productType: "type",
+  /**
+   * Who made it — vendor ticket 04.
+   *
+   * A fifth dimension in the flattened array rather than a field beside it,
+   * because that array is the only thing that makes faceted filtering indexable:
+   * MongoDB refuses a compound index across parallel arrays, which is why
+   * `facets` exists at all. Filtering, facet counts, URL parsing and chip
+   * rendering all come free by fitting the existing design instead of fighting it.
+   */
+  vendor: "vend",
 } as const;
 
 /**
@@ -478,12 +657,15 @@ export function buildProductFacets(input: {
   industrySlugs?: string[];
   technologySlugs?: string[];
   productTypeSlug?: string;
+  /** The owning vendor's slug. Absent for a first-party product. */
+  vendorSlug?: string;
 }): string[] {
   const facets = [
     ...(input.categorySlugs ?? []).map((s) => `${FACET_PREFIX.category}:${s}`),
     ...(input.industrySlugs ?? []).map((s) => `${FACET_PREFIX.industry}:${s}`),
     ...(input.technologySlugs ?? []).map((s) => `${FACET_PREFIX.technology}:${s}`),
     ...(input.productTypeSlug ? [`${FACET_PREFIX.productType}:${input.productTypeSlug}`] : []),
+    ...(input.vendorSlug ? [`${FACET_PREFIX.vendor}:${input.vendorSlug}`] : []),
   ];
   return [...new Set(facets)].sort();
 }
@@ -502,6 +684,9 @@ export function facetFilter(query: FacetQuery): string[] {
     productTypeSlug: Array.isArray(query.productType)
       ? query.productType[0]
       : query.productType,
+    ...(query.vendor
+      ? { vendorSlug: Array.isArray(query.vendor) ? query.vendor[0] : query.vendor }
+      : {}),
   });
 }
 
@@ -510,6 +695,8 @@ export interface FacetQuery {
   industry?: string[];
   technology?: string[];
   productType?: string | string[];
+  /** Vendor ticket 04. Several vendors mean "any of these", like every dimension. */
+  vendor?: string | string[];
 }
 
 /**
@@ -557,6 +744,7 @@ export function facetMatch(query: FacetQuery): { $and: FacetDimensionFilter[] } 
     FACET_PREFIX.productType,
     typeof query.productType === "string" ? [query.productType] : query.productType,
   );
+  add(FACET_PREFIX.vendor, typeof query.vendor === "string" ? [query.vendor] : query.vendor);
 
   return dimensions.length > 0 ? { $and: dimensions } : null;
 }
@@ -573,6 +761,31 @@ export function parseFacet(facet: string): { prefix: string; slug: string } | nu
 }
 
 /* ────────────────────────────────────────────── ProductVersion */
+
+/**
+ * Where a mirrored or pulled artefact comes from — vendor ticket 06.
+ *
+ * On the *version*, not the product, because it is a per-release fact: 2.4.0 and 2.4.1
+ * are different tags and different URLs. A product's `deliveryMethod` says which of
+ * these fields a vendor is asked to fill in.
+ *
+ * `token` is sealed with the same AES-256-GCM path as a demo credential and is **never
+ * rendered back** — see `version-service.saveArtefactSource`.
+ */
+export interface ArtefactSource {
+  /** `vendor_hosted`: where the built package lives. */
+  url?: string;
+  /** Hex SHA-256 the vendor declares. Required for `vendor_hosted`. */
+  checksumSha256?: string;
+  /** `repository`: the clone/browse URL and the tag to pull. */
+  repositoryUrl?: string;
+  tag?: string;
+  /** A sealed access token for a private repository. Write-only. */
+  tokenCipher?: PasswordCipher;
+  status: ArtefactSourceStatus;
+  lastAttemptAt?: Date;
+  failureReason?: string;
+}
 
 export interface ProductVersionDoc {
   _id: Types.ObjectId;
@@ -607,6 +820,8 @@ export interface ProductVersionDoc {
     freeFromVersion?: string;
     note?: string;
   };
+  /** Vendor ticket 06. Absent for an archive upload, which needs no source. */
+  artefactSource?: ArtefactSource;
 }
 
 const productVersionSchema = new Schema<ProductVersionDoc>(
@@ -625,6 +840,26 @@ const productVersionSchema = new Schema<ProductVersionDoc>(
       includesPriorMajor: { type: Boolean, default: false },
       freeFromVersion: String,
       note: String,
+    },
+    artefactSource: {
+      url: { type: String, trim: true },
+      checksumSha256: { type: String, trim: true, lowercase: true },
+      repositoryUrl: { type: String, trim: true },
+      tag: { type: String, trim: true },
+      // Sealed, and `select: false` so a stray `find()` cannot carry ciphertext out of
+      // the service that owns it — the same treatment demo credentials get.
+      /*
+       * `select: false` on the **path**, not on each leaf.
+       *
+       * Marking the leaves individually looked equivalent and is not: the parent path
+       * still materialises, and `.select("+artefactSource.tokenCipher")` cannot re-add
+       * leaves it does not name. A sub-schema makes it one path to exclude and one to
+       * ask back for.
+       */
+      tokenCipher: { type: cipherSchema, select: false },
+      status: { type: String, enum: ARTEFACT_SOURCE_STATUSES, default: "pending" },
+      lastAttemptAt: Date,
+      failureReason: { type: String, trim: true },
     },
   },
   schemaOptions({ collection: "productVersions" }),

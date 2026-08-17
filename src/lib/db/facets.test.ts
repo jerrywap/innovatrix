@@ -24,6 +24,29 @@ describe("buildProductFacets", () => {
   it("returns an empty array rather than undefined for a product with no taxonomy", () => {
     expect(buildProductFacets({})).toEqual([]);
   });
+
+  /**
+   * Vendor ticket 04. A fifth dimension in the same flattened array, because that
+   * array is the only thing making faceted filtering indexable — MongoDB refuses a
+   * compound index across parallel arrays.
+   */
+  it("carries the vendor as a fifth dimension", () => {
+    expect(
+      buildProductFacets({ categorySlugs: ["crm"], vendorSlug: "northwind-labs" }),
+    ).toEqual(["cat:crm", "vend:northwind-labs"]);
+  });
+
+  it("omits the vendor term for a first-party product", () => {
+    // Absent means first-party, and that is the only meaning absence carries — no
+    // house vendor row, no sentinel slug to match against.
+    expect(buildProductFacets({ categorySlugs: ["crm"] })).toEqual(["cat:crm"]);
+  });
+
+  it("cannot collide a vendor slug with a taxonomy slug of the same name", () => {
+    expect(
+      buildProductFacets({ categorySlugs: ["northwind"], vendorSlug: "northwind" }),
+    ).toEqual(["cat:northwind", "vend:northwind"]);
+  });
 });
 
 describe("facetMatch — OR within a dimension, AND across dimensions", () => {
@@ -78,6 +101,18 @@ describe("facetMatch — OR within a dimension, AND across dimensions", () => {
   it("deduplicates within a dimension", () => {
     expect(facetMatch({ category: ["crm", "crm"] })).toEqual({
       $and: [{ facets: { $in: ["cat:crm"] } }],
+    });
+  });
+
+  it("ANDs a vendor against a category, and ORs two vendors", () => {
+    // "CRM tools made by Northwind" is an intersection; "made by Northwind or
+    // Southwind" is a union. Same rule as every other dimension.
+    expect(facetMatch({ category: ["crm"], vendor: "northwind-labs" })).toEqual({
+      $and: [{ facets: { $in: ["cat:crm"] } }, { facets: { $in: ["vend:northwind-labs"] } }],
+    });
+
+    expect(facetMatch({ vendor: ["northwind-labs", "southwind"] })).toEqual({
+      $and: [{ facets: { $in: ["vend:northwind-labs", "vend:southwind"] } }],
     });
   });
 });

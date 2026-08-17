@@ -112,6 +112,86 @@ export interface DomainEventMap {
     version: string;
   };
 
+  /* ── vendor tickets 01–03: the vendor's own lifecycle ── */
+
+  /** An application arrived. Goes to whoever reviews them. */
+  VendorApplied: { vendorId: string; displayName: string; country: string };
+
+  /** Approved and able to list. */
+  VendorVerified: { vendorId: string; displayName: string };
+
+  /** Refused, with the reason the applicant reads verbatim. */
+  VendorRejected: { vendorId: string; displayName: string; reason: string };
+
+  /** New sales stopped. Existing entitlements are untouched (vendor ticket 12). */
+  VendorSuspended: { vendorId: string; displayName: string; reason: string };
+
+  /* ── vendor ticket 09: payouts ── */
+
+  /**
+   * Money has left. The vendor is told, with the reference to match against their bank.
+   *
+   * Emitted **after** the transaction commits, like every other event: a notification about
+   * a payment that then rolled back is worse than a late one.
+   */
+  VendorPayoutPaid: {
+    vendorId: string;
+    payoutId: string;
+    reference: string;
+    amount: number;
+    currency: string;
+  };
+
+  /**
+   * A transfer was refused.
+   *
+   * The vendor is told because the likeliest cause is their own account details, and they
+   * are the only person who can fix that. Staff hear about it through the payout queue.
+   */
+  VendorPayoutFailed: {
+    vendorId: string;
+    payoutId: string;
+    reference: string;
+    reason: string;
+  };
+
+  /* ── vendor ticket 05: submission and review ── */
+
+  /** A vendor handed a product over. Goes to whoever can review it. */
+  ProductSubmitted: {
+    productId: string;
+    productName: string;
+    vendorName: string;
+    /** A resubmission is the common case; reviewers read it differently. */
+    isResubmission: boolean;
+  };
+
+  /** Sent back with a reason the vendor reads verbatim. */
+  ProductChangesRequested: {
+    productId: string;
+    productName: string;
+    vendorId: string;
+    detail: string;
+  };
+
+  /** Accepted into the platform's own pipeline — not yet on sale. */
+  ProductApproved: { productId: string; productName: string; vendorId: string };
+
+  /**
+   * On sale — §46.
+   *
+   * Listed in `DOMAIN_EVENTS` since ticket 02 and **emitted nowhere**: there was no
+   * map entry, no `emit` call and no catalogue row, so "tell the vendor their product
+   * is live" had nothing to attach to. Vendor ticket 05 is the first thing that needs
+   * it, so it lands here rather than staying a name in an enum.
+   */
+  ProductPublished: {
+    productId: string;
+    productName: string;
+    productSlug: string;
+    vendorId?: string;
+  };
+
   /** Ticket 23. The customer's "payment required" notice (§69). */
   InvoiceIssued: {
     invoiceId: string;
@@ -228,6 +308,51 @@ export interface DomainEventMap {
 }
 
 export type DomainEventName = keyof DomainEventMap;
+
+/**
+ * The same names, at runtime.
+ *
+ * `DomainEventMap` is a type, so nothing can iterate it — which is how it drifted
+ * from `DOMAIN_EVENTS` in `enums.ts` to ten disagreements without anything noticing.
+ * `events.test.ts` compares the two, and needs a list it can walk.
+ *
+ * Built from `Record<DomainEventName, true>` rather than a hand-written array,
+ * because that makes the compiler enforce completeness: adding an event to the map
+ * and forgetting it here is a type error, not a silently short list that would make
+ * the drift test pass vacuously.
+ */
+const EVENT_NAME_SET: Record<DomainEventName, true> = {
+  RequestSubmitted: true,
+  CustomizationSubmitted: true,
+  RequestStatusChanged: true,
+  RequestAssigned: true,
+  CustomerActionRequested: true,
+  RequirementsRevised: true,
+  QuoteIssued: true,
+  QuoteAccepted: true,
+  QuoteRejected: true,
+  ProductVersionReleased: true,
+  VendorApplied: true,
+  VendorVerified: true,
+  VendorRejected: true,
+  VendorSuspended: true,
+  VendorPayoutPaid: true,
+  VendorPayoutFailed: true,
+  ProductSubmitted: true,
+  ProductChangesRequested: true,
+  ProductApproved: true,
+  ProductPublished: true,
+  InvoiceIssued: true,
+  MessagePosted: true,
+  InvoicePaid: true,
+  InvoiceDueSoon: true,
+  InvoiceOverdue: true,
+  FollowUpDue: true,
+  WorkReadyToStart: true,
+  RequestProgressPosted: true,
+};
+
+export const EVENT_NAMES = Object.keys(EVENT_NAME_SET) as DomainEventName[];
 
 export type Handler<K extends DomainEventName> = (
   payload: DomainEventMap[K],

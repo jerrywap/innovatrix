@@ -138,6 +138,25 @@ async function Headline() {
         )}
       </Tile>
 
+      {/*
+        Vendor ticket 09. Only when there is something waiting — a permanent "0 payouts" tile
+        would take a quarter of this strip to say nothing, and the tiles above it earn their
+        space by always having a figure.
+      */}
+      {figures.payoutsAwaiting > 0 && (
+        <Tile label="Payouts">
+          <Link
+            href="/admin/payouts"
+            className="text-[18px] font-medium underline underline-offset-4"
+          >
+            {figures.payoutsAwaiting} waiting
+          </Link>
+          <span className="text-subtle text-[12.5px]">
+            Drafted or failed — nobody has looked
+          </span>
+        </Tile>
+      )}
+
       <Tile label="Background jobs">
         <span className="text-[18px] font-medium">{figures.jobsQueued} queued</span>
         <span

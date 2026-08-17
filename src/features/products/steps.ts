@@ -166,16 +166,51 @@ export function previousStep(section: ProductSection): WizardStep | undefined {
 }
 
 /**
+ * Where a wizard lives — vendor ticket 04.
+ *
+ * The same eleven steps serve two surfaces: staff at `/admin/products/[id]` and a
+ * vendor at `/dashboard/selling/products/[id]`. One base path constant per surface
+ * rather than a copy of the step table, because the steps are a property of the
+ * *product model* and the product model is the same one.
+ *
+ * Both folder sets must physically exist — `typedRoutes` checks the shape when the
+ * page importing `stepHref` is built, which is the point.
+ */
+export const WIZARD_BASE = {
+  admin: "/admin/products",
+  vendor: "/dashboard/selling/products",
+} as const;
+
+export type WizardSurface = keyof typeof WIZARD_BASE;
+
+/**
  * The URL for a step.
  *
  * Cast because the id is interpolated at runtime and `typedRoutes` cannot see
  * through that. The *shape* is still checked — a section whose folder does not
  * exist fails when the page importing it is built.
  */
-export function stepHref(productId: string, section: ProductSection): Route {
+export function stepHref(
+  productId: string,
+  section: ProductSection,
+  surface: WizardSurface = "admin",
+): Route {
   const step = BY_ID.get(section) ?? PRODUCT_WIZARD_STEPS[0]!;
-  return `/admin/products/${productId}/${step.segment}` as Route;
+  return `${WIZARD_BASE[surface]}/${productId}/${step.segment}` as Route;
 }
+
+/**
+ * The steps a **vendor** may reach.
+ *
+ * Every step except `review`'s publishing half — a vendor moves a product to
+ * `submitted` and a staff reviewer publishes it (vendor ticket 05). The step list
+ * itself is unchanged because the product model is: what differs is who may take
+ * the last transition, which is a rule in the service rather than a missing screen.
+ *
+ * Licence *terms* stay platform defaults (decision V10); the vendor chooses which
+ * packages to offer, which is what the pricing step already does.
+ */
+export const VENDOR_WIZARD_STEPS = PRODUCT_WIZARD_STEPS;
 
 /** For the Stepper, which takes `{ id, label }`. */
 export const STEPPER_STEPS = PRODUCT_WIZARD_STEPS.map(({ id, label }) => ({ id, label }));

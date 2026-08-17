@@ -2,7 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGroup, SectionForm } from "./section-form";
+import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { saveSeoAction } from "../actions";
 import type { AdminProductView } from "@/services/catalog/product-view";
 
@@ -17,16 +17,23 @@ import type { AdminProductView } from "@/services/catalog/product-view";
  *
  * The lengths are the real ones Google truncates at — 60ish for a title, 155ish
  * for a description — rather than round numbers.
+ *
+ * `action` is a prop so this form serves both wizard surfaces — vendor ticket 04.
+ * Defaulted to the staff action, so every existing caller is unchanged and the
+ * vendor pages pass their own. A second copy of the form per surface is how one of
+ * them quietly stops having a field the other has.
  */
 export function SeoForm({
   product,
   nextHref,
+  action = saveSeoAction,
 }: {
   product: AdminProductView;
   nextHref: string;
+  action?: SectionFormProps["action"];
 }) {
   return (
-    <SectionForm action={saveSeoAction} productId={product.id} nextHref={nextHref}>
+    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <FieldGroup
         title="Search and sharing"
         description="Leave blank to use the product's own name and summary."

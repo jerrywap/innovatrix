@@ -2,10 +2,12 @@ import "server-only";
 import type { ClientSession } from "mongoose";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase, supportsTransactions } from "@/lib/db/client";
-import { PRODUCT_TRANSITIONS, assertTransition } from "@/lib/db/states";
+import { PRODUCT_TRANSITIONS, assertTransition, productTransitionRule } from "@/lib/db/states";
 import { descriptionFields, type ProductDoc } from "@/lib/db/models/catalog";
 import type { ProductStatus } from "@/lib/db/enums";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
+import { vendorFilter, type VendorScope } from "@/lib/auth/scope";
+import type { Paginated } from "@/repositories/base";
 import { isEmptyDocument, type RichTextDocument } from "@/lib/rich-text/schema";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import { withTransaction } from "@/lib/db/transaction";
@@ -13,6 +15,7 @@ import { products } from "@/repositories/product.repository";
 import { productFiles } from "@/repositories/product-file.repository";
 import { productVersions } from "@/repositories/product-version.repository";
 import { statusChange, writeAuditLog, type AuditActor } from "@/services/audit";
+import { emit } from "@/lib/events";
 import { deriveFacets } from "./facets";
 import {
   DEFAULT_TESTING_CHECKLIST,
@@ -35,6 +38,14 @@ export interface CreateDraftInput {
   name: string;
   summary: string;
   description?: RichTextDocument;
+  /**
+   * The owning vendor — vendor ticket 04. Absent ⇒ first-party.
+   *
+   * Set at creation and never edited by the vendor: ownership is not a field on a
+   * form. Staff reassigning a product is a different operation with its own audit
+   * row, and it has to re-derive facets and re-denormalise the name.
+   */
+  vendor?: { id: string; slug: string; name: string };
 }
 
 /**
@@ -61,10 +72,22 @@ export async function createDraft(
       slug,
       status: "draft",
       ...descriptionFields(input.description),
+      ...(input.vendor
+        ? {
+            vendorId: toObjectId(input.vendor.id),
+            vendorSlug: input.vendor.slug,
+            vendorName: input.vendor.name,
+          }
+        : {}),
       // Present-but-empty rather than absent: `facets` is derived on every
       // classification save, and a missing field would make the marketplace's
       // `$in` behave differently from an empty one.
-      facets: [],
+      //
+      // Except for the vendor term. This used to be a literal `[]`, which was
+      // right when a draft had nothing to derive from — but a vendor's product is
+      // owned from the moment it exists, and leaving the `vend:` term until the
+      // first classification save would hide it from its own storefront in between.
+      facets: await deriveFacets(input.vendor ? { vendorSlug: input.vendor.slug } : {}),
       // §47 — the checklist exists from the start so "not yet tested" is
       // visible rather than being indistinguishable from "no checklist".
       testingChecklist: DEFAULT_TESTING_CHECKLIST.map((item) => ({
@@ -106,10 +129,26 @@ export async function saveSection(
   section: string,
   update: Record<string, unknown>,
   actor: AuditActor,
+  /**
+   * Vendor ticket 04. Present ⇒ the write only lands if the product belongs to
+   * this vendor; absent ⇒ a staff write across every product.
+   *
+   * The check is **in the filter**, not a read before the write. A caller who omits
+   * the scope gets a staff-wide write, which is why omitting it has to be
+   * deliberate — and `vendorFilter` throws on a blank string rather than widening,
+   * so `scope: { vendorId: someValue ?? "" }` cannot silently become god mode.
+   */
+  scope: VendorScope = {},
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const saved = await products.updateById(productId, setAndUnset(update));
+  const saved =
+    scope.vendorId === undefined
+      ? await products.updateById(productId, setAndUnset(update))
+      : await products.updateScoped(productId, scope, setAndUnset(update));
+
+  // 404 for "not yours" as well as "not there". Distinguishing them tells a caller
+  // which product ids are real, and a vendor product id is a URL somebody will try.
   if (!saved) throw new NotFoundError("product", { id: productId });
 
   await writeAuditLog({
@@ -173,10 +212,30 @@ export async function saveClassification(
     productTypeId?: string;
   },
   actor: AuditActor,
+  scope: VendorScope = {},
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const facets = await deriveFacets(input);
+  /*
+   * The vendor slug is read from the product rather than taken from the caller.
+   *
+   * This is the trap vendor ticket 04 names: facets are rewritten wholesale here,
+   * so a `vend:` term that is not re-derived on this path is **silently wiped** the
+   * next time anybody edits a product's categories. Nothing errors — the product
+   * just stops appearing under its vendor, and the bug surfaces weeks later as
+   * "why is my storefront empty".
+   *
+   * Reading it from the document rather than trusting an argument means the term
+   * survives every caller, including one written later by somebody who has not read
+   * this comment.
+   */
+  const owner = await products.findScoped(productId, scope);
+  if (!owner) throw new NotFoundError("product", { id: productId });
+
+  const facets = await deriveFacets({
+    ...input,
+    ...(owner.vendorSlug ? { vendorSlug: owner.vendorSlug } : {}),
+  });
 
   return saveSection(
     productId,
@@ -191,6 +250,7 @@ export async function saveClassification(
       facets,
     },
     actor,
+    scope,
   );
 }
 
@@ -248,6 +308,39 @@ export async function changeSlug(
  * The rest is already embedded on the document, which is the payoff of the
  * embed-vs-reference split in `ERD.md`.
  */
+/**
+ * One vendor's products — vendor ticket 04.
+ *
+ * `vendorFilter` supplies the scope and throws on a blank one, so this cannot be
+ * called in a way that lists everybody's products by accident. The vendor id comes
+ * from `requireVendor()`, never from the request: a `vendorId` in a query string
+ * is a claim, and `parseListParams`' `filterable` list deliberately does not
+ * include it.
+ *
+ * Bounded and sorted on `{ vendorId, status, updatedAt }` (§94).
+ */
+export async function listForVendor(
+  scope: VendorScope,
+  options: {
+    status?: ProductStatus;
+    page?: number;
+    limit?: number;
+    sort?: Record<string, 1 | -1>;
+  } = {},
+): Promise<Paginated<ProductDoc>> {
+  await connectToDatabase();
+
+  return products.list({
+    filter: {
+      ...vendorFilter(scope),
+      ...(options.status ? { status: options.status } : {}),
+    },
+    page: options.page ?? 1,
+    limit: options.limit ?? 25,
+    sort: options.sort ?? { updatedAt: -1 },
+  });
+}
+
 export async function readinessFor(product: ProductDoc): Promise<Readiness> {
   const versions = await productVersions.listForProduct(String(product._id));
   const released = versions.filter((version) => version.status === "released");
@@ -382,18 +475,55 @@ export async function transition(
   productId: string,
   to: ProductStatus,
   actor: AuditActor,
-  options: { reason?: string; ip?: string; userAgent?: string } = {},
+  options: {
+    reason?: string;
+    ip?: string;
+    userAgent?: string;
+    /** Vendor ticket 04 — a vendor may only move their own product. */
+    scope?: VendorScope;
+  } = {},
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const product = await products.findById(productId);
+  const product = await products.findScoped(productId, options.scope ?? {});
   if (!product) throw new NotFoundError("product", { id: productId });
 
   const from = product.status;
   assertTransition("product", PRODUCT_TRANSITIONS, from, to);
 
+  /*
+   * Who may take this edge — vendor ticket 05.
+   *
+   * `assertTransition` says the move is legal for the *machine*; this says it is
+   * legal for **this actor**. Read from `PRODUCT_TRANSITION_RULES` rather than
+   * branched on here, so the screen that hides a control and the service that
+   * refuses the POST are reading the same fact.
+   *
+   * Ordered after `assertTransition` deliberately, matching the publish path: a
+   * vendor attempting `draft → published` should be told the transition is illegal,
+   * not that they lack a permission for an edge that does not exist.
+   */
+  const rule = productTransitionRule(from, to);
+  if (!rule) {
+    // The drift test makes this unreachable. If it ever fires, the graph gained an
+    // edge whose authorisation nobody decided — refuse rather than assume.
+    throw new ForbiddenError(`No rule governs moving a product from ${from} to ${to}.`);
+  }
+  if (actor.type === "vendor" && !rule.vendorMay) {
+    throw new ForbiddenError(`A vendor cannot move a product from ${from} to ${to}.`);
+  }
+  if (rule.requiresReason && !options.reason?.trim()) {
+    throw new ValidationError("Say what needs changing — the vendor reads this.", {
+      detail: ["A reason is required to send a submission back."],
+    });
+  }
+
   if (to === "published") await assertPublishable(product);
   if (to === "ready") await assertTestingComplete(product);
+  // The submission gate, and it is the *same* gate as publication: one pure
+  // `computeReadiness()` shared by both, so a vendor sees exactly the gaps a
+  // reviewer would and "why can't I submit" needs no support thread.
+  if (to === "submitted") await assertSubmittable(product);
 
   const extra: Record<string, unknown> = {};
   // Set once, on first publish. Re-publishing after deprecation must not
@@ -417,7 +547,9 @@ export async function transition(
         ...statusChange(from, to, options.reason ? { reason: options.reason } : {}),
         ...(options.ip ? { ip: options.ip } : {}),
         ...(options.userAgent ? { userAgent: options.userAgent } : {}),
-        source: "admin",
+        // Who drove it, not which screen. A vendor's own transition recorded as
+        // `admin` is wrong in the one collection that exists to be trusted later.
+        source: actor.type === "vendor" ? "vendor" : "admin",
       },
       session,
     );
@@ -428,7 +560,28 @@ export async function transition(
   // Local development runs a standalone mongod, which cannot transact. The
   // guarded update still gives concurrency safety there; only the atomicity of
   // status-plus-audit is lost, and the audit write is retried best-effort.
-  return supportsTransactions() ? withTransaction(write) : write();
+  const updated = supportsTransactions() ? await withTransaction(write) : await write();
+
+  /*
+   * `ProductPublished` — emitted **after** the transaction commits, never inside it.
+   *
+   * The event bus dispatches synchronously and its handlers write notifications and
+   * queue email; doing that inside the transaction would send mail for a status change
+   * that then rolled back. `withTransaction` also warns its callback may run twice.
+   *
+   * The event has existed in `DOMAIN_EVENTS` since ticket 02 and was emitted nowhere,
+   * so nothing could be told a product went live. Vendor ticket 05 is what needed it.
+   */
+  if (to === "published") {
+    await emit("ProductPublished", {
+      productId,
+      productName: updated.name,
+      productSlug: updated.slug,
+      ...(updated.vendorId ? { vendorId: String(updated.vendorId) } : {}),
+    });
+  }
+
+  return updated;
 }
 
 async function assertPublishable(product: ProductDoc): Promise<void> {
@@ -438,6 +591,28 @@ async function assertPublishable(product: ProductDoc): Promise<void> {
   throw new ValidationError(
     `This product can't be published yet: ${gaps.map((gap) => gap.message.toLowerCase()).join("; ")}.`,
     // Keyed by gap code so the form can link each one to its step.
+    Object.fromEntries(gaps.map((gap) => [gap.code, [gap.message]])),
+  );
+}
+
+/**
+ * The submission gate — vendor ticket 05.
+ *
+ * The **same** `computeReadiness()` the publish gate uses, unchanged. That is the
+ * cheapest possible way to make "why can't I submit" answerable: a vendor sees the
+ * identical checklist a reviewer sees, each gap links to the step that fixes it, and
+ * the two cannot disagree because there is one function.
+ *
+ * `snapshot.status` is available to `computeReadiness` if submission ever needs a
+ * different set of gaps from publication. It does not today, and inventing a second
+ * set now would mean two things to keep in step for no demand.
+ */
+async function assertSubmittable(product: ProductDoc): Promise<void> {
+  const { gaps } = await readinessFor(product);
+  if (gaps.length === 0) return;
+
+  throw new ValidationError(
+    `This isn't ready to submit yet: ${gaps.map((gap) => gap.message.toLowerCase()).join("; ")}.`,
     Object.fromEntries(gaps.map((gap) => [gap.code, [gap.message]])),
   );
 }

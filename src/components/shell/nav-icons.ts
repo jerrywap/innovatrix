@@ -1,4 +1,5 @@
 import {
+  Banknote,
   Bell,
   Bookmark,
   Building2,
@@ -10,6 +11,7 @@ import {
   ListChecks,
   MessagesSquare,
   Package,
+  Percent,
   Receipt,
   ScrollText,
   Settings,
@@ -40,6 +42,7 @@ import {
  * a compile error rather than a missing icon at runtime.
  */
 export const NAV_ICONS = {
+  banknote: Banknote,
   bell: Bell,
   bookmark: Bookmark,
   building: Building2,
@@ -52,6 +55,7 @@ export const NAV_ICONS = {
   scroll: ScrollText,
   messages: MessagesSquare,
   package: Package,
+  percent: Percent,
   receipt: Receipt,
   settings: Settings,
   bag: ShoppingBag,

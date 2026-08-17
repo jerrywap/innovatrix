@@ -64,6 +64,8 @@ afterEach(async () => {
     commerce.Order.deleteMany({}),
     commerce.DiscountCode.deleteMany({}),
     commerce.TaxRule.deleteMany({}),
+    commerce.PaymentSettings.deleteMany({}),
+    mongoose.connection.collection("vendors").deleteMany({}),
     mongoose.connection.collection("counters").deleteMany({}),
     mongoose.connection.collection("auditLogs").deleteMany({}),
   ]);
@@ -443,5 +445,153 @@ describe("audit", () => {
       total: 29_999,
       currency: "GBP",
     });
+  });
+});
+
+/* ────────────────────────────────────────────── the commission snapshot */
+
+/**
+ * Vendor ticket 07 — the rate is decided **here**, once, and frozen.
+ *
+ * This is the same argument §61 makes about a price and §61's tax test makes about a rate:
+ * the order carries the number it was charged at, so a later change cannot rewrite history.
+ * The commission is the case where getting it wrong would be least visible and worst — a
+ * silent, retroactive change to somebody's income, in our favour.
+ */
+describe("the commission rate is snapshotted onto the line", () => {
+  const VENDOR = "6c10c46f6c887b38e2f0e0f1";
+
+  async function vendorProduct(commissionBasisPoints?: number) {
+    const atlas = await product({ amount: 10_000 });
+
+    await mongoose.connection.collection("vendors").insertOne({
+      _id: new mongoose.Types.ObjectId(VENDOR),
+      displayName: "Northwind Labs",
+      slug: "northwind-labs",
+      contactEmail: "hi@northwind.test",
+      country: "GB",
+      status: "verified",
+      ...(commissionBasisPoints === undefined ? {} : { commissionBasisPoints }),
+    } as never);
+
+    await catalog.Product.updateOne(
+      { _id: atlas._id },
+      {
+        $set: {
+          vendorId: new mongoose.Types.ObjectId(VENDOR),
+          vendorSlug: "northwind-labs",
+          vendorName: "Northwind Labs",
+        },
+      },
+    );
+
+    await cartService.addItem(
+      OWNER,
+      { productId: String(atlas._id) },
+      { currency: "GBP", userId: USER },
+    );
+
+    return atlas;
+  }
+
+  it("writes the vendor and the platform rate onto a vendor line", async () => {
+    await vendorProduct();
+
+    const { order } = await place();
+
+    expect(String(order.items[0]!.vendorId)).toBe(VENDOR);
+    // Nothing configured, so the built-in default — 30%.
+    expect(order.items[0]!.commissionBasisPoints).toBe(3000);
+  });
+
+  it("prefers the vendor's own rate over the platform default", async () => {
+    await commerce.PaymentSettings.create({
+      singleton: "global",
+      commissionBasisPoints: 2500,
+    } as never);
+    await vendorProduct(1500);
+
+    const { order } = await place();
+    expect(order.items[0]!.commissionBasisPoints).toBe(1500);
+  });
+
+  it("uses the platform setting when the vendor has no override", async () => {
+    await commerce.PaymentSettings.create({
+      singleton: "global",
+      commissionBasisPoints: 2500,
+    } as never);
+    await vendorProduct();
+
+    const { order } = await place();
+    expect(order.items[0]!.commissionBasisPoints).toBe(2500);
+  });
+
+  /** The freeze. A rate change afterwards must leave the placed order alone. */
+  it("keeps the rate when the vendor's rate changes afterwards", async () => {
+    await vendorProduct(1500);
+    const { order } = await place();
+
+    await mongoose.connection
+      .collection("vendors")
+      .updateOne(
+        { _id: new mongoose.Types.ObjectId(VENDOR) },
+        { $set: { commissionBasisPoints: 9000 } },
+      );
+
+    const reread = await commerce.Order.findById(order._id).lean();
+    expect(reread!.items[0]!.commissionBasisPoints).toBe(1500);
+  });
+
+  /**
+   * An **add-on** on a vendor's product is still the platform's revenue.
+   *
+   * Installation and branding are work Innovatrix does; a vendor who wants paid services
+   * around their product is a different feature. The line therefore carries no vendor and no
+   * rate, so no earning is ever written for it — asserted rather than left to the comment on
+   * `buildOrderLines`.
+   */
+  it("leaves an add-on on a vendor product with no vendor and no rate", async () => {
+    const atlas = await vendorProduct(1500);
+
+    await catalog.Product.updateOne(
+      { _id: atlas._id },
+      {
+        $set: {
+          addons: [
+            {
+              key: "install",
+              name: "Installation",
+              pricingType: "fixed",
+              prices: [{ currency: "GBP", amount: 5_000 }],
+            },
+          ],
+        },
+      },
+    );
+
+    await cartService.addItem(
+      OWNER,
+      { productId: String(atlas._id), addonKeys: ["install"] },
+      { currency: "GBP", userId: USER },
+    );
+
+    const { order } = await place();
+
+    const addon = order.items.find((item) => item.kind === "addon");
+    expect(addon).toBeTruthy();
+    expect(addon!.vendorId).toBeUndefined();
+    expect(addon!.commissionBasisPoints).toBeUndefined();
+
+    // The licence line beside it is still the vendor's, so this is not vacuous.
+    const licence = order.items.find((item) => item.kind === "product_licence");
+    expect(licence!.commissionBasisPoints).toBe(1500);
+  });
+
+  it("leaves a first-party line with no vendor and no rate", async () => {
+    await basketWith(29_999);
+
+    const { order } = await place();
+    expect(order.items[0]!.vendorId).toBeUndefined();
+    expect(order.items[0]!.commissionBasisPoints).toBeUndefined();
   });
 });

@@ -2,7 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGroup, SectionForm } from "./section-form";
+import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { Repeater } from "./repeater";
 import { saveContentAction } from "../actions";
 import type { AdminProductView } from "@/services/catalog/product-view";
@@ -16,16 +16,23 @@ import type { AdminProductView } from "@/services/catalog/product-view";
  * Features are **structured**, not prose. The product page renders them as a
  * list, and ticket 17's assistant reads them to ask sensible opening questions
  * — neither of which works against a paragraph.
+ *
+ * `action` is a prop so this form serves both wizard surfaces — vendor ticket 04.
+ * Defaulted to the staff action, so every existing caller is unchanged and the
+ * vendor pages pass their own. A second copy of the form per surface is how one of
+ * them quietly stops having a field the other has.
  */
 export function ContentForm({
   product,
   nextHref,
+  action = saveContentAction,
 }: {
   product: AdminProductView;
   nextHref: string;
+  action?: SectionFormProps["action"];
 }) {
   return (
-    <SectionForm action={saveContentAction} productId={product.id} nextHref={nextHref}>
+    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <FieldGroup
         title="Features"
         description="What it does, one line each. These appear as a list on the product page."

@@ -13,6 +13,7 @@ import {
   quoteDocumentKey,
   safeFilename,
   storageRoot,
+  vendorDocumentKey,
 } from "./keys";
 import {
   STORAGE_POLICY,
@@ -194,6 +195,67 @@ describe("filename handling", () => {
 });
 
 /* ────────────────────────────────────────────── policy */
+
+/* ────────────────────────────────────────────── vendor documents */
+
+describe("vendor documents (vendor ticket 02)", () => {
+  const OTHER = "652f1a2b3c4d5e6f70819277";
+
+  it("puts them on their own top-level branch, greppable for a lifecycle rule", () => {
+    const key = vendorDocumentKey(ctx, OID, "passport.pdf");
+    expect(key).toMatch(
+      new RegExp(`^${ROOT}/vendors/${OID}/documents/[\\w-]{21}-passport\\.pdf$`),
+    );
+  });
+
+  /**
+   * Why this scope is narrower than `payment-proof`, which also takes images:
+   * nobody photographs an identity document into webp, and every format allowed
+   * is one more decoder standing between an uploaded file and a staff member's
+   * browser.
+   */
+  it("allows only PDF and photographic images", () => {
+    const policy = STORAGE_POLICY["vendor-document"];
+    expect(policy.contentTypes).toEqual(["application/pdf", "image/jpeg", "image/png"]);
+    expect(policy.contentTypes).not.toContain("image/webp");
+    expect(policy.maxBytes).toBe(10 * 1024 * 1024);
+  });
+
+  it("refuses an executable renamed as an ID scan", () => {
+    expect(() =>
+      assertUploadAllowed({
+        scope: "vendor-document",
+        filename: "passport.exe",
+        contentType: "application/pdf",
+        sizeBytes: 1024,
+      }),
+    ).toThrow(StoragePolicyError);
+  });
+
+  /**
+   * `assertVendorDocumentKey` lives in `index.ts` because it needs the bound root,
+   * so it cannot be exercised here without the S3 client. What *can* be asserted
+   * is the property the guard depends on: two vendors' keys never share a prefix,
+   * so a `startsWith` check is sufficient to separate them.
+   *
+   * It is a hand-rolled sibling of `assertPaymentProofKey` rather than a call to
+   * `assertKeyBelongsTo`, which hardcodes the `products/` layout — the same trap
+   * `assertAttachmentKey` documents having fallen into once.
+   */
+  it("keeps one vendor's documents outside another vendor's prefix", () => {
+    const mine = vendorDocumentKey(ctx, OID, "id.pdf");
+    const theirs = vendorDocumentKey(ctx, OTHER, "id.pdf");
+
+    expect(mine.startsWith(`${ROOT}/vendors/${OID}/documents/`)).toBe(true);
+    expect(theirs.startsWith(`${ROOT}/vendors/${OID}/documents/`)).toBe(false);
+  });
+
+  it("refuses a vendor id that is not a plain identifier", () => {
+    expect(() => vendorDocumentKey(ctx, "../gracia-production", "id.pdf")).toThrow(
+      StorageKeyError,
+    );
+  });
+});
 
 describe("upload policy", () => {
   const ok = {

@@ -1,6 +1,6 @@
 import type { ClientSession } from "mongoose";
 import { BaseRepository } from "./base";
-import { toObjectId } from "@/lib/db/base";
+import { isDuplicateKeyError, toObjectId } from "@/lib/db/base";
 import type { ConversationSubjectType } from "@/lib/db/enums";
 import {
   Conversation,
@@ -52,23 +52,47 @@ export class ConversationRepository extends BaseRepository<ConversationDoc> {
       .lean<ConversationDoc>();
     if (existing) return existing;
 
-    const created = await this.model
-      .findOneAndUpdate(
-        filter,
-        {
-          $setOnInsert: {
-            ...filter,
-            participantUserIds: (input.participantUserIds ?? []).map((id) => toObjectId(id)),
+    try {
+      const created = await this.model
+        .findOneAndUpdate(
+          filter,
+          {
+            $setOnInsert: {
+              ...filter,
+              participantUserIds: (input.participantUserIds ?? []).map((id) => toObjectId(id)),
+            },
           },
-        },
-        // Upsert rather than `create`: two people replying at once would
-        // otherwise make two conversations for one subject, and the second
-        // thread is invisible to whoever is reading the first.
-        { upsert: true, returnDocument: "after", session: input.session ?? null },
-      )
-      .lean<ConversationDoc>();
+          // Upsert rather than `create`: two people replying at once would
+          // otherwise make two conversations for one subject, and the second
+          // thread is invisible to whoever is reading the first.
+          { upsert: true, returnDocument: "after", session: input.session ?? null },
+        )
+        .lean<ConversationDoc>();
 
-    return created!;
+      return created!;
+    } catch (error) {
+      /*
+       * An upsert is **not** atomic against a unique index.
+       *
+       * Two concurrent upserts can both fail to match, both attempt the insert, and the
+       * loser gets E11000 — this is documented MongoDB behaviour, and the remedy it
+       * prescribes is to treat the duplicate as "somebody else created it" and read theirs.
+       * The upsert above already stops the *second conversation*; this stops the second
+       * poster seeing a 500 while it does so.
+       *
+       * The suite's "two people post at once" test caught this intermittently, which is the
+       * worst way for it to appear: it passes in isolation, fails under a loaded run, and
+       * reads as a flake rather than as the race it is.
+       */
+      if (isDuplicateKeyError(error)) {
+        const raced = await this.model
+          .findOne(filter)
+          .session(input.session ?? null)
+          .lean<ConversationDoc>();
+        if (raced) return raced;
+      }
+      throw error;
+    }
   }
 
   async findForSubject(

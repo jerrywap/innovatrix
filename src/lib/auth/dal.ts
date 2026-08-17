@@ -12,7 +12,8 @@ import {
   StaffProfile,
   type OrganizationDoc,
 } from "@/lib/db/models/identity";
-import type { OrganizationRole, StaffRole } from "@/lib/db/enums";
+import { Vendor, VendorMember, type VendorDoc } from "@/lib/db/models/vendors";
+import type { OrganizationRole, StaffRole, VendorRole } from "@/lib/db/enums";
 import { getAuth } from "./auth";
 import { hasSessionCookie } from "./session-cookies";
 import {
@@ -234,6 +235,135 @@ export const requireOrgOrNull = cache(async (): Promise<OrgContext | null> => {
     return null;
   }
 });
+
+/* ────────────────────────────────────────────── vendor */
+
+export interface VendorContext {
+  user: SessionUser;
+  vendor: VendorDoc;
+  vendorId: string;
+  role: VendorRole;
+}
+
+/**
+ * The vendor the session belongs to — vendor tickets 01 and 03.
+ *
+ * ## A third principal, not a third shell
+ *
+ * `requireOrg()` establishes customer tenancy and `requireStaff()` establishes
+ * platform staff; neither stretches to cover selling. But a new principal does
+ * not require a new app shell, and the vendor screens live at
+ * `/dashboard/selling` *inside* the customer one. That is a routing decision and
+ * this is the enforcement: **no vendor screen may take its scope from the
+ * enclosing layout's `requireOrg()`**. Scope comes from here, every time.
+ *
+ * ## One vendor per user
+ *
+ * There is no `activeVendorId` on the session and no switcher, because a user
+ * has at most one active membership — enforced by a partial unique index on
+ * `VendorMember.userId`. So the lookup is by user, and it cannot be influenced
+ * by anything the request carries.
+ *
+ * Like `requireOrg`, the membership is re-read on every call rather than trusted
+ * from the session, which is what makes revoking a member take effect on their
+ * next request rather than whenever their session happens to expire — the
+ * session cookie cache is 60 seconds and a revocation should not wait for it.
+ */
+export const requireVendor = cache(async (): Promise<VendorContext> => {
+  const session = await getSession();
+  if (!session) redirect(await loginDestination());
+
+  await connectToDatabase();
+
+  const membership = await VendorMember.findOne({
+    userId: session.user.id,
+    status: "active",
+  }).lean();
+
+  if (!membership) {
+    // Not an error: a customer with no vendor is the normal case, and the useful
+    // answer is the application form rather than a refusal.
+    redirect("/dashboard/selling/apply");
+  }
+
+  const vendor = await Vendor.findOne({
+    _id: membership.vendorId,
+    deletedAt: null,
+  }).lean<VendorDoc>();
+
+  if (!vendor) {
+    throw new NotFoundError("vendor", { id: String(membership.vendorId) });
+  }
+
+  return {
+    user: session.user,
+    vendor,
+    vendorId: String(vendor._id),
+    role: membership.role,
+  };
+});
+
+/**
+ * `requireVendor`, but returning `null` instead of redirecting.
+ *
+ * For the `/dashboard/selling` layout, which must distinguish "no vendor" (draw
+ * the application entry point) from "not signed in" — and for the customer
+ * shell, which needs to know whether to draw the Selling group at all.
+ *
+ * ⚠️ Swallows `NEXT_REDIRECT`, same hazard as `requireOrgOrNull`: in a page a
+ * signed-out visitor would silently render as merely vendor-less. Pages call
+ * `requireVendorOrForbid`.
+ */
+export const requireVendorOrNull = cache(async (): Promise<VendorContext | null> => {
+  try {
+    return await requireVendor();
+  } catch {
+    return null;
+  }
+});
+
+/** For a vendor page. Renders the 403 UI rather than redirecting. */
+export async function requireVendorOrForbid(): Promise<VendorContext> {
+  const session = await getSession();
+  if (!session) redirect(await loginDestination());
+
+  await connectToDatabase();
+
+  const membership = await VendorMember.findOne({
+    userId: session.user.id,
+    status: "active",
+  }).lean();
+
+  if (!membership) forbidden();
+
+  const vendor = await Vendor.findOne({
+    _id: membership.vendorId,
+    deletedAt: null,
+  }).lean<VendorDoc>();
+
+  if (!vendor) forbidden();
+
+  return {
+    user: session.user,
+    vendor,
+    vendorId: String(vendor._id),
+    role: membership.role,
+  };
+}
+
+/**
+ * Owner only — the payout account, the agreement, and the membership list.
+ *
+ * This is the whole point of having two roles rather than one. A wrong price is
+ * reversible and audited; a wrong bank account is money in a stranger's hands.
+ * Everything else a vendor does is reachable by any active member, which is why
+ * there is no `requireVendorRoleOrForbid(roles)` — one boolean needs no set.
+ */
+export async function requireVendorOwner(): Promise<VendorContext> {
+  const context = await requireVendorOrForbid();
+  if (context.role !== "owner") forbidden();
+  return context;
+}
 
 /**
  * Check a **client-supplied** organization id against the session.

@@ -23,6 +23,9 @@ export interface RawCard {
   hasPrice?: boolean;
   customization?: { available?: boolean };
   isFeatured?: boolean;
+  /** Vendor ticket 04 — denormalised onto `Product` and projected, never looked up. */
+  vendorSlug?: string;
+  vendorName?: string;
 }
 
 export function toCard(
@@ -68,6 +71,12 @@ export function toCard(
       : {}),
     customisable: Boolean(row.customization?.available),
     isFeatured: Boolean(row.isFeatured),
+    // Projected onto the row rather than looked up: `CARD_PROJECTION` carries
+    // `vendorName`/`vendorSlug` precisely so a card can attribute itself without a
+    // query per row. Both or neither — a name with no slug could not be linked later.
+    ...(row.vendorName && row.vendorSlug
+      ? { vendor: { slug: row.vendorSlug, name: row.vendorName } }
+      : {}),
   };
 }
 

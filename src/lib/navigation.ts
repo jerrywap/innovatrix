@@ -47,6 +47,16 @@ export interface NavItem {
   permission?: Permission | readonly Permission[];
   /** Customer only. Absent ⇒ visible to every member of the organization. */
   organizationRoles?: readonly OrganizationRole[];
+  /**
+   * Customer shell only. Drawn only for a user who is also a vendor — vendor
+   * ticket 01.
+   *
+   * A third predicate rather than a value in `organizationRoles`, because being a
+   * vendor is orthogonal to an organisation role: the same person is a buyer with
+   * a role *and* a seller, and folding one into the other would make
+   * `role: "owner"` mean two things.
+   */
+  requiresVendor?: true;
   /** Matches child routes too — `/dashboard/orders/ORD-1` highlights Orders. */
   matchNested?: boolean;
 }
@@ -109,6 +119,31 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         matchNested: true,
       },
       { label: "Quotes", href: "/dashboard/quotes", icon: "file", matchNested: true },
+    ],
+  },
+  {
+    /*
+     * Vendor ticket 01. Drawn only for a user who has a vendor, which is why the
+     * whole section disappears rather than showing a "become a vendor" teaser:
+     * `prune` drops a section once its last item goes, and the marketplace's own
+     * footer is where somebody discovers they could sell here.
+     *
+     * One item, not four. Products, earnings and the storefront belong in this
+     * group and arrive with vendor tickets 04, 08 and 11 — `typedRoutes` will not
+     * compile a link to a route nobody has built, which is the rule doing its job.
+     *
+     * Team is deliberately absent even though the route exists: a one-person
+     * vendor must not be walked through a team model, so it lives behind Settings.
+     */
+    title: "Selling",
+    items: [
+      {
+        label: "Selling",
+        href: "/dashboard/selling",
+        icon: "store",
+        matchNested: true,
+        requiresVendor: true,
+      },
     ],
   },
   {
@@ -221,6 +256,31 @@ export const STAFF_NAV: readonly NavSection[] = [
         permission: "customer.view_all",
         matchNested: true,
       },
+      {
+        /*
+         * Vendor ticket 01. In `STAFF_NAV` rather than `ADMIN_NAV` deliberately:
+         * `ADMIN_PERMISSIONS` is derived from `ADMIN_NAV`, and
+         * `navigation.test.ts` asserts that four purely customer-facing roles
+         * reach *zero* admin nav items. Reviewing an application is staff work,
+         * not platform administration, so putting it here keeps that assertion
+         * meaningful instead of making it something to work around.
+         */
+        label: "Vendors",
+        href: "/staff/vendor-applications",
+        icon: "building",
+        permission: ["vendor.review", "vendor.verify"],
+        matchNested: true,
+      },
+      {
+        // Vendor ticket 05. Its own item rather than a tab under Vendors: deciding
+        // *who may sell* and deciding *what goes on sale* are different jobs held by
+        // different permissions, and `finance` holds the first without the second.
+        label: "Submissions",
+        href: "/staff/vendor-submissions",
+        icon: "checklist",
+        permission: "product.review",
+        matchNested: true,
+      },
     ],
   },
   {
@@ -302,6 +362,15 @@ export const ADMIN_NAV: readonly NavSection[] = [
         matchNested: true,
       },
       {
+        // Vendor ticket 09 — the only outbound money in the platform, so its own
+        // item rather than a tab under Payments, which is entirely inbound.
+        label: "Payouts",
+        href: "/admin/payouts",
+        icon: "banknote",
+        permission: "payout.view_all",
+        matchNested: true,
+      },
+      {
         label: "Discounts",
         href: "/admin/discounts",
         icon: "tags",
@@ -337,6 +406,14 @@ export const ADMIN_NAV: readonly NavSection[] = [
         href: "/admin/settings/payments",
         icon: "card",
         permission: "payment_provider.configure",
+      },
+      {
+        // Its own item because its own permission: setting our cut is a
+        // commercial decision (`marketplace_manager`), and provider keys are not.
+        label: "Commission",
+        href: "/admin/settings/commission",
+        icon: "percent",
+        permission: "vendor.manage_commission",
       },
       {
         label: "Tax",
@@ -396,10 +473,24 @@ function permitted(item: NavItem, held: ReadonlySet<Permission>): boolean {
   return required.length === 0 || required.some((p) => held.has(p));
 }
 
-export function customerNavFor(role: OrganizationRole): NavSection[] {
+/**
+ * The customer shell's navigation for one viewer.
+ *
+ * `isVendor` is a second, orthogonal predicate rather than a widened role: the
+ * same person is a buyer with an organisation role *and* possibly a seller, and
+ * conflating the two would make `role` mean two things. Defaulting it to `false`
+ * keeps every existing caller and every existing test valid — an item without
+ * `requiresVendor` is unaffected either way.
+ */
+export function customerNavFor(
+  role: OrganizationRole,
+  options: { isVendor?: boolean } = {},
+): NavSection[] {
   return prune(
     CUSTOMER_NAV,
-    (item) => !item.organizationRoles || item.organizationRoles.includes(role),
+    (item) =>
+      (!item.organizationRoles || item.organizationRoles.includes(role)) &&
+      (!item.requiresVendor || options.isVendor === true),
   );
 }
 

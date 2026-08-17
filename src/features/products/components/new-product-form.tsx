@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createProductAction } from "../actions";
+import type { ActionResult } from "@/lib/action-result";
 import { FormErrors } from "./section-form";
 import { RichTextEditor } from "./rich-text-editor";
 
@@ -21,8 +22,23 @@ import { RichTextEditor } from "./rich-text-editor";
  * its own action, because it retires the old address into `slugHistory` and
  * that is a different kind of decision from fixing a typo in a title.
  */
-export function NewProductForm() {
-  const [state, formAction] = useActionState(createProductAction, null);
+/**
+ * `action` is a prop so this serves both wizard surfaces — vendor ticket 04.
+ *
+ * Defaulted to the staff action. The vendor variant stamps ownership from the
+ * session, which is why creation is a *different action* rather than this form
+ * gaining a vendor field: a `vendorId` in a request body is a claim about whose
+ * catalogue a product joins.
+ */
+export function NewProductForm({
+  action = createProductAction,
+}: {
+  action?: (
+    previous: ActionResult<never> | null,
+    formData: FormData,
+  ) => Promise<ActionResult<never>>;
+} = {}) {
+  const [state, formAction] = useActionState(action, null);
   const failed = state && !state.ok ? state : null;
 
   return (

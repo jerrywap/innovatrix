@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { AlarmClock, FileText } from "lucide-react";
+import { AlarmClock, Building, ClipboardCheck, FileText } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/money-display";
@@ -96,6 +96,31 @@ async function Counters() {
             label="Overdue follow-ups"
             count={counts.overdueFollowUps}
             urgent={counts.overdueFollowUps > 0}
+          />
+          {/*
+            Vendor ticket 01. Shown to everybody in this shell rather than gated on
+            `vendor.review`: the count is not sensitive, and the destination refuses
+            for itself. This card is one click away from a 403 for a staff member
+            without the permission, which is the same deal every other card here
+            offers.
+          */}
+          <PlainCard
+            href="/staff/vendor-applications"
+            icon={Building}
+            label="Vendor applications waiting"
+            count={counts.vendorApplications}
+          />
+          {/*
+            Vendor ticket 05. Urgent when non-zero, unlike the applications card: a
+            product waiting on a review is a vendor earning nothing, so the queue's own
+            oldest-first ordering has a counterpart here.
+          */}
+          <PlainCard
+            href="/staff/vendor-submissions"
+            icon={ClipboardCheck}
+            label="Submissions waiting for review"
+            count={counts.vendorSubmissions}
+            urgent={counts.vendorSubmissions > 0}
           />
         </div>
       </section>

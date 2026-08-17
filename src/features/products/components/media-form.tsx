@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { FieldGroup, SectionForm } from "./section-form";
+import { FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { MediaUpload } from "./media-upload";
 import { Repeater } from "./repeater";
 import { saveMediaAction } from "../actions";
@@ -33,16 +33,23 @@ import type { AdminProductView, MediaView } from "@/services/catalog/product-vie
  * Alt text is asked for on every image because §100's accessibility bar applies
  * to the marketplace, and an unlabelled screenshot is the most common way a
  * product page fails it.
+ *
+ * `action` is a prop so this form serves both wizard surfaces — vendor ticket 04.
+ * Defaulted to the staff action, so every existing caller is unchanged and the
+ * vendor pages pass their own. A second copy of the form per surface is how one of
+ * them quietly stops having a field the other has.
  */
 export function MediaForm({
   product,
   nextHref,
+  action = saveMediaAction,
 }: {
   product: AdminProductView;
   nextHref: string;
+  action?: SectionFormProps["action"];
 }) {
   return (
-    <SectionForm action={saveMediaAction} productId={product.id} nextHref={nextHref}>
+    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <FieldGroup
         title="Screenshots"
         description="The first one is the marketplace card. At least one is needed before publishing."

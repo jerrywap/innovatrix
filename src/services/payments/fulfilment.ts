@@ -22,6 +22,7 @@ import {
 import { writeAuditLog, type AuditActor } from "@/services/audit";
 import { orders } from "@/repositories/order.repository";
 import { payments } from "@/repositories/payment.repository";
+import { clawBackEarnings, recordEarnings } from "@/services/vendors/ledger-service";
 import { driverFor } from "./registry";
 
 /**
@@ -207,6 +208,24 @@ export async function processPaymentSucceeded(input: {
       if (!paidOrder) return;
 
       await createEntitlements(order, session);
+
+      /*
+       * The vendor's earning — vendor ticket 08.
+       *
+       * Inside this transaction, on this session, for the same reason the
+       * entitlements are: a payment that committed without its earning is a
+       * vendor silently not paid, and nothing afterwards can find it. The order
+       * is `paid`, the licence exists, and no record anywhere says money was
+       * owed.
+       *
+       * Reads the rate off the line rather than resolving it — the snapshot was
+       * taken at checkout and must not be re-derived here, or a rate change
+       * would rewrite what a vendor earned on an order placed last month.
+       *
+       * No-op on a first-party order, which is every order today.
+       */
+      await recordEarnings(order, session);
+
       await clearTheCart(order, session);
 
       await ActivityEvent.create(
@@ -530,6 +549,18 @@ export async function processPaymentRefunded(input: {
       { $set: { status: "suspended" } },
       { session },
     );
+
+    /*
+     * Claw back the vendor's earning — vendor ticket 08.
+     *
+     * A negative entry beside the earning, never a deletion: if it had not
+     * cleared the two net to zero, and if it had already been paid the balance
+     * goes negative and the next payout is reduced. The entitlement is
+     * *suspended* rather than revoked above for the chargeback-under-dispute
+     * case, and the ledger takes the same view — the reversal is recorded, not
+     * hidden, so a reinstated licence has a history to read.
+     */
+    await clawBackEarnings(order, session);
 
     await writeAuditLog(
       {

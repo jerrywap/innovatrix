@@ -5,6 +5,7 @@ import type { Permission } from "@/lib/auth/permissions";
 import { permissionsForRoles } from "@/lib/auth/permissions";
 import { Organization, OrganizationMember, StaffProfile, User } from "@/lib/db/models/identity";
 import { Entitlement } from "@/lib/db/models/commerce";
+import { VendorMember } from "@/lib/db/models/vendors";
 import { Conversation, Message } from "@/lib/db/models/communication";
 import type { OrganizationRole } from "@/lib/db/enums";
 import { log } from "@/lib/logger";
@@ -43,6 +44,8 @@ export async function resolveAudience(
     ownerUserId?: string;
     assigneeUserId?: string;
     productId?: string;
+    /** Vendor tickets 01, 05 — whose vendor account this concerns. */
+    vendorId?: string;
     conversationId?: string;
     /** Excluded from every audience — nobody is notified of their own action. */
     actorUserId?: string;
@@ -84,6 +87,9 @@ async function resolve(
 
     case "entitled_owners":
       return entitledOwners(context.productId);
+
+    case "vendor_member":
+      return vendorMembers(context.vendorId);
 
     case "message_counterpart":
       return counterpart(context);
@@ -127,6 +133,34 @@ async function organizationMembers(
  * about a release, and telling somebody about an update they cannot download is
  * worse than silence.
  */
+/**
+ * Every active member of one vendor — vendor tickets 01 and 05.
+ *
+ * For most vendors this is one person, which is the point: a solo vendor and a small
+ * team resolve through the same path, so nothing downstream branches on "has a team".
+ *
+ * `status: "active"` matters — a revoked member must stop hearing about the products
+ * they used to work on, and the membership is the only thing that says so.
+ *
+ * Bounded like every other read here (§94), though the cap is generous relative to
+ * any real vendor team.
+ */
+const MAX_VENDOR_MEMBERS = 50;
+
+async function vendorMembers(vendorId?: string): Promise<Recipient[]> {
+  if (!vendorId) return [];
+
+  const members = await VendorMember.find({
+    vendorId: toObjectId(vendorId),
+    status: "active",
+  })
+    .select({ userId: 1 })
+    .limit(MAX_VENDOR_MEMBERS)
+    .lean<Array<{ userId: unknown }>>();
+
+  return users(members.map((row) => String(row.userId)));
+}
+
 async function entitledOwners(productId?: string): Promise<Recipient[]> {
   if (!productId) return [];
 

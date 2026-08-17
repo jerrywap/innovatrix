@@ -50,6 +50,18 @@ export interface ProductCard {
   price?: { amount: number; currency: StorefrontCurrency; compareAtAmount?: number };
   customisable: boolean;
   isFeatured: boolean;
+  /**
+   * Who made it — vendor ticket 04. Absent ⇒ first-party.
+   *
+   * Carries no `href`. The storefront at `/vendors/[slug]` is vendor ticket 11's, and
+   * `typedRoutes` makes a link to a route nobody has built a compile error — which is
+   * the rule working: the link arrives with the page it points at. The slug is here so
+   * that page needs no second query when it does.
+   *
+   * First-party products carry nothing at all, because "by Innovatrix" on a platform
+   * called Innovatrix is noise.
+   */
+  vendor?: { slug: string; name: string };
 }
 
 export interface MarketplaceResult {

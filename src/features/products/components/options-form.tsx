@@ -3,7 +3,7 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Field, FieldGroup, SectionForm } from "./section-form";
+import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { saveOptionsAction } from "../actions";
 import { CUSTOMIZATION_AREAS } from "@/lib/db/enums";
 import type { AdminProductView } from "@/services/catalog/product-view";
@@ -34,18 +34,25 @@ const AREA_LABELS: Record<string, string> = {
  * The switches gate real behaviour rather than decorating: turning
  * customization off hides "Request Customization" on the product page **and**
  * makes the corresponding action refuse (ticket 09's acceptance criterion).
+ *
+ * `action` is a prop so this form serves both wizard surfaces — vendor ticket 04.
+ * Defaulted to the staff action, so every existing caller is unchanged and the
+ * vendor pages pass their own. A second copy of the form per surface is how one of
+ * them quietly stops having a field the other has.
  */
 export function OptionsForm({
   product,
   nextHref,
+  action = saveOptionsAction,
 }: {
   product: AdminProductView;
   nextHref: string;
+  action?: SectionFormProps["action"];
 }) {
   const chosen = new Set(product.customization.suggestedAreas);
 
   return (
-    <SectionForm action={saveOptionsAction} productId={product.id} nextHref={nextHref}>
+    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <FieldGroup title="Installation" description="How a customer can get this running (§48).">
         <div className="flex flex-col gap-2">
           <ToggleRow

@@ -48,6 +48,36 @@ export interface JobPayloadMap {
 
   /** Sweep: stuck webhook events and unconfirmed payments (ticket 13). */
   "reconcile-pending-payments": Record<string, never>;
+  /**
+   * Vendor ticket 06 — fetch a mirrored or pulled artefact into our own bucket.
+   *
+   * A job rather than a request: a 2GB artefact over somebody else's link does not
+   * belong in a request lifecycle. Retries with backoff and dead-letters visibly, so a
+   * release whose mirror failed never looks like a release.
+   */
+  "mirror-vendor-artefact": { versionId: string };
+
+  /**
+   * Vendor ticket 08 — `pending` earnings whose `clearsAt` has passed → `cleared`.
+   *
+   * The one thing that turns an earning into money a vendor may be paid, and the reason
+   * `clearsAt` is stored rather than computed on read: a payout has to claim specific
+   * entries, and "cleared" has to be a fact in the collection for a claim to be
+   * reconcilable.
+   */
+  "clear-vendor-earnings": Record<string, never>;
+
+  /**
+   * Vendor ticket 09 — draft a payout per eligible vendor, and record why the others were
+   * skipped.
+   *
+   * Drafts only. Nothing here sends money: `draft → approved` is a human decision, and a
+   * job that could take it would make "money never leaves without somebody looking" false.
+   */
+  "draft-vendor-payouts": Record<string, never>;
+
+  /** Vendor ticket 09 — payouts stuck in `sending`, the outbound stuck-payment sweep. */
+  "reconcile-sending-payouts": Record<string, never>;
 }
 
 /*

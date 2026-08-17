@@ -4,6 +4,7 @@ import { connectToDatabase } from "@/lib/db/client";
 import type { ProductDoc, TestingChecklistItem } from "@/lib/db/models/catalog";
 import type { TestingChecklistStatus } from "@/lib/db/enums";
 import { NotFoundError } from "@/lib/errors";
+import type { VendorScope } from "@/lib/auth/scope";
 import { products } from "@/repositories/product.repository";
 import { writeAuditLog, type AuditActor } from "@/services/audit";
 import { DEFAULT_TESTING_CHECKLIST } from "./readiness";
@@ -39,10 +40,12 @@ export async function saveChecklist(
   productId: string,
   items: readonly ChecklistItemInput[],
   actor: AuditActor,
+  /** Vendor ticket 04 — present ⇒ the product must belong to this vendor. */
+  scope: VendorScope = {},
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const product = await products.findById(productId);
+  const product = await products.findScoped(productId, scope);
   if (!product) throw new NotFoundError("product", { id: productId });
 
   const previousByItem = new Map(

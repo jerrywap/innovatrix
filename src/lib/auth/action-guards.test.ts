@@ -70,6 +70,13 @@ const GUARDS = [
   "requireAnyPermissionOrRedirect",
   "requirePermissionOrForbid",
   "requireAnyPermissionOrForbid",
+  // Vendor tickets 01, 03. A vendor is a third principal, so its guards must be
+  // listed here or every vendor action reads as unguarded — which is the failure
+  // this test is for, in the direction that matters.
+  "requireVendor",
+  "requireVendorOrNull",
+  "requireVendorOrForbid",
+  "requireVendorOwner",
 ] as const;
 
 const GUARD_CALL = new RegExp(`\\b(${GUARDS.join("|")})\\s*\\(`);
@@ -113,6 +120,14 @@ const ANONYMOUS_BY_DESIGN: Record<string, string> = {
   "requirements/actions.ts:abandonConversationAction": "anonymous AI conversation",
   "requirements/actions.ts:summariseConversationAction": "anonymous AI conversation",
   "requirements/actions.ts:recordRecommendationChoiceAction": "anonymous AI conversation",
+
+  // Vendor ticket 03. The one vendor action whose caller is *not* yet a vendor —
+  // every `requireVendor*` guard would refuse the very person it is for. It reads
+  // the session and refuses without one; the checks that matter (the invitation's
+  // email matches the session's, and that address is verified) are in
+  // `member-service.acceptInvitation`, where a second caller cannot skip them.
+  // Assertion 3 below still requires this to reach `getSession`.
+  "vendors/actions.ts:acceptVendorInviteAction": "the invitee is not a member yet",
 };
 
 /**
@@ -167,7 +182,23 @@ function code(source: string): string {
  */
 function functions(source: string): Fn[] {
   const found: Fn[] = [];
-  const declaration = /(export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/g;
+  /*
+   * The `(?:<[^(]*>)?` is for **generic** declarations, and it closes a fail-open
+   * gap rather than a cosmetic one.
+   *
+   * Without it `function save<S extends z.ZodType>(` does not match, so a generic
+   * helper is invisible and the guard it calls stops counting for everything that
+   * calls it — noisy but safe. The dangerous half is the same omission on an
+   * *exported* generic: `export async function doThing<T>(…)` would not be
+   * discovered at all, so it would never be checked, and an unguarded action would
+   * pass this suite in silence. Found while adding the vendor wizard, whose section
+   * saves share a generic helper.
+   *
+   * `[^(]*` rather than `.*` so the type parameter list cannot swallow the
+   * parameter list's own opening paren.
+   */
+  const declaration =
+    /(export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*(?:<[^(]*>)?\s*\(/g;
 
   let match: RegExpExecArray | null;
   while ((match = declaration.exec(source)) !== null) {

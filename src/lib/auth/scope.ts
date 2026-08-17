@@ -60,3 +60,39 @@ export function orgFilter(scope: OrgScope): { organizationId?: ReturnType<typeof
 
   return { organizationId: toObjectId(scope.organizationId) };
 }
+
+/* ────────────────────────────────────────────── vendors */
+
+export interface VendorScope {
+  /**
+   * Absent ⇒ across all vendors. Only ever omitted deliberately, by a
+   * staff-facing caller that has already passed a permission check.
+   */
+  vendorId?: string;
+}
+
+/**
+ * The same shape as `orgFilter`, for the same reason.
+ *
+ * Written as a sibling rather than a generic over the field name: the value of
+ * the original is that its one bug is documented at the top of this file and
+ * cannot recur, and a clever abstraction over two callers would put a
+ * `field: keyof T` between the reader and that. Two small functions that are
+ * obviously correct beat one that has to be reasoned about.
+ *
+ * Note this is *not* how a vendor's own scope is established — that comes from
+ * `requireVendor()`, from the session. This is for the service layer, where a
+ * read is either vendor-scoped or deliberately staff-wide.
+ */
+export function vendorFilter(scope: VendorScope): { vendorId?: ReturnType<typeof toObjectId> } {
+  if (scope.vendorId === undefined) return {};
+
+  if (scope.vendorId.trim() === "") {
+    throw new ScopeError(
+      "An empty vendorId is not a scope. Omit the field for an across-vendors " +
+        "read; passing a blank string would widen the query to every vendor.",
+    );
+  }
+
+  return { vendorId: toObjectId(scope.vendorId) };
+}

@@ -3,6 +3,7 @@ import { registerEmailJobs } from "./email";
 import { registerBillingJobs } from "./billing";
 import { registerStaffJobs } from "./staff";
 import { registerPaymentJobs } from "./payments";
+import { registerVendorJobs } from "./vendors";
 
 /**
  * Every job definition, registered once.
@@ -22,6 +23,7 @@ export function registerJobs(): void {
   registerBillingJobs();
   registerStaffJobs();
   registerPaymentJobs();
+  registerVendorJobs();
 
   registered = true;
 }

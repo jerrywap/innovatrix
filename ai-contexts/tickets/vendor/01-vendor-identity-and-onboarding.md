@@ -136,11 +136,25 @@ is a small edit that is easy to miss:
   audit row about a vendor cannot be found by the subject-scoped index.
 - **`requireVendor()`**, above.
 
-### Staff review (`staff/queue/vendor-applications`)
+### Staff review (`/staff/vendor-applications`)
 
-`QUEUES` in `src/features/staff/queues.ts` is a declarative registry and takes a
-new key. Reviewing an application means approve → `in_review` (handing to vendor
-ticket 02's verification) or reject with a reason the applicant sees.
+Reviewing an application means approve → `in_review` (handing to vendor ticket
+02's verification) or reject with a reason the applicant sees.
+
+> **Corrected during implementation.** This said `QUEUES` in
+> `src/features/staff/queues.ts` "is a declarative registry and takes a new key".
+> It is a registry of **`CustomerRequest` queues** and takes nothing else:
+> `staffCounts` counts documents in that collection for every entry, and
+> `QueueRow` carries `kind: "customization" | "custom_build"` and a
+> `RequestStatus`. Generalising `QueueDefinition` over a model and a row-mapper
+> would touch `QUEUES`, `staffCounts`, `queueRows`, `QueueRow`, `QueueTable` and
+> the `[key]` page — for two screens (this and vendor ticket 05's) that need none
+> of it.
+>
+> So a dedicated route, modelled on `/staff/follow-ups`, with a
+> `vendorApplications` field added to `StaffCounts` so the number still reaches
+> `/staff`. Note `/staff/follow-ups` has a `loading.tsx` precisely because it never
+> refuses; this page does, so it must not get one.
 
 Gated on a new `vendor.review` permission. The permission matrix is exhaustive —
 `assertMatrixIsComplete()` fails the suite if a role has no explicit entry — so

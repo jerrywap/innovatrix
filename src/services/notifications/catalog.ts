@@ -35,6 +35,14 @@ export type Audience =
   | { kind: "staff"; permission: string }
   /** Owners of an active entitlement for the product (§69's update notice). */
   | { kind: "entitled_owners" }
+  /**
+   * Every active member of one vendor — vendor tickets 01 and 05.
+   *
+   * For most vendors that is one person, and it resolves the same either way. A
+   * *query*, never a claim in the payload: the payload carries a `vendorId`, and
+   * `resolveAudience` looks up who that means.
+   */
+  | { kind: "vendor_member" }
   /** The other side of a conversation — see `messaging`. */
   | { kind: "message_counterpart" };
 
@@ -278,6 +286,142 @@ export const CATALOG: Catalog = {
       title: (p) => `${p.productName} ${p.version} is available`,
       body: () => "You can download it from My Software.",
       href: () => `/dashboard/software`,
+    },
+  ],
+
+  /* ── vendor tickets 01–03 ── */
+
+  VendorApplied: [
+    {
+      audience: { kind: "staff", permission: "vendor.review" },
+      category: "products",
+      title: (p) => `${p.displayName} applied to sell`,
+      body: (p) => `From ${p.country}. Somebody needs to read it.`,
+      href: () => `/staff/vendor-applications`,
+    },
+  ],
+
+  VendorVerified: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: () => "You can start listing",
+      body: () =>
+        "Your vendor account is verified. Create your first product whenever you are ready.",
+      href: () => `/dashboard/selling/products`,
+    },
+  ],
+
+  VendorRejected: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: () => "We can't take your application forward",
+      // The reason verbatim — it is the only useful thing this notification carries,
+      // and it is why `transition` refuses a rejection without one.
+      body: (p) => p.reason,
+      href: () => `/dashboard/selling`,
+    },
+  ],
+
+  VendorSuspended: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "security",
+      title: () => "Your vendor account is suspended",
+      // Says what survives, because the first question is "what happens to my
+      // customers" and the answer is "nothing" (vendor ticket 12).
+      body: (p) =>
+        `${p.reason} New sales are paused. Customers who already bought from you keep their software and their downloads.`,
+      href: () => `/dashboard/selling`,
+    },
+  ],
+
+  /* ── vendor ticket 09 ── */
+
+  VendorPayoutPaid: [
+    {
+      audience: { kind: "vendor_member" },
+      // `billing`, like an invoice: it is money moving, and a vendor who mutes product
+      // notifications must still hear about a payment.
+      category: "billing",
+      title: (p) => `We've paid you ${p.reference}`,
+      // The reference, because that is what they will match against their bank statement.
+      // The amount is on the statement the link leads to, rendered through `<MoneyDisplay>`
+      // rather than assembled from a number and a currency code in a string.
+      body: (p) =>
+        `Payout ${p.reference} has been sent. Quote that reference if you need to ask us ` +
+        `about it.`,
+      href: (p) => `/dashboard/selling/payouts/${p.reference}`,
+    },
+  ],
+
+  VendorPayoutFailed: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "billing",
+      title: () => "A payout to you didn't go through",
+      // The likeliest cause is their own account details, and they are the only person who
+      // can fix that — so the notification says where to look rather than only what failed.
+      body: (p) =>
+        `${p.reason} Check your payout account details; we will try again on the next run.`,
+      href: () => `/dashboard/selling/settings`,
+    },
+  ],
+
+  /* ── vendor ticket 05 ── */
+
+  ProductSubmitted: [
+    {
+      // By permission, not by role name, so a new staff role that can review is not
+      // silently left out of the queue's notifications.
+      audience: { kind: "staff", permission: "product.review" },
+      category: "products",
+      title: (p) =>
+        p.isResubmission
+          ? `${p.vendorName} resubmitted ${p.productName}`
+          : `${p.vendorName} submitted ${p.productName}`,
+      body: (p) =>
+        p.isResubmission
+          ? "A resubmission — the review shows what changed since it was last approved."
+          : "Waiting for a reviewer.",
+      href: () => `/staff/vendor-submissions`,
+    },
+  ],
+
+  ProductChangesRequested: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: (p) => `${p.productName} needs changes before it can go on sale`,
+      // The reviewer's words, verbatim — this is the whole point of the reason being
+      // required. Truncated because a notification body is a summary, and the full
+      // note is on the product where it belongs.
+      body: (p) => (p.detail.length > 200 ? `${p.detail.slice(0, 197)}…` : p.detail),
+      href: (p) => `/dashboard/selling/products/${p.productId}/review`,
+    },
+  ],
+
+  ProductApproved: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: (p) => `${p.productName} passed review`,
+      // Careful wording: approved is not on sale. Saying "it's live" here and then
+      // having it sit in testing for a week is how a vendor stops trusting us.
+      body: () =>
+        "It has gone into our own testing and readiness checks. We will tell you when it is on sale.",
+      href: (p) => `/dashboard/selling/products/${p.productId}/review`,
+    },
+  ],
+
+  ProductPublished: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: (p) => `${p.productName} is on sale`,
+      body: () => "Customers can buy it now.",
+      href: (p) => `/marketplace/${p.productSlug}`,
     },
   ],
 };

@@ -43,6 +43,15 @@ export const PERMISSIONS = [
   "product.view_all",
   "product.create",
   "product.update",
+  /**
+   * Deciding a **submission** — vendor ticket 05.
+   *
+   * Separate from `product.publish` because they are different jobs at different
+   * points: reading somebody else's submission and sending it back with a reason is
+   * review work, and putting a finished product on sale is a commercial call. The
+   * same split §46 already makes between editing and publishing, one step earlier.
+   */
+  "product.review",
   "product.publish",
   "product.unpublish",
   "product.delete",
@@ -51,6 +60,33 @@ export const PERMISSIONS = [
 
   /* Taxonomy — categories, industries, technologies. */
   "taxonomy.manage",
+
+  /* Third-party vendors (vendor tickets 01–02). Three, not one, because they
+     have different blast radii: deciding an application is a commercial call,
+     approving a verification level is what eventually lets money leave the
+     platform, and reading somebody's passport scan is the thing a person should
+     have to explain having done. */
+  "vendor.review",
+  "vendor.verify",
+  "vendor.view_documents",
+
+  /* Vendor money (vendor tickets 07–09). Split from the three above for the
+     same reason they are split from each other: setting a commission rate
+     changes what every future order pays, adjusting a ledger moves money on the
+     platform's own authority, and approving a payout is the point at which cash
+     actually leaves. Nobody should hold all three by accident. */
+  "vendor.manage_commission",
+  "vendor.view_ledger",
+  "vendor.adjust_ledger",
+
+  /* Payouts (vendor ticket 09) — the first money that leaves the platform.
+     Three, and the split is the control: whoever *prepares* a batch should not
+     be the only person needed to release it, and reading a remittance advice is
+     a third thing again. `payout.approve` is the one that must never be held by
+     an automation. */
+  "payout.view_all",
+  "payout.approve",
+  "payout.send",
 
   /* Customers & organizations */
   "customer.view_all",
@@ -238,6 +274,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     "product.view_all",
     "product.create",
     "product.update",
+    "product.review",
     "product.publish",
     "product.unpublish",
     "product.delete",
@@ -248,6 +285,17 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // Whoever decides what a product costs decides what a promotion takes off
     // it. Keeping these together is what makes the pricing story one job.
     "discount.manage",
+    // Who sells here is the same commercial judgement as what gets published.
+    "vendor.review",
+    "vendor.verify",
+    "vendor.view_documents",
+    // What we take is a commercial decision, so the rate sits here. Moving money
+    // — adjusting a ledger, approving a payout — does not: that is finance.
+    "vendor.manage_commission",
+    "vendor.view_ledger",
+    // Read-only on payouts: a marketplace manager fielding "when do I get paid"
+    // needs to see the answer, and needs no part in releasing it.
+    "payout.view_all",
   ],
 
   finance: [
@@ -265,6 +313,20 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // Tax is a finance decision. Discounts are a commercial one — see
     // `marketplace_manager` — and finance does not get to invent them.
     "tax.manage",
+    // Business verification is what lets a payout run, so finance must be able
+    // to approve a level and read the evidence behind it. Deciding *whether a
+    // vendor may sell here at all* stays commercial: no `vendor.review`.
+    "vendor.verify",
+    "vendor.view_documents",
+    // The ledger and the adjustments are finance's, and only finance's. An
+    // adjustment is money created or destroyed on our own authority, which is
+    // exactly the shape of thing that belongs with whoever reconciles it.
+    "vendor.view_ledger",
+    "vendor.adjust_ledger",
+    // Money leaving is finance's, end to end.
+    "payout.view_all",
+    "payout.approve",
+    "payout.send",
   ],
 
   devops: ["system.manage_jobs", "audit.view", "settings.manage", "product.view_all"],

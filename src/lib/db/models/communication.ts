@@ -266,6 +266,15 @@ export interface AuditLogDoc {
   actorType: ActorType;
   actorUserId?: Types.ObjectId;
   organizationId?: Types.ObjectId;
+  /**
+   * Set when the actor acted *as* a vendor (vendor ticket 01).
+   *
+   * A scope column beside `organizationId`, and for the same reason: "everything
+   * this vendor's people did" is a question staff will ask during a dispute, and
+   * without the column it needs a join through every product they own. The
+   * person is still `actorUserId`; this is the capacity they were in.
+   */
+  vendorId?: Types.ObjectId;
   subjectType?: SubjectType;
   subjectId?: Types.ObjectId;
   before?: Record<string, unknown>;
@@ -282,6 +291,7 @@ const auditLogSchema = new Schema<AuditLogDoc>(
     actorType: { type: String, enum: ACTOR_TYPES, required: true },
     actorUserId: { type: Schema.Types.ObjectId, ref: "User" },
     [ORG_SCOPE_FIELD]: { type: Schema.Types.ObjectId, ref: "Organization", index: true },
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor", index: true },
     subjectType: { type: String, enum: SUBJECT_TYPES },
     subjectId: { type: Schema.Types.ObjectId },
     before: { type: Schema.Types.Mixed },

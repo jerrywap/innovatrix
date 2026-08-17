@@ -9,13 +9,15 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { serverEnv } from "@/config/env";
 import { DomainError, NotFoundError, ValidationError } from "@/lib/errors";
-import { bucket, s3Client, storageContext } from "./client";
+import { bucket, keyRoot, s3Client, storageContext } from "./client";
 import {
   assertKeyBelongsTo,
   assertKeyInPrefix,
   contentDisposition,
   healthcheckKey,
   paymentProofKey,
+  vendorDocumentKey,
+  payoutEvidenceKey,
   productFileKey,
   productMediaKey,
   StorageKeyError,
@@ -70,6 +72,11 @@ const UPLOAD_TTL_SECONDS: Record<StorageScope, number> = {
   "payment-proof": 300,
   "quote-document": 300,
   "invoice-document": 300,
+  // Same reasoning as a receipt, more so: a KYC document is small, and the
+  // shorter the window the less time a leaked ticket is worth anything.
+  "vendor-document": 300,
+  // A bank document, like a receipt.
+  "payout-evidence": 300,
   healthcheck: 60,
 };
 const DOWNLOAD_URL_TTL_SECONDS = 120;
@@ -429,6 +436,51 @@ export function assertPaymentProofKey(key: string, paymentId: string): string {
   return key;
 }
 
+export function payoutEvidencePath(payoutId: string, filename: string): string {
+  return payoutEvidenceKey(storageContext(), payoutId, filename);
+}
+
+/**
+ * Prove a client-supplied evidence key belongs to *this* payout.
+ *
+ * The fifth hand-rolled sibling of `assertKeyBelongsTo`, which hardcodes the product
+ * prefix. In-prefix alone proves only that a key is one of ours — not that it is this
+ * payout's, which is what matters when the key comes back from a browser.
+ */
+export function assertPayoutEvidenceKey(key: string, payoutId: string): string {
+  const root = storageContext().root;
+  assertKeyInPrefix(key, root);
+
+  if (!key.startsWith(`${root}/payouts/${payoutId}/`)) {
+    throw new StorageKeyError("That file does not belong to this payout.");
+  }
+  return key;
+}
+
+export function vendorDocumentPath(vendorId: string, filename: string): string {
+  return vendorDocumentKey(storageContext(), vendorId, filename);
+}
+
+/**
+ * Prove a client-supplied vendor-document key belongs to *this* vendor.
+ *
+ * Not `assertKeyBelongsTo`, for the same reason `assertAttachmentKey` isn't: that
+ * one checks the `products/{id}/versions/{id}/` layout and a vendor document is
+ * `vendors/{id}/documents/`. Being in the environment prefix only proves the key
+ * is one of ours, not that it is this caller's — and the attack this closes is a
+ * vendor attaching another vendor's passport scan to their own record and then
+ * reading it through the authorised route.
+ */
+export function assertVendorDocumentKey(key: string, vendorId: string): string {
+  const root = storageContext().root;
+  assertKeyInPrefix(key, root);
+
+  if (!key.startsWith(`${root}/vendors/${vendorId}/documents/`)) {
+    throw new StorageKeyError("That file does not belong to this vendor.");
+  }
+  return key;
+}
+
 /**
  * Prove a client-supplied attachment key belongs to this organisation *and*
  * this subject.
@@ -472,7 +524,41 @@ export function assertProductFileKey(
   return assertKeyBelongsTo(key, storageContext().root, owner);
 }
 
-export { STORAGE_POLICY };
+/**
+ * Write bytes from **this process** into the bucket — vendor ticket 06.
+ *
+ * The one legitimate exception to "bytes never pass through the Next.js server", and it
+ * is narrow: the mirror and repository delivery methods fetch an artefact from a URL a
+ * vendor gave us and have to put it somewhere. There is no browser in that path to hand
+ * a presigned PUT to.
+ *
+ * It runs in a **job**, never a request — a 2GB artefact does not belong in a request
+ * lifecycle — and the caller has already size-capped the read. Do not reach for this
+ * from a Server Action: the presigned PUT exists precisely so a phone photo does not
+ * have to clear a body limit.
+ *
+ * Overwrites in place when the key already exists, which is how a retried mirror avoids
+ * orphaning — `s3:DeleteObject` is denied, so nothing else would clean up after it.
+ */
+export async function putObject(input: {
+  key: string;
+  body: Uint8Array;
+  contentType: string;
+}): Promise<void> {
+  assertKeyInPrefix(input.key, keyRoot());
+
+  await s3Client().send(
+    new PutObjectCommand({
+      Bucket: bucket(),
+      Key: input.key,
+      Body: input.body,
+      ContentType: input.contentType,
+      ContentLength: input.body.byteLength,
+    }),
+  );
+}
+
+export { STORAGE_POLICY, assertUploadAllowed };
 export type { StorageScope };
 export * from "./keys";
 export { StoragePolicyError, formatBytes } from "./policy";

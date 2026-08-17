@@ -46,6 +46,140 @@ export type StaffRole = (typeof STAFF_ROLES)[number];
 export const MEMBER_STATUSES = values(["invited", "active", "revoked"] as const);
 export type MemberStatus = (typeof MEMBER_STATUSES)[number];
 
+/* ────────────────────────────────────────────── vendors (post-MVP) */
+
+/**
+ * Third-party sellers — vendor tickets 01–03. Outside `00-techinical.md`, which
+ * never mentions a second seller, so these carry no `§`.
+ *
+ * `suspended` is reversible because a suspension is usually a dispute rather
+ * than an ending; `rejected` and `offboarded` are terminal.
+ */
+export const VENDOR_STATUSES = values([
+  "applied",
+  "in_review",
+  "verified",
+  "suspended",
+  "rejected",
+  "offboarded",
+] as const);
+export type VendorStatus = (typeof VENDOR_STATUSES)[number];
+
+/**
+ * Two roles, not four, and only one separation is load-bearing: **where the
+ * money goes**. A wrong price is reversible and audited; a wrong bank account is
+ * money in a stranger's hands. So `owner` holds the payout account, the
+ * agreement and the membership list, and `member` holds everything else.
+ *
+ * Deliberately *not* `ORGANIZATION_ROLES`. Those are buyer-shaped — who may
+ * spend, who receives an invoice — and sharing the word `owner` across two
+ * collections that mean different things by it is how a reader gets it wrong.
+ */
+export const VENDOR_ROLES = values(["owner", "member"] as const);
+export type VendorRole = (typeof VENDOR_ROLES)[number];
+
+/** A vendor member's status reuses `MEMBER_STATUSES`; an invitation has its own. */
+export const VENDOR_INVITATION_STATUSES = values([
+  "pending",
+  "accepted",
+  "revoked",
+  "expired",
+] as const);
+export type VendorInvitationStatus = (typeof VENDOR_INVITATION_STATUSES)[number];
+
+/**
+ * Two levels, because they gate different things and one is much cheaper.
+ * `identity` unlocks listing products; `business` unlocks receiving a payout.
+ * A vendor may therefore sell before business verification completes — earnings
+ * accrue and are simply not payable.
+ */
+export const VENDOR_VERIFICATION_LEVELS = values(["identity", "business"] as const);
+export type VendorVerificationLevel = (typeof VENDOR_VERIFICATION_LEVELS)[number];
+
+export const VENDOR_VERIFICATION_STATUSES = values([
+  "unstarted",
+  "pending",
+  "approved",
+  "rejected",
+] as const);
+export type VendorVerificationStatus = (typeof VENDOR_VERIFICATION_STATUSES)[number];
+
+/**
+ * A ledger entry's kind — vendor ticket 08.
+ *
+ * Signed amounts: earnings and adjustments-up positive, refunds and payouts negative. One
+ * collection rather than four, because a balance is the sum of its history and a history
+ * split across tables is one somebody has to reassemble to answer "how much do we owe".
+ */
+export const LEDGER_ENTRY_KINDS = values([
+  "earning",
+  "refund",
+  "adjustment",
+  "payout",
+] as const);
+export type LedgerEntryKind = (typeof LEDGER_ENTRY_KINDS)[number];
+
+/**
+ * Where one entry is in its life.
+ *
+ * `pending` → `cleared` on the clearance sweep, `cleared` → `paid` when a payout settles
+ * it. `reversed` is for an entry a refund cancelled before it ever cleared.
+ */
+export const LEDGER_ENTRY_STATUSES = values([
+  "pending",
+  "cleared",
+  "paid",
+  "reversed",
+] as const);
+export type LedgerEntryStatus = (typeof LEDGER_ENTRY_STATUSES)[number];
+
+/**
+ * A payout's life — vendor ticket 09.
+ *
+ * `draft → approved` is a human decision and stays one: money leaving the platform on a
+ * schedule with nobody looking is not a feature. A batch is *prepared* automatically and
+ * *released* deliberately.
+ */
+export const PAYOUT_STATUSES = values([
+  "draft",
+  "approved",
+  "sending",
+  "paid",
+  "failed",
+  "cancelled",
+] as const);
+export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
+
+/**
+ * Why a vendor was not paid in a run — vendor ticket 09.
+ *
+ * "Skipped and told why" is the requirement, and it needs a closed set: a vendor silently
+ * excluded from three runs has no way to discover it, and a free-text reason written by a
+ * job is a sentence nobody can filter, count or explain twice the same way.
+ */
+export const PAYOUT_SKIP_REASONS = values([
+  /** Business verification incomplete — money must not leave to an unverified account. */
+  "unverified",
+  /** No payout account on file. Nothing to send to. */
+  "no_account",
+  /** Cleared balance below the configured threshold. */
+  "below_threshold",
+  /** Cleared balance is negative — a refund clawed back more than was earned. */
+  "negative_balance",
+  "suspended",
+] as const);
+export type PayoutSkipReason = (typeof PAYOUT_SKIP_REASONS)[number];
+
+export const VENDOR_DOCUMENT_KINDS = values([
+  "government_id",
+  "proof_of_address",
+  "company_registration",
+  "tax_document",
+  "bank_proof",
+  "other",
+] as const);
+export type VendorDocumentKind = (typeof VENDOR_DOCUMENT_KINDS)[number];
+
 /* ────────────────────────────────────────────── catalog */
 
 export const TAXONOMY_KINDS = values([
@@ -56,9 +190,22 @@ export const TAXONOMY_KINDS = values([
 ] as const);
 export type TaxonomyKind = (typeof TAXONOMY_KINDS)[number];
 
-/** §46 — products are not publicly purchasable the moment they are uploaded. */
+/**
+ * §46 — products are not publicly purchasable the moment they are uploaded.
+ *
+ * `submitted` and `changes_requested` are vendor ticket 05's, and they sit at the
+ * *front* of the pipeline rather than replacing any of it: a vendor hands a product
+ * over at `submitted`, and from `internal_review` onwards it takes exactly the path
+ * the platform already uses for its own. Same testing checklist, same readiness gate.
+ *
+ * `changes_requested` is deliberately distinct from `draft`. It carries a reason and
+ * a history, and a vendor's list has to be able to tell "not finished" from
+ * "sent back".
+ */
 export const PRODUCT_STATUSES = values([
   "draft",
+  "submitted",
+  "changes_requested",
   "internal_review",
   "testing",
   "ready",
@@ -67,6 +214,47 @@ export const PRODUCT_STATUSES = values([
   "archived",
 ] as const);
 export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
+
+/**
+ * Why a submission was sent back — vendor ticket 05.
+ *
+ * A category alongside the prose, so "what do reviewers keep rejecting" is a query
+ * rather than a reading exercise.
+ */
+export const REVIEW_REASON_CODES = values([
+  "quality",
+  "security",
+  "licensing",
+  "metadata",
+  "pricing",
+  "demo",
+  "duplicate",
+  "policy",
+] as const);
+export type ReviewReasonCode = (typeof REVIEW_REASON_CODES)[number];
+
+/**
+ * How a vendor supplies the bytes — vendor ticket 06.
+ *
+ * All three end as a `ProductFile` in the platform's own bucket **before** a customer
+ * asks for it, so the customer cannot tell which was used and §66's "never behind an
+ * unsigned permanent URL" does not depend on somebody else's uptime.
+ *
+ * `vendor_hosted` is the one whose name misleads: it means *the vendor's build
+ * pipeline is the source*, not *the customer downloads from the vendor*. The vendor's
+ * own screen says so, because it is not what the phrase suggests.
+ */
+export const DELIVERY_METHODS = values(["archive", "vendor_hosted", "repository"] as const);
+export type DeliveryMethod = (typeof DELIVERY_METHODS)[number];
+
+/** Where a mirrored or pulled artefact is in its journey into our bucket. */
+export const ARTEFACT_SOURCE_STATUSES = values([
+  "pending",
+  "fetching",
+  "stored",
+  "failed",
+] as const);
+export type ArtefactSourceStatus = (typeof ARTEFACT_SOURCE_STATUSES)[number];
 
 export const PRODUCT_VERSION_STATUSES = values(["draft", "released", "deprecated"] as const);
 export type ProductVersionStatus = (typeof PRODUCT_VERSION_STATUSES)[number];
@@ -302,10 +490,46 @@ export const DOMAIN_EVENTS = values([
   "MessagePosted",
   "WorkReadyToStart",
   "RequestProgressPosted",
+  /*
+   * Live and emitted, and missing from this list until vendor ticket 05's drift test
+   * asked. An event absent here is one a timeline cannot describe — `ActivityEventDoc`
+   * and `NotificationDoc` take their vocabulary from it — so the rows existed and had
+   * no name. Safe to widen: both fields are typed `DomainEventType | string` over a
+   * bare `String` path, so nothing stored becomes invalid.
+   */
+  "RequestStatusChanged",
+  "RequirementsRevised",
+  "InvoicePaid",
+  "InvoiceDueSoon",
+  "InvoiceOverdue",
+  "FollowUpDue",
+  // Vendor tickets 01–03.
+  "VendorApplied",
+  "VendorVerified",
+  "VendorRejected",
+  "VendorSuspended",
+  // Vendor ticket 09 — the first events about money leaving.
+  "VendorPayoutPaid",
+  "VendorPayoutFailed",
+  // Vendor ticket 05.
+  "ProductSubmitted",
+  "ProductChangesRequested",
+  "ProductApproved",
 ] as const);
 export type DomainEventType = (typeof DOMAIN_EVENTS)[number];
 
-export const ACTOR_TYPES = values(["customer", "staff", "system", "webhook"] as const);
+/**
+ * A vendor editing their own product would otherwise be recorded as `customer`,
+ * which is wrong in the one collection that exists to be trustworthy later.
+ * Widening this enum does not invalidate any stored row.
+ */
+export const ACTOR_TYPES = values([
+  "customer",
+  "staff",
+  "vendor",
+  "system",
+  "webhook",
+] as const);
 export type ActorType = (typeof ACTOR_TYPES)[number];
 
 /** Anything a timeline can hang off. */
@@ -325,6 +549,13 @@ export const SUBJECT_TYPES = values([
    * subject-scoped index actually finds the job's own history.
    */
   "job",
+  /**
+   * Vendor ticket 01. Without this an audit row *about* a vendor — an
+   * application decision, a verification outcome, a suspension — cannot be found
+   * by the `{subjectType, subjectId, createdAt}` index, which is the only way
+   * that history is ever read back.
+   */
+  "vendor",
 ] as const);
 export type SubjectType = (typeof SUBJECT_TYPES)[number];
 

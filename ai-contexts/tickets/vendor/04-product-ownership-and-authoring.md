@@ -47,13 +47,27 @@ because the product model is the same; what differs is what a vendor may reach:
 
 | Step | Vendor | Note |
 |---|---|---|
-| Basics, classification, content, media | yes | |
+| Basics, classification, content, media | yes | Slug editing is staff-only — retiring a public address is a marketplace decision |
 | Pricing | yes | Decision **V9** — the vendor sets it, the review gate covers it |
 | Options (licence packages, add-ons) | partly | Licence *terms* are the platform's defaults (**V10**); the vendor chooses which packages to offer |
 | Demo | yes | Credentials are sealed with the same AES-256-GCM path as any other product |
-| Versions, testing | yes | |
+| Testing | yes | The same §47 checklist, and the same gate |
+| Versions | **not yet** | See below |
 | SEO | yes | |
 | Review | read-only | Submission is vendor ticket 05 |
+
+**Versions is deferred, not half-built.** Ticket 07's nine version and file actions
+each take a bare `versionId` or `fileId` with no ownership predicate — ownership
+derives through `productId` — so every one needs a scoped lookup before a vendor
+goes near it. That is the same work **vendor ticket 06** must do anyway: it owns
+delivery methods, decides all three end as a `ProductFile` in the platform's own
+bucket, and sequences archive-upload first. Doing it here means doing it twice, or
+handing vendor ticket 06 something half-finished in a shape it did not choose.
+
+So a vendor authors everything except releases, and cannot submit without one —
+`computeReadiness()` reports `no_released_version` and `no_package_file`, so the
+gate says so rather than the screen going quiet. The step renders an explanation
+rather than a broken form.
 
 Publishing is **not** on this list. A vendor moves a product to `submitted`; a
 staff reviewer publishes it. Vendor ticket 05 owns that edge.
@@ -74,6 +88,29 @@ The tenant-isolation suite gains a vendor section beside the organization cases.
 It is the same shape — create as A, ask as B, expect nothing — and the
 `orgFilter()` lesson applies: an empty-string vendor scope must throw, not widen
 to every vendor.
+
+> **A second fail-open, found while implementing.** `connectToDatabase()` sets
+> **`strictQuery: true`**, so Mongoose silently drops a filter condition on a path
+> the registered schema does not declare. A vendor-scoped read against a schema
+> without `vendorId` is therefore not an error — it is a read across **every
+> vendor**, and nothing reports it.
+>
+> It happened, in the direction that makes it hard to see: `defineModel()` is
+> idempotent by design, so a long-running dev server keeps the schema it first
+> registered. A server started before `vendorId` was added served one vendor an
+> Innovatrix product's edit form, while the identical call in a fresh process
+> correctly returned `null`. The query, the scope and the session were all right.
+>
+> Production cannot hit it — the schema always matches the process — which is
+> exactly why it needed closing: invisible, only appears where nobody is looking,
+> and fails open. Three things now stand against it:
+> `ProductRepository.assertVendorPathExists()` refuses the query,
+> `schema-paths.test.ts` fails CI if the path is removed, and the isolation suite
+> asserts the guard fires. The single-document read is asserted as well as the
+> list, because it was the second that leaked while the first looked fine.
+>
+> The practical note for anybody working on this: **restart the dev server after
+> adding a field you intend to filter on.**
 
 ### The vendor facet, and the trap in it
 
@@ -98,10 +135,18 @@ not the platform.
 
 ### Attribution on the public page
 
-A product card and a product page name their vendor and link to the storefront.
-Vendor ticket 11 builds the storefront and makes the JSON-LD `seller` dynamic —
-it currently hard-codes Innovatrix as the seller of every product, which becomes
-a false statement the moment a vendor product is published.
+A product card and a product page name their vendor. They do **not** link to the
+storefront yet: `/vendors/[slug]` is vendor ticket 11's route, `typedRoutes` makes a
+link to a route nobody has built a compile error, and AGENTS.md is explicit that a
+route must not be added just to satisfy a link. The name renders now; the link
+arrives with the page it points at.
+
+Vendor ticket 11 builds the storefront and makes the JSON-LD `seller` dynamic — it
+currently hard-codes Innovatrix as the seller of every product, which becomes a
+false statement the moment a vendor product is published.
+
+First-party products show no attribution at all, because "by Innovatrix" on a
+platform called Innovatrix is noise.
 
 ## Out of scope
 Submission and review (vendor ticket 05). Delivery methods beyond the existing

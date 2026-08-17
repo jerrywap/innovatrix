@@ -238,6 +238,38 @@ async function buildOrderLines(priced: CartView): Promise<OrderItem[]> {
   const live = await products.findManyByIds(productIds);
   const byId = new Map(live.map((product) => [String(product._id), product]));
 
+  /*
+   * The commission rate, resolved **once per vendor** rather than per line — vendor
+   * ticket 07.
+   *
+   * Batched like `findManyByIds` above it, and for the same reason: this is the hottest
+   * write path in the system, and a lookup inside the per-line `map` would be a query per
+   * line on every checkout. Most orders have one vendor or none.
+   */
+  const vendorIds = [
+    ...new Set(
+      live
+        .map((p) => p.vendorId)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
+  const commissionByVendor = new Map<string, number>();
+  if (vendorIds.length > 0) {
+    const { Vendor } = await import("@/lib/db/models/vendors");
+    const { resolveCommission } = await import("@/services/vendors/commission-service");
+
+    const vendors = await Vendor.find({ _id: { $in: vendorIds } })
+      .select({ commissionBasisPoints: 1 })
+      .lean<Array<{ _id: unknown; commissionBasisPoints?: number }>>();
+    const byVendorId = new Map(vendors.map((v) => [String(v._id), v]));
+
+    for (const vendorId of vendorIds) {
+      const resolved = await resolveCommission(byVendorId.get(vendorId) ?? null);
+      commissionByVendor.set(vendorId, resolved.basisPoints);
+    }
+  }
+
   const currentVersions = new Map<string, { id: string; version: string }>();
   for (const product of live) {
     if (!product.currentVersionId) continue;
@@ -287,6 +319,23 @@ async function buildOrderLines(priced: CartView): Promise<OrderItem[]> {
       quantity: line.quantity,
       unitPrice: toMoneyDoc(line.unitPrice),
       lineTotal: toMoneyDoc(line.lineTotal),
+      /*
+       * Vendor ticket 07 — the snapshot, and the reason this field exists.
+       *
+       * Absent on a first-party line, and on an **add-on** line whatever product it hangs
+       * off: an add-on is platform-delivered work (installation, branding), so the platform
+       * keeps it. A vendor who wants paid services around their product is a different
+       * feature and is not this one.
+       *
+       * Written here and never re-read. A rate change must not rewrite what a vendor earned
+       * last month.
+       */
+      ...(product.vendorId && line.kind === "product_licence"
+        ? {
+            vendorId: product.vendorId,
+            commissionBasisPoints: commissionByVendor.get(String(product.vendorId))!,
+          }
+        : {}),
     } satisfies OrderItem;
   });
 }

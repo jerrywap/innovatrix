@@ -42,6 +42,35 @@ export const loadWizardProduct = cache(async (productId: string): Promise<Wizard
   };
 });
 
+/**
+ * The same, scoped to one vendor — vendor ticket 04.
+ *
+ * `notFound()` for a product belonging to another vendor, **not** `forbidden()`.
+ * The two must be indistinguishable: a 403 confirms the id is real, which turns
+ * this workspace into an oracle somebody can walk. The platform already takes that
+ * position on downloads and on AI conversations.
+ *
+ * `cache`d on both arguments, so the layout and the step page underneath share one
+ * query — and keyed by vendor as well as product, so two vendors in one process
+ * cannot read each other's memoised result.
+ *
+ * This is the *read* half. The write half re-checks ownership in the service
+ * (`saveSection`'s scope), because removing this call must not open anything.
+ */
+export const loadVendorWizardProduct = cache(
+  async (productId: string, vendorId: string): Promise<WizardContext> => {
+    await connectToDatabase();
+
+    const product = await products.findScoped(productId, { vendorId });
+    if (!product) notFound();
+
+    return {
+      product: toAdminProductView(product),
+      readiness: await readinessFor(product),
+    };
+  },
+);
+
 /** The taxonomy pickers on the classification step. */
 export const loadTaxonomyOptions = cache(
   async (): Promise<Record<TaxonomyKind, Array<{ id: string; name: string }>>> => {

@@ -3,7 +3,7 @@
 import { ShieldAlert } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldGroup, SectionForm } from "./section-form";
+import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { Repeater } from "./repeater";
 import { saveDemoAction } from "../actions";
 import { DEMO_EXPOSURES } from "@/lib/db/enums";
@@ -50,12 +50,14 @@ const EXPOSURE_COPY: Record<string, { label: string; hint: string }> = {
 export function DemoForm({
   product,
   nextHref,
+  action = saveDemoAction,
 }: {
   product: AdminProductView;
   nextHref: string;
+  action?: SectionFormProps["action"];
 }) {
   return (
-    <SectionForm action={saveDemoAction} productId={product.id} nextHref={nextHref}>
+    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <div
         role="note"
         className="flex gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 px-3.5 py-3"

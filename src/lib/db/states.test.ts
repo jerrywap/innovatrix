@@ -5,10 +5,12 @@ import {
   ORDER_TRANSITIONS,
   PAYMENT_TRANSITIONS,
   PRODUCT_TRANSITIONS,
+  PRODUCT_TRANSITION_RULES,
   QUOTE_TRANSITIONS,
   REQUEST_TRANSITIONS,
   REQUEST_TRANSITION_RULES,
   STATE_MACHINES,
+  VENDOR_TRANSITIONS,
   assertTransition,
   canTransition,
   isTerminal,
@@ -193,6 +195,115 @@ describe("product (§46)", () => {
   it("allows un-deprecating but never un-archiving", () => {
     expect(canTransition(PRODUCT_TRANSITIONS, "deprecated", "published")).toBe(true);
     expect(isTerminal(PRODUCT_TRANSITIONS, "archived")).toBe(true);
+  });
+});
+
+/**
+ * The same drift guard, for products — vendor ticket 05.
+ *
+ * `PRODUCT_TRANSITION_RULES` replaced an ad-hoc ternary that computed a permission
+ * from the target state and appeared in **two** places. These four tests are what
+ * make the data worth more than the branches were: a missing rule is a button that
+ * does nothing, and a rule for a non-existent edge is authorisation somebody wrote
+ * for a transition they only think is possible.
+ */
+describe("PRODUCT_TRANSITION_RULES covers PRODUCT_TRANSITIONS exactly", () => {
+  const edges = Object.entries(PRODUCT_TRANSITIONS).flatMap(([from, targets]) =>
+    (targets as readonly string[]).map((to) => `${from}->${to}`),
+  );
+
+  it("has a rule for every edge in the machine", () => {
+    const missing = edges.filter((key) => !(key in PRODUCT_TRANSITION_RULES));
+    expect(missing).toEqual([]);
+  });
+
+  it("has no rule for an edge the machine does not allow", () => {
+    const invented = Object.keys(PRODUCT_TRANSITION_RULES).filter(
+      (key) => !edges.includes(key),
+    );
+    expect(invented).toEqual([]);
+  });
+
+  it("names only permissions that exist", () => {
+    const named = Object.values(PRODUCT_TRANSITION_RULES)
+      .map((rule) => rule.permission)
+      .filter((permission) => permission !== null);
+    const unknown = named.filter((p) => !(PERMISSIONS as readonly string[]).includes(p));
+    expect(unknown).toEqual([]);
+  });
+
+  it("gives every rule a label", () => {
+    for (const [key, rule] of Object.entries(PRODUCT_TRANSITION_RULES)) {
+      expect(rule.label, key).toMatch(/\S/);
+    }
+  });
+
+  /**
+   * The authorisation rule the whole ticket rests on: a vendor hands a product over
+   * and a reviewer decides. Asserted against the data rather than against a screen,
+   * because the screen is not what a POST goes through.
+   */
+  it("lets a vendor reach submitted and nothing beyond it", () => {
+    const vendorEdges = Object.entries(PRODUCT_TRANSITION_RULES)
+      .filter(([, rule]) => rule.vendorMay)
+      .map(([key]) => key)
+      .sort();
+
+    expect(vendorEdges).toEqual([
+      "changes_requested->draft",
+      "changes_requested->submitted",
+      "draft->submitted",
+      "submitted->draft",
+    ]);
+  });
+
+  it("never lets a vendor publish, deprecate or archive", () => {
+    for (const to of ["published", "deprecated", "archived", "ready", "testing"]) {
+      const reachable = Object.entries(PRODUCT_TRANSITION_RULES)
+        .filter(([key, rule]) => key.endsWith(`->${to}`) && rule.vendorMay)
+        .map(([key]) => key);
+      expect(reachable, `vendor must not reach ${to}`).toEqual([]);
+    }
+  });
+
+  it("has no staff route to submission, because the attestation is the vendor's", () => {
+    expect(PRODUCT_TRANSITION_RULES["draft->submitted"]!.permission).toBeNull();
+    expect(PRODUCT_TRANSITION_RULES["changes_requested->submitted"]!.permission).toBeNull();
+  });
+
+  it("requires a reason on every edge that sends a submission back", () => {
+    expect(PRODUCT_TRANSITION_RULES["submitted->changes_requested"]!.requiresReason).toBe(true);
+    expect(PRODUCT_TRANSITION_RULES["internal_review->changes_requested"]!.requiresReason).toBe(
+      true,
+    );
+  });
+});
+
+describe("vendor (vendor ticket 01)", () => {
+  it("walks an application through to verified", () => {
+    expect(canTransition(VENDOR_TRANSITIONS, "applied", "in_review")).toBe(true);
+    expect(canTransition(VENDOR_TRANSITIONS, "in_review", "verified")).toBe(true);
+  });
+
+  it("cannot verify an application nobody has reviewed", () => {
+    expect(canTransition(VENDOR_TRANSITIONS, "applied", "verified")).toBe(false);
+  });
+
+  it("lets a suspension be lifted, because a suspension is usually a dispute", () => {
+    expect(canTransition(VENDOR_TRANSITIONS, "verified", "suspended")).toBe(true);
+    expect(canTransition(VENDOR_TRANSITIONS, "suspended", "verified")).toBe(true);
+  });
+
+  it("never reopens a rejection or an offboarding", () => {
+    expect(isTerminal(VENDOR_TRANSITIONS, "rejected")).toBe(true);
+    expect(isTerminal(VENDOR_TRANSITIONS, "offboarded")).toBe(true);
+  });
+
+  it("cannot offboard somebody who was never verified", () => {
+    // Offboarding runs a final settlement (vendor ticket 12). There is nothing to
+    // settle for an applicant, and `rejected` is the state that means this.
+    expect(canTransition(VENDOR_TRANSITIONS, "applied", "offboarded")).toBe(false);
+    expect(canTransition(VENDOR_TRANSITIONS, "in_review", "offboarded")).toBe(false);
   });
 });
 

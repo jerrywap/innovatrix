@@ -293,6 +293,9 @@ function hasAnyFilter(raw: RawSearchParams): boolean {
     "industry",
     "technology",
     "productType",
+    // Vendor ticket 04 added the dimension and missed this list, so "Clear all filters"
+    // did not appear for a vendor-only filter — a dead end with no way back.
+    "vendor",
     "minPrice",
     "maxPrice",
     "customisable",

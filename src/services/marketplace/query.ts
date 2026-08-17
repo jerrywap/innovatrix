@@ -72,6 +72,10 @@ export function parseMarketplaceQuery(
     category: options.forced?.category ?? slugs(raw.category),
     industry: options.forced?.industry ?? slugs(raw.industry),
     technology: slugs(raw.technology),
+    // Vendor ticket 04. Through `slugs()` like every other dimension, so the
+    // `SLUG` pattern and the per-dimension cap apply — a query string is untrusted
+    // and this one reaches an `$in` on an indexed array.
+    vendor: slugs(raw.vendor),
     ...(firstSlug(raw.productType) ? { productType: firstSlug(raw.productType)! } : {}),
     ...(minorUnits(raw.minPrice) !== undefined ? { minPrice: minorUnits(raw.minPrice)! } : {}),
     ...(minorUnits(raw.maxPrice) !== undefined ? { maxPrice: minorUnits(raw.maxPrice)! } : {}),
