@@ -63,6 +63,15 @@ export const SCHEDULE: readonly ScheduledJob[] = [
   // Six-hourly. A transfer that has been "sending" for two days is somebody's money in
   // limbo, and the shape of the answer — ask the provider, else surface it — is cheap.
   { name: "reconcile-sending-payouts", everyMinutes: 6 * 60 },
+
+  /*
+   * Hourly, and this one earns it.
+   *
+   * The SLA targets are 24 and 48 hours, so a daily sweep would report a breach up to a day
+   * after it happened — on a 24-hour target that is a 100% margin of error. The query is
+   * `{responseDueAt, firstVendorResponseAt}`-indexed and finds nothing most hours.
+   */
+  { name: "escalate-overdue-vendor-threads", everyMinutes: 60 },
 ];
 
 export interface ScheduleTickResult {

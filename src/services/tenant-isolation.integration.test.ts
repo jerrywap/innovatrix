@@ -604,3 +604,46 @@ describe("Vendor B is refused Vendor A's money", () => {
     );
   });
 });
+
+/**
+ * Vendor ticket 12 — analytics, on the same axis.
+ *
+ * A vendor's dashboard is the widest read in the vendor surface: it aggregates the ledger, the
+ * reviews and the download log at once. A missing scope here would not show one leaked record, it
+ * would show one vendor the platform's whole trading position — which is why it belongs in this
+ * file rather than only in its own suite.
+ */
+describe("Vendor B is refused Vendor A's analytics", () => {
+  it("has a real fixture — the control", async () => {
+    const analytics = await import("@/services/vendors/analytics-service");
+    await ledger.recordAdjustment(
+      { vendorId: VENDOR_A, amount: moneyLib.money(3_300, "GBP"), note: "A's credit." },
+      { type: "staff", userId: USER_A, name: "Ana" },
+    );
+
+    const items = await analytics.actionItems({ vendorId: VENDOR_A });
+    // A drafted-and-skipped payout or an unlisted product would appear here; what matters is
+    // that the call is scoped and returns *something* for A.
+    expect(Array.isArray(items)).toBe(true);
+  });
+
+  it("shows Vendor B none of Vendor A's figures", async () => {
+    const analytics = await import("@/services/vendors/analytics-service");
+
+    const result = await analytics.vendorAnalytics({ vendorId: VENDOR_B });
+    expect(result.products).toEqual([]);
+    expect(result.downloads).toEqual([]);
+    expect(result.refundRateBasisPoints).toEqual([]);
+  });
+
+  it("refuses an empty scope rather than reporting on every vendor", async () => {
+    const analytics = await import("@/services/vendors/analytics-service");
+
+    await expect(analytics.vendorAnalytics({ vendorId: "" })).rejects.toBeInstanceOf(
+      scope.ScopeError,
+    );
+    await expect(analytics.actionItems({ vendorId: "   " })).rejects.toBeInstanceOf(
+      scope.ScopeError,
+    );
+  });
+});

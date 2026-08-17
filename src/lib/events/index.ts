@@ -126,6 +126,87 @@ export interface DomainEventMap {
   /** New sales stopped. Existing entitlements are untouched (vendor ticket 12). */
   VendorSuspended: { vendorId: string; displayName: string; reason: string };
 
+  /* ── vendor ticket 13: support and disputes ── */
+
+  /** A customer asked their vendor a question. The clock on the SLA starts here. */
+  VendorSupportThreadOpened: {
+    vendorId: string;
+    conversationId: string;
+    productName: string;
+  };
+
+  /**
+   * Either party escalated a disagreement into a decision.
+   *
+   * Goes to staff **and** to the other party: a dispute the other side does not know exists is
+   * one they find out about when the outcome lands, and that is how a support problem becomes a
+   * complaint about the platform.
+   */
+  DisputeRaised: {
+    conversationId: string;
+    vendorId?: string;
+    raisedBy: "customer" | "vendor";
+    reason: string;
+  };
+
+  /** Staff decided. Both parties are told, with the reason, verbatim. */
+  DisputeResolved: {
+    conversationId: string;
+    vendorId?: string;
+    outcome: string;
+    reason: string;
+  };
+
+  /* ── vendor ticket 12: lifecycle ── */
+
+  /**
+   * A vendor has left, and their customers are told what survives.
+   *
+   * The payload carries the **product ids** rather than a list of customers: the audience is
+   * resolved by querying who holds an active entitlement to any of them, which is the same
+   * "a query, never a claim in the payload" rule every other audience follows.
+   */
+  VendorOffboarded: { vendorId: string; displayName: string; productIds: string[] };
+
+  /**
+   * A product was pulled from sale immediately — malicious, infringing, or worse.
+   *
+   * Goes to staff, not to the vendor: the vendor is told by a person, because a notification is
+   * the wrong way to open that conversation. Customers are handled through the refund
+   * conversation vendor ticket 13 owns.
+   */
+  ProductEmergencyDelisted: {
+    productId: string;
+    productName: string;
+    vendorId?: string;
+    reason: string;
+  };
+
+  /* ── vendor ticket 10: reviews ── */
+
+  /**
+   * A customer reviewed a vendor's product.
+   *
+   * Goes to the vendor, always — including for five stars. A vendor who only hears about
+   * reviews when they are bad learns to dread the notification, and the reply that is worth
+   * writing is often to a good one.
+   */
+  ProductReviewPublished: {
+    productId: string;
+    productName: string;
+    vendorId: string;
+    reviewId: string;
+    rating: number;
+  };
+
+  /**
+   * A review crossed the report threshold.
+   *
+   * Emitted **once**, on crossing. A notification per report on a brigaded review is how a
+   * moderation queue becomes noise nobody reads.
+   */
+  ProductReviewFlagged: { reviewId: string; productId: string; reportCount: number };
+
   /* ── vendor ticket 09: payouts ── */
 
   /**
@@ -336,6 +417,13 @@ const EVENT_NAME_SET: Record<DomainEventName, true> = {
   VendorVerified: true,
   VendorRejected: true,
   VendorSuspended: true,
+  VendorSupportThreadOpened: true,
+  DisputeRaised: true,
+  DisputeResolved: true,
+  VendorOffboarded: true,
+  ProductEmergencyDelisted: true,
+  ProductReviewPublished: true,
+  ProductReviewFlagged: true,
   VendorPayoutPaid: true,
   VendorPayoutFailed: true,
   ProductSubmitted: true,

@@ -88,6 +88,15 @@ const CARD_PROJECTION = {
    */
   vendorSlug: 1,
   vendorName: 1,
+  /*
+   * Vendor ticket 10 — the reason the aggregate is cached on the product at all.
+   *
+   * A listing cannot aggregate per card: forty-eight `$lookup`s into `reviews` on the
+   * marketplace's hottest query is exactly what §94 forbids. So the sum and the count ride
+   * along in the projection and the average is derived in the mapper.
+   */
+  ratingSum: 1,
+  ratingCount: 1,
 } as const;
 
 export function buildMarketplacePipeline(
@@ -134,6 +143,15 @@ function primaryMatch(input: MarketplaceQueryInput): Record<string, unknown> {
     // `status: "published"`.
     status: "published",
     deletedAt: null,
+    /*
+     * Vendor ticket 12 — a suspended or offboarded vendor's products.
+     *
+     * `$ne: true` rather than `false`, because the flag is **absent** on every first-party
+     * product and on every product of a vendor in good standing. A `false` match would
+     * exclude the entire catalogue, which is the kind of filter bug that looks like an
+     * empty database.
+     */
+    listingSuppressed: { $ne: true },
   };
 
   const facets = facetMatch({

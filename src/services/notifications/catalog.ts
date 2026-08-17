@@ -337,6 +337,113 @@ export const CATALOG: Catalog = {
     },
   ],
 
+  /* ── vendor ticket 13 ── */
+
+  VendorSupportThreadOpened: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "messages",
+      title: (p) => `A question about ${p.productName}`,
+      body: () =>
+        "You answer this one first — we are watching the thread rather than running it.",
+      href: () => `/dashboard/selling/support`,
+    },
+  ],
+
+  DisputeRaised: [
+    {
+      audience: { kind: "staff", permission: "vendor.review" },
+      category: "messages",
+      title: (p) => `Dispute raised by the ${p.raisedBy}`,
+      body: (p) => `Reason given: ${p.reason.replace(/_/g, " ")}.`,
+      href: () => `/staff/disputes`,
+    },
+    {
+      // The vendor hears too, whichever side raised it. A dispute they learn about when the
+      // outcome lands is one they will contest.
+      audience: { kind: "vendor_member" },
+      category: "messages",
+      title: () => "A dispute has been opened on one of your threads",
+      body: () =>
+        "Innovatrix will decide it. Add anything you want considered to the conversation — it " +
+        "is read before a decision is made.",
+      href: () => `/dashboard/selling/support`,
+    },
+  ],
+
+  DisputeResolved: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "messages",
+      title: () => "A dispute has been decided",
+      // The reason verbatim. A paraphrase of somebody else's decision is how an outcome gets
+      // re-argued.
+      body: (p) => p.reason,
+      href: () => `/dashboard/selling/support`,
+    },
+  ],
+
+  /* ── vendor ticket 12 ── */
+
+  VendorOffboarded: [
+    {
+      // Everybody holding an active entitlement to anything that vendor sold, once.
+      audience: { kind: "entitled_owners" },
+      category: "products",
+      title: (p) => `${p.displayName} has left Innovatrix`,
+      /*
+       * Says what **survives** first.
+       *
+       * The customer's question is "have I lost what I paid for", and the answer is no — so
+       * that is the first clause rather than a reassurance at the end. Silence here is how a
+       * customer discovers it by needing help, which is the worst moment.
+       */
+      body: () =>
+        "Everything you bought from them is still yours: your licence stays valid and your " +
+        "downloads keep working. Support for those products is now handled by Innovatrix.",
+      href: () => `/dashboard/software`,
+    },
+  ],
+
+  ProductEmergencyDelisted: [
+    {
+      audience: { kind: "staff", permission: "product.publish" },
+      category: "security",
+      title: (p) => `${p.productName} was pulled from sale`,
+      body: (p) => p.reason,
+      href: () => `/admin/products`,
+    },
+  ],
+
+  /* ── vendor ticket 10 ── */
+
+  ProductReviewPublished: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: (p) => `${p.rating}★ review of ${p.productName}`,
+      // Says what to do about it, because the useful reply is often to a *good* review and a
+      // vendor who only hears about the bad ones learns to dread this notification.
+      body: () =>
+        "You can reply publicly. A vendor's answer is often more useful to the next buyer " +
+        "than the review itself.",
+      href: () => `/dashboard/selling/reviews`,
+    },
+  ],
+
+  ProductReviewFlagged: [
+    {
+      // The queue audience — every staff member holding the permission. No vendor hears
+      // about this, deliberately: a seller told which reviews were reported learns which of
+      // their customers complained.
+      audience: { kind: "staff", permission: "review.moderate" },
+      category: "products",
+      title: () => "A review needs a look",
+      body: (p) => `It has been reported ${p.reportCount} times.`,
+      href: () => `/staff/reviews`,
+    },
+  ],
+
   /* ── vendor ticket 09 ── */
 
   VendorPayoutPaid: [

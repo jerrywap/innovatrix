@@ -116,6 +116,53 @@ export function registerNotificationHandlers(): void {
   });
 
   /*
+   * Vendor ticket 13. `DisputeRaised` has two rules — a staff queue audience and the vendor —
+   * and `dispatch` fans out to both from one event; the customer side is the thread itself,
+   * which they are already reading.
+   */
+  on("VendorSupportThreadOpened", async (payload) => {
+    await dispatch("VendorSupportThreadOpened", payload, { vendorId: payload.vendorId });
+  });
+
+  on("DisputeRaised", async (payload) => {
+    await dispatch("DisputeRaised", payload, {
+      ...(payload.vendorId ? { vendorId: payload.vendorId } : {}),
+    });
+  });
+
+  on("DisputeResolved", async (payload) => {
+    await dispatch("DisputeResolved", payload, {
+      ...(payload.vendorId ? { vendorId: payload.vendorId } : {}),
+    });
+  });
+
+  /*
+   * Vendor ticket 12. The offboarding notice resolves its audience from the **product ids** —
+   * everybody holding an active entitlement to anything that vendor sold, deduplicated by
+   * organisation, so a customer who bought three of their products hears once.
+   */
+  on("VendorOffboarded", async (payload) => {
+    await dispatch("VendorOffboarded", payload, { productIds: payload.productIds });
+  });
+
+  on("ProductEmergencyDelisted", async (payload) => {
+    await dispatch("ProductEmergencyDelisted", payload, {});
+  });
+
+  /*
+   * Vendor ticket 10. The review event carries `vendorId`, so the audience is a query for
+   * that vendor's active members rather than a list of ids in the payload; the flag event
+   * needs no lookup at all, because a permission audience is resolved from roles.
+   */
+  on("ProductReviewPublished", async (payload) => {
+    await dispatch("ProductReviewPublished", payload, { vendorId: payload.vendorId });
+  });
+
+  on("ProductReviewFlagged", async (payload) => {
+    await dispatch("ProductReviewFlagged", payload, {});
+  });
+
+  /*
    * Vendor ticket 09. Both go to every active member, owner or not: a member who cannot see
    * that a payout arrived cannot answer "did we get paid", and the thing worth restricting
    * is the payout *account*, not the news that money moved.

@@ -8,6 +8,7 @@ import {
   type RawSearchParams,
 } from "@/services/marketplace/query";
 import { logZeroResultSearch } from "@/services/marketplace/saved";
+import { vendorNames } from "@/services/marketplace/storefront";
 import { FilterRail } from "./components/filter-rail";
 import { DiscoveryRails } from "./components/rails";
 import { Results } from "./components/results";
@@ -51,7 +52,14 @@ export async function MarketplaceResults({
     ...(forced ? { forced } : {}),
   });
 
-  const [result, taxonomy] = await Promise.all([searchMarketplace(query), getTaxonomyIndex()]);
+  const [result, taxonomy, vendorLabels] = await Promise.all([
+    searchMarketplace(query),
+    getTaxonomyIndex(),
+    // Vendor ticket 11. Only for the slugs actually in the URL — a vendor is not a taxonomy,
+    // so there is no index to read a name from, and listing every seller in the rail would be
+    // a query on every render for a control nobody could scan.
+    vendorNames(query.vendor ?? []),
+  ]);
 
   // §74 — "log searches with zero results; that list is a product-roadmap
   // input". Deliberately not awaited into the render path: it is a business
@@ -92,6 +100,7 @@ export async function MarketplaceResults({
         countableDimensions={result.countableDimensions}
         currency={currency}
         currencyInUrl={currencyMustBeInUrl(query)}
+        vendorLabels={vendorLabels}
         {...(locked ? { locked } : {})}
       />
 

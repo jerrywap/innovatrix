@@ -21,6 +21,7 @@ import { BreadcrumbJsonLd, type Crumb } from "@/components/json-ld";
 import { DEFAULT_CURRENCY } from "@/config/storefront";
 import { PurchaseSection } from "@/features/product/purchase-section";
 import { RelatedProducts } from "@/features/product/related";
+import { ReviewsSection, reviewsForJsonLd } from "@/features/product/reviews-section";
 
 /**
  * The product detail page — §8, §9, §93, §100.
@@ -110,7 +111,14 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
         the storefront's configured default and the price advertised to a
         crawler could silently disagree the moment either changed. One source.
       */}
-      <ProductJsonLd product={product} currency={DEFAULT_CURRENCY} origin={origin} />
+      {/*
+        Vendor ticket 10. The rating rides in the cached `ProductDetail`; the individual
+        reviews are loaded in a boundary, because a script tag can arrive after the shell and
+        the alternative is blocking the LCP element on a review query.
+      */}
+      <Suspense fallback={null}>
+        <RatedJsonLd product={product} origin={origin} />
+      </Suspense>
       <BreadcrumbJsonLd crumbs={crumbsFor(product)} origin={origin} />
 
       <Breadcrumbs product={product} />
@@ -122,6 +130,25 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
             <h1 className="font-display text-[32px] leading-[1.1] tracking-[-0.03em] lg:text-[40px]">
               {product.name}
             </h1>
+            {/*
+              Attribution — vendor ticket 11, and the answer to "who made this".
+              
+              Above the summary and linked, because a buyer weighing a third-party product asks
+              who is behind it *before* reading what it does. Nothing at all for a first-party
+              product: "by Innovatrix" on a platform called Innovatrix is noise.
+            */}
+            {product.vendor && (
+              <p className="text-[13.5px]">
+                <span className="text-subtle">by </span>
+                <Link
+                  href={`/vendors/${product.vendor.slug}` as Route}
+                  className="underline underline-offset-4"
+                >
+                  {product.vendor.name}
+                </Link>
+              </p>
+            )}
+
             <p className="text-muted-foreground max-w-[62ch] text-[16px] leading-relaxed">
               {product.summary}
             </p>
@@ -193,6 +220,10 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
           {/* ══ everything below here may speak to a developer ══ */}
           <TechnicalSection product={product} />
 
+          <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
+            <ReviewsSection product={product} />
+          </Suspense>
+
           <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
             <RelatedProducts product={product} />
           </Suspense>
@@ -205,6 +236,26 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
         </aside>
       </div>
     </article>
+  );
+}
+
+/**
+ * The structured data, with its reviews.
+ *
+ * Its own component so the review query sits inside a `<Suspense>` boundary rather than in the
+ * page body — the JSON-LD is for crawlers and the hero image is for people, and only one of
+ * them should be waiting on the other.
+ */
+async function RatedJsonLd({ product, origin }: { product: ProductDetail; origin: string }) {
+  const reviews = product.rating ? await reviewsForJsonLd(product.id) : [];
+
+  return (
+    <ProductJsonLd
+      product={product}
+      currency={DEFAULT_CURRENCY}
+      origin={origin}
+      reviews={reviews}
+    />
   );
 }
 

@@ -38,6 +38,16 @@ export function productTag(slug: string): string {
 }
 
 /**
+ * One vendor's storefront — vendor ticket 11.
+ *
+ * Scoped like `productTag`, so renaming one vendor does not dump the catalogue. Publishing a
+ * product *does* dump both, because the storefront lists products: see `catalogChanged`.
+ */
+export function vendorTag(slug: string): string {
+  return `vendor:${slug}`;
+}
+
+/**
  * Invalidate one tag, taking the strongest option the caller's context allows.
  *
  * `updateTag` is **Server-Actions-only** and throws anywhere else. That matters
@@ -72,6 +82,19 @@ function invalidate(tag: string): void {
 export function catalogChanged(slugs: readonly string[] = []): void {
   invalidate(CATALOG_TAG);
   for (const slug of slugs) invalidate(productTag(slug));
+}
+
+/**
+ * After anything that changes a vendor's storefront — a profile edit, a
+ * verification decision, a suspension.
+ *
+ * A product publish does **not** come through here: it calls `catalogChanged`,
+ * and the storefront read tags itself with `CATALOG_TAG` as well as its own tag
+ * precisely so it refreshes with the catalogue. Two tags on one read is cheaper
+ * than every publish path having to know which vendor to invalidate.
+ */
+export function vendorChanged(slug: string): void {
+  invalidate(vendorTag(slug));
 }
 
 /** After a taxonomy write. Also dumps the catalogue: facets carry slugs. */

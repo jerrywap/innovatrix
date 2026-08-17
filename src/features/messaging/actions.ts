@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { requireOrg, requireStaff } from "@/lib/auth/dal";
-import { CONVERSATION_SUBJECT_TYPES } from "@/lib/db/enums";
+import { CONVERSATION_SUBJECT_TYPES, type ConversationSubjectType } from "@/lib/db/enums";
 import { connectToDatabase } from "@/lib/db/client";
 import { toObjectId } from "@/lib/db/base";
 import { CustomerRequest } from "@/lib/db/models/requests";
@@ -158,7 +158,7 @@ export async function markReadAction(input: unknown): Promise<ActionResult<{ rea
  * would make the scope guarantee depend on which branch happened to exist.
  */
 async function assertSubjectBelongs(
-  subjectType: "request" | "order" | "quote",
+  subjectType: ConversationSubjectType,
   subjectId: string,
   organizationId: string,
 ): Promise<void> {
@@ -170,6 +170,24 @@ async function assertSubjectBelongs(
       organizationId: toObjectId(organizationId),
     });
     if (!exists) throw new Error("No such request.");
+    return;
+  }
+
+  /*
+   * Vendor ticket 13 — a support thread's subject is the **entitlement**.
+   *
+   * That is what makes the scope check the same shape as every other one here: an entitlement
+   * is org-scoped, so "is this thread yours" is one indexed `exists`. It also means a customer
+   * can only open a thread about something they actually bought, without a second rule saying
+   * so.
+   */
+  if (subjectType === "vendor_support") {
+    const { Entitlement } = await import("@/lib/db/models/commerce");
+    const exists = await Entitlement.exists({
+      _id: toObjectId(subjectId),
+      organizationId: toObjectId(organizationId),
+    });
+    if (!exists) throw new Error("No such purchase.");
     return;
   }
 

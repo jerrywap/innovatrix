@@ -20,20 +20,35 @@ import type { ProductDetail } from "@/services/marketplace/detail";
  * Raised for ticket 26 as a named allowlist entry rather than as an argument at
  * review time.
  *
- * ## No `AggregateRating`
+ * ## `AggregateRating`, now that there is something to aggregate
  *
- * There are no reviews in the MVP. Emitting a fabricated rating is a
- * structured-data policy violation with a manual-action penalty attached, and
- * "we'll fill it in later" is how that ships. Omitted.
+ * Ticket 27 omitted it: "there are no reviews in the MVP; emitting a fabricated rating is a
+ * structured-data policy violation with a manual-action penalty attached". That reasoning
+ * expired with vendor ticket 10, and the *rule* it protected has not changed — the block is
+ * emitted **only** where real published reviews exist. A product with none emits neither
+ * `aggregateRating` nor `review`, which is the same policy now satisfiable rather than a
+ * blanket omission.
+ *
+ * `product.rating` is absent rather than zeroed for an unreviewed product precisely so this
+ * stays a presence check rather than a `> 0` test somebody can get wrong.
  */
 export function ProductJsonLd({
   product,
   currency,
   origin,
+  reviews,
 }: {
   product: ProductDetail;
   currency: StorefrontCurrency;
   origin: string;
+  /** Published reviews, if the page loaded any — vendor ticket 10. */
+  reviews?: ReadonlyArray<{
+    rating: number;
+    authorName: string;
+    body: string;
+    title?: string;
+    createdAt: Date;
+  }>;
 }) {
   const url = `${origin}/marketplace/${product.slug}`;
   const price = product.prices.find((row) => row.currency === currency) ?? product.prices[0];
@@ -57,6 +72,41 @@ export function ProductJsonLd({
     ...(product.taxonomy.technologies.length > 0
       ? { keywords: product.taxonomy.technologies.map((term) => term.name).join(", ") }
       : {}),
+    ...(product.rating
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            // schema.org wants the number, not a formatted string. One decimal place,
+            // derived from two integers — see `averageRating`.
+            ratingValue: product.rating.average,
+            reviewCount: product.rating.count,
+            bestRating: 5,
+            worstRating: 1,
+          },
+        }
+      : {}),
+    // Individual reviews, where the caller passed any. Five at most: the aggregate is what
+    // search engines use, and a page of forty serialised reviews in a script tag is weight
+    // for nothing.
+    ...(reviews && reviews.length > 0
+      ? {
+          review: reviews.slice(0, 5).map((entry) => ({
+            "@type": "Review",
+            reviewRating: {
+              "@type": "Rating",
+              ratingValue: entry.rating,
+              bestRating: 5,
+              worstRating: 1,
+            },
+            // The same shortened name the page shows. A full name in structured data would
+            // publish more than the visible page does, which is the wrong way round.
+            author: { "@type": "Person", name: entry.authorName },
+            datePublished: entry.createdAt,
+            reviewBody: entry.body,
+            ...(entry.title ? { name: entry.title } : {}),
+          })),
+        }
+      : {}),
     ...(price
       ? {
           offers: {
@@ -68,7 +118,26 @@ export function ProductJsonLd({
             // all. One code path for money, everywhere.
             price: formatPlain({ amount: price.amount, currency: price.currency }),
             availability: "https://schema.org/InStock",
-            seller: { "@type": "Organization", name: "Innovatrix" },
+            /*
+             * The **actual** seller — vendor ticket 11.
+             *
+             * This said `name: "Innovatrix"` unconditionally, which became a false statement
+             * in machine-readable structured data the moment a vendor product was published —
+             * and structured data is the one place a false statement is read literally.
+             *
+             * A vendor product names the vendor and links to their storefront, whose own
+             * `Organization` node carries the same identity. A first-party product still names
+             * the platform, because it still is the seller. The site-wide `Organization` and
+             * `WebSite` nodes in the public layout are untouched: they describe the *site*,
+             * not the seller of any given item.
+             */
+            seller: product.vendor
+              ? {
+                  "@type": "Organization",
+                  name: product.vendor.name,
+                  url: `${origin}/vendors/${product.vendor.slug}`,
+                }
+              : { "@type": "Organization", name: "Innovatrix" },
           },
         }
       : {}),

@@ -110,6 +110,34 @@ export class ConversationRepository extends BaseRepository<ConversationDoc> {
   }
 }
 
+/**
+ * Who is reading — vendor ticket 13 made this three, not two.
+ *
+ * A union rather than a boolean, because the third audience is what forced the question: a
+ * vendor sees `customer` and `vendor` messages and never an `internal` one, and a boolean
+ * "isStaff" cannot express that.
+ */
+export type MessageAudience = "customer" | "vendor" | "staff";
+
+/**
+ * The §37 boundary, as a query fragment.
+ *
+ * | Audience | Sees |
+ * |---|---|
+ * | customer | `customer` |
+ * | vendor | `customer`, `vendor` |
+ * | staff | everything |
+ *
+ * One function, used by both the thread read and the unread count, so the two cannot disagree —
+ * which matters because a note bumping a customer's unread count tells them a note exists even
+ * if they never see it.
+ */
+function visibilityFilter(audience: MessageAudience): Record<string, unknown> {
+  if (audience === "customer") return { visibility: "customer" };
+  if (audience === "vendor") return { visibility: { $in: ["customer", "vendor"] } };
+  return {};
+}
+
 export class MessageRepository extends BaseRepository<MessageDoc> {
   /**
    * **The audience is not optional.** A caller that forgets it does not get
@@ -117,14 +145,14 @@ export class MessageRepository extends BaseRepository<MessageDoc> {
    */
   async listForConversation(input: {
     conversationId: string;
-    audience: "customer" | "staff";
+    audience: MessageAudience;
     limit?: number;
   }): Promise<MessageDoc[]> {
     return this.model
       .find({
         conversationId: toObjectId(input.conversationId),
-        // Layer 1. In the query, not after it.
-        ...(input.audience === "customer" ? { visibility: "customer" } : {}),
+        // Layer 1. In the query, not after it — see `visibilityFilter`.
+        ...visibilityFilter(input.audience),
       })
       .sort({ createdAt: 1 })
       .limit(input.limit ?? 200)
@@ -135,13 +163,13 @@ export class MessageRepository extends BaseRepository<MessageDoc> {
   async countUnread(input: {
     conversationIds: readonly string[];
     userId: string;
-    audience: "customer" | "staff";
+    audience: MessageAudience;
   }): Promise<number> {
     if (input.conversationIds.length === 0) return 0;
 
     return this.model.countDocuments({
       conversationId: { $in: input.conversationIds.map((id) => toObjectId(id)) },
-      ...(input.audience === "customer" ? { visibility: "customer" } : {}),
+      ...visibilityFilter(input.audience),
       // Your own message is not unread to you.
       senderUserId: { $ne: toObjectId(input.userId) },
       readByUserIds: { $ne: toObjectId(input.userId) },
@@ -158,12 +186,15 @@ export class MessageRepository extends BaseRepository<MessageDoc> {
   async markRead(input: {
     conversationId: string;
     userId: string;
-    audience: "customer" | "staff";
+    audience: MessageAudience;
   }): Promise<void> {
     await this.model.updateMany(
       {
         conversationId: toObjectId(input.conversationId),
-        ...(input.audience === "customer" ? { visibility: "customer" } : {}),
+        // The same filter as the read. Marking a message read that this audience cannot see
+        // would put their id on a note they never got — a small thing that makes an audit of
+        // "who has read this" wrong.
+        ...visibilityFilter(input.audience),
         readByUserIds: { $ne: toObjectId(input.userId) },
       },
       { $addToSet: { readByUserIds: toObjectId(input.userId) } },

@@ -108,7 +108,21 @@ export async function recalculate(
   for (const item of cart.items) {
     const product = byId.get(String(item.productId));
 
-    if (!product || product.status !== "published" || product.deletedAt) {
+    /*
+     * `listingSuppressed` is checked here too — vendor ticket 12.
+     *
+     * A suspended vendor's product keeps `status: "published"` on purpose (its URL, its
+     * reviews and its publish date all survive), so the status check alone would happily sell
+     * it. This is the line that makes "new sales stopped" true rather than only true of the
+     * listing, and it covers checkout as well because `createOrder` refuses on the same
+     * notices.
+     */
+    if (
+      !product ||
+      product.status !== "published" ||
+      product.deletedAt ||
+      product.listingSuppressed
+    ) {
       notices.push({
         lineId: item.lineId,
         kind: "item_unavailable",

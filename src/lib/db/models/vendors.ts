@@ -105,6 +105,19 @@ export interface VendorDoc {
    */
   commissionBasisPoints?: number;
   /**
+   * What their customers rated them — vendor ticket 10.
+   *
+   * The weighted average across every published review of every product they sell, which is
+   * what "weighted" means here: it is the mean of the *reviews*, not the mean of the
+   * products' means, so a product with two hundred reviews counts two hundred times.
+   *
+   * Sum and count, never a stored average, for the same reason as on `Product` — and
+   * **derived, never editable by anyone**, including staff. A vendor rating somebody can
+   * adjust is a vendor rating nobody should believe.
+   */
+  ratingSum?: number;
+  ratingCount?: number;
+  /**
    * Where money goes — vendor ticket 09.
    *
    * The one thing only an `owner` may read or write, and the reason the two-role model
@@ -119,6 +132,14 @@ export interface VendorDoc {
     country?: string;
     updatedAt?: Date;
   };
+  /**
+   * When the relationship ended — vendor ticket 12.
+   *
+   * Distinct from `deletedAt`: the vendor row survives offboarding entirely, because customers
+   * still hold entitlements to their products and a support conversation a year later has to
+   * resolve who sold what. The ledger is closed, never deleted.
+   */
+  closedAt?: Date;
   deletedAt: Date | null;
 }
 
@@ -187,6 +208,10 @@ const vendorSchema = new Schema<VendorDoc>(
       max: 10_000,
       validate: (v: unknown) => v == null || Number.isInteger(v),
     },
+    closedAt: Date,
+    // Vendor ticket 10. Integers, recomputed from the reviews — see `recomputeVendorRating`.
+    ratingSum: { type: Number, min: 0 },
+    ratingCount: { type: Number, min: 0 },
     payout: {
       accountName: { type: String, trim: true },
       accountIdentifier: { type: String, trim: true },

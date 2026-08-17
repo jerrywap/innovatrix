@@ -108,6 +108,23 @@ export interface ProductDetail {
    * gated URL — see `publicDemoView`.
    */
   demo: PublicDemoView;
+  /**
+   * Who sells it — vendor ticket 11. Absent ⇒ first-party.
+   *
+   * Both fields or neither: a name with no slug could not be linked, and the link is the point
+   * — attribution that a buyer cannot follow answers "who made this" without answering "what
+   * else have they made".
+   */
+  vendor?: { slug: string; name: string };
+  /**
+   * The rating, derived — vendor ticket 10.
+   *
+   * Absent when nobody has reviewed it, and that absence is load-bearing twice over: the page
+   * renders no star row, and `ProductJsonLd` emits no `AggregateRating`. A zeroed object would
+   * do neither of those things and would publish a fabricated rating, which is a
+   * structured-data policy violation with a manual action attached.
+   */
+  rating?: { average: number; count: number; distribution: number[] };
   seo: { title?: string; description?: string; ogImageUrl?: string };
   publishedAt?: string;
   updatedAt?: string;
@@ -126,6 +143,9 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
     slug,
     status: "published",
     deletedAt: null,
+    // Vendor ticket 12. A suspended vendor's product keeps its URL — for the customer who
+    // already bought it and follows a link from My Software — but it is not *sold* here, and
+    // the purchase panel is what enforces that. See `cart-service`, which refuses the line.
   })
     // Excluded at the query, not at the mapping. Belt and braces: even a future
     // `...product` spread in a mapper cannot leak what was never fetched.
@@ -169,6 +189,20 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
       .filter((item) => Boolean(item.url))
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((item) => ({ kind: item.kind, url: item.url!, alt: item.alt ?? product.name })),
+    ...(product.vendorSlug && product.vendorName
+      ? { vendor: { slug: product.vendorSlug, name: product.vendorName } }
+      : {}),
+    // Derived here rather than stored: `ratingSum / ratingCount` is exact integer
+    // arithmetic, and a stored average is a float that can disagree with its own reviews.
+    ...(product.ratingCount && product.ratingSum
+      ? {
+          rating: {
+            average: Math.round((product.ratingSum / product.ratingCount) * 10) / 10,
+            count: product.ratingCount,
+            distribution: product.ratingDistribution ?? [0, 0, 0, 0, 0],
+          },
+        }
+      : {}),
     prices: storefrontPrices(product.prices),
     licencePackages: (product.licencePackages ?? []).map((pkg) => ({
       key: pkg.key,

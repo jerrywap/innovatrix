@@ -32,6 +32,8 @@ export function SellingNav({ isOwner }: { isOwner: boolean }) {
     { label: "Products", href: "/dashboard/selling/products", segment: "products" },
     { label: "Earnings", href: "/dashboard/selling/earnings", segment: "earnings" },
     { label: "Payouts", href: "/dashboard/selling/payouts", segment: "payouts" },
+    { label: "Reviews", href: "/dashboard/selling/reviews", segment: "reviews" },
+    { label: "Support", href: "/dashboard/selling/support", segment: "support" },
     { label: "Verification", href: "/dashboard/selling/verification", segment: "verification" },
     ...(isOwner
       ? ([

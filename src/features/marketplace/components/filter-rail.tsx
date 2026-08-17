@@ -57,6 +57,7 @@ export function FilterRail({
   countableDimensions,
   currency,
   currencyInUrl,
+  vendorLabels,
   /** Dimensions a landing page owns — rendered as context, not as a control. */
   locked = [],
 }: {
@@ -67,6 +68,8 @@ export function FilterRail({
   countableDimensions: readonly FacetCount["dimension"][];
   currency: StorefrontCurrency;
   currencyInUrl: boolean;
+  /** Slug → display name for any vendor filter in the URL — vendor ticket 11. */
+  vendorLabels?: ReadonlyMap<string, string>;
   locked?: ReadonlyArray<(typeof DIMENSIONS)[number]["key"]>;
 }) {
   const countOf = new Map(
@@ -126,6 +129,29 @@ export function FilterRail({
           </Section>
         );
       })}
+
+      {/*
+        Vendor ticket 11 — shown only when a vendor filter is active.
+        
+        There is no "all sellers" list, deliberately: a marketplace with three hundred vendors
+        would have a rail nobody can scan, and the useful direction is the other way round —
+        follow a vendor from a card or a storefront. What this provides is the way *back*, which
+        is the thing a filtered view without a visible chip does not give you.
+      */}
+      {asArray(raw.vendor).length > 0 && (
+        <Section title="Seller">
+          <div className="flex flex-col gap-0.5">
+            {asArray(raw.vendor).map((slug) => (
+              <RailLink
+                key={slug}
+                href={marketplaceHref(basePath, raw, { vendor: undefined })}
+                active
+                label={vendorLabels?.get(slug) ?? slug}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title="Options">
         <RailLink

@@ -281,6 +281,29 @@ export const STAFF_NAV: readonly NavSection[] = [
         permission: "product.review",
         matchNested: true,
       },
+      {
+        /*
+         * Vendor ticket 13. A dispute is the one thing where **both** parties are waiting
+         * on us, so it gets its own queue rather than living inside the vendor screen —
+         * a queue you have to open a vendor to find is a queue nobody works.
+         */
+        label: "Disputes",
+        href: "/staff/disputes",
+        icon: "scale",
+        permission: "vendor.review",
+      },
+      {
+        /*
+         * Vendor ticket 10. Here rather than in `ADMIN_NAV` for the same reason as
+         * Vendors above, plus one specific to this permission: `content_manager` holds
+         * `review.moderate` and reaches **zero** admin screens, so an admin entry would
+         * be an item they can see and a shell they cannot enter.
+         */
+        label: "Reviews",
+        href: "/staff/reviews",
+        icon: "star",
+        permission: "review.moderate",
+      },
     ],
   },
   {
@@ -571,7 +594,15 @@ export const DEFERRED_MODULES: readonly string[] = [
   "renewals",
   "sandboxes",
   "compare",
-  "reviews",
+  /*
+   * `"reviews"` was here and is now gone — vendor ticket 10.
+   *
+   * It was deferred with the rest of §6's "if introduced" list, and this test correctly
+   * failed the moment `/staff/reviews` appeared in the nav. Removing the entry is the fix
+   * rather than an exception, because the list means "post-MVP module with no route", and
+   * reviews now have both a route and a reason: a marketplace where a rating decides a
+   * purchase needs them, and `01-mvp-todo.md` records the un-deferral.
+   */
 ];
 
 /** Every nav item across every surface — for tests and for ticket 26's audit. */

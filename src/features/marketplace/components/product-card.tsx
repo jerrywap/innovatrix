@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { MoneyDisplay } from "@/components/money-display";
+import { StarRating } from "@/components/star-rating";
 import { money } from "@/lib/money";
 import type { Route } from "next";
 import type { ProductCard as Card } from "@/services/marketplace";
@@ -34,10 +35,26 @@ export function ProductCardTile({
   priority?: boolean;
 }) {
   return (
-    <Link
-      href={`/marketplace/${card.slug}` as Route}
-      className="group border-border bg-surface focus-visible:ring-ring flex flex-col overflow-hidden rounded-xl border transition-colors hover:border-[var(--signal)]/40 focus-visible:ring-2 focus-visible:outline-none"
-    >
+    /*
+     * An `<article>` with an **overlay link**, not a `<Link>` wrapping everything.
+     *
+     * The card gained a second link in vendor ticket 11 — the vendor's name, pointing at their
+     * storefront — and an `<a>` inside an `<a>` is invalid HTML that browsers resolve by
+     * dropping one of them. The standard fix, and the one that keeps this a Server Component
+     * (no `onClick`, no `stopPropagation`): the product link is absolutely positioned over the
+     * whole card at `z-0`, and anything that needs to be clickable in its own right sits above
+     * it. One tab stop per destination, and the whole card is still a click target.
+     */
+    <article className="group border-border bg-surface relative flex flex-col overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-[var(--ring)] hover:border-[var(--signal)]/40">
+      <Link
+        href={`/marketplace/${card.slug}` as Route}
+        className="absolute inset-0 z-0 rounded-xl focus:outline-none"
+      >
+        {/* The accessible name for the overlay. The visible heading is not inside the link, so
+            without this the link would announce as unlabelled. */}
+        <span className="sr-only">{card.name}</span>
+      </Link>
+
       <div className="bg-surface-muted relative aspect-[16/10] overflow-hidden">
         {card.image ? (
           <Image
@@ -63,7 +80,9 @@ export function ProductCardTile({
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-2.5 p-4">
+      {/* `pointer-events-none` on the body, re-enabled on the vendor link: the overlay is what
+          takes a click anywhere else, and without this the text would swallow it. */}
+      <div className="pointer-events-none flex flex-1 flex-col gap-2.5 p-4">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-display text-[15px] leading-tight tracking-[-0.01em]">
             {card.name}
@@ -80,19 +99,38 @@ export function ProductCardTile({
         </div>
 
         {/*
-          Attribution — vendor ticket 04.
+          Attribution — vendor ticket 04, now a link (vendor ticket 11).
 
-          Text, not a link: `/vendors/[slug]` is vendor ticket 11's route and
-          `typedRoutes` will not compile a link to a route nobody has built. It becomes
-          a link in the same commit that gives it somewhere to go.
+          It was text until the storefront existed, because `typedRoutes` will not compile a
+          link to a route nobody has built — which is the rule working rather than a limitation:
+          the link arrived in the same commit as the page it points at.
 
-          Absent for a first-party product, deliberately — "by Innovatrix" on a
-          platform called Innovatrix tells a buyer nothing.
+          `stopPropagation` because the whole card is a link to the product. Without it, a click
+          on the vendor name would navigate to the product instead, which is the most annoying
+          possible outcome for somebody who deliberately aimed at the maker's name.
+
+          Absent for a first-party product, deliberately — "by Innovatrix" on a platform called
+          Innovatrix tells a buyer nothing.
         */}
         {card.vendor && (
-          <p className="text-subtle text-[12px]">
-            by <span className="text-muted-foreground">{card.vendor.name}</span>
+          <p className="text-subtle pointer-events-auto relative z-10 w-fit text-[12px]">
+            by{" "}
+            <Link
+              href={`/vendors/${card.vendor.slug}` as Route}
+              className="text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              {card.vendor.name}
+            </Link>
           </p>
+        )}
+
+        {/*
+          Vendor ticket 10. Above the summary, because a buyer scanning a grid uses the
+          rating to decide whether to read the summary at all — and nothing is drawn for an
+          unreviewed product, so a new listing is not marked out as unloved.
+        */}
+        {card.rating && (
+          <StarRating average={card.rating.average} count={card.rating.count} size="small" />
         )}
 
         <p className="text-muted-foreground line-clamp-2 text-[13px] leading-relaxed">
@@ -139,6 +177,6 @@ export function ProductCardTile({
           )}
         </div>
       </div>
-    </Link>
+    </article>
   );
 }

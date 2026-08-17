@@ -4,6 +4,7 @@ import { serverEnv } from "@/config/env";
 import { connectToDatabase } from "@/lib/db/client";
 import { Product } from "@/lib/db/models/catalog";
 import { getTaxonomyIndex } from "@/services/marketplace";
+import { storefrontSlugs } from "@/services/marketplace/storefront";
 import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG } from "@/services/catalog/cache";
 
 /**
@@ -89,6 +90,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
 
   await connectToDatabase();
+
+  /*
+   * Vendor storefronts — vendor ticket 11.
+   *
+   * The same two conditions the page itself applies: verified vendor, at least one published
+   * product. They have to be the same, because a sitemap listing a URL that 404s is a
+   * contradiction a crawler resolves by trusting neither — which is the failure
+   * `sitemap.test.ts` was written after `/about` and `/contact` were advertised for weeks.
+   */
+  const storefronts = await storefrontSlugs();
+
   const products = await Product.find({ status: "published", deletedAt: null })
     .sort({ publishedAt: -1 })
     .limit(MAX_PRODUCTS)
@@ -98,6 +110,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     ...staticPages,
     ...landingPages,
+    ...storefronts.map((vendor) => ({
+      url: `${origin}/vendors/${vendor.slug}`,
+      // Weekly: a storefront changes when its vendor publishes something, and a daily hint on
+      // a page that changes monthly trains a crawler to ignore the hint.
+      changeFrequency: "weekly" as const,
+      priority: 0.5,
+    })),
     ...products.map((product) => ({
       url: `${origin}/marketplace/${product.slug}`,
       ...(product.updatedAt ? { lastModified: product.updatedAt } : {}),

@@ -59,6 +59,18 @@ Staff-initiated, reversible, with a reason the vendor sees.
 Unlisting is not unpublishing: the products keep their URLs and their reviews so
 that reinstating is one action, not a rebuild.
 
+> **Implemented 2026-08-17 as `Product.listingSuppressed`.**
+> The product keeps `status: "published"`, its slug, its `publishedAt` and its
+> reviews; the marketplace pipeline excludes it with `$ne: true` and
+> `cart-service` refuses the line. Two details worth keeping:
+>
+> - **`$ne: true`, not `false`.** The flag is absent on every first-party product
+>   and on every product of a vendor in good standing, so a `false` match would
+>   exclude the entire catalogue — a filter bug that looks like an empty database.
+> - **The cart check is what makes "new sales stopped" true.** The listing filter
+>   only hides it; a customer with the URL could still have bought it, because the
+>   status is deliberately still `published`.
+
 ### Offboarding, and the promise it must keep
 
 Decision **V8**, and the answer is that **a customer who bought never loses what
@@ -96,23 +108,70 @@ conversation, not a silent lockout. Vendor ticket 13 covers what happens next.
 and refund rate; the detail with the ledger, the products, the review history and
 the lifecycle controls. Every lifecycle action is audited with its reason.
 
+> **Implemented 2026-08-17 on `/staff/vendor-applications/[id]`**, as a Lifecycle
+> section beside the Money section vendor ticket 08 added. There is still no
+> `/admin/vendors` module, for the reason recorded in ticket 08: that screen is
+> already where a vendor is administered, and a second route showing the same
+> vendor would be two places to look and two to keep in step.
+>
+> Three permissions, and the split is the safeguard: `vendor.suspend` sits with
+> `marketplace_manager` (a vendor shipping something harmful cannot wait for a
+> finance sign-off), `vendor.offboard` is `super_admin` only (irreversible, and it
+> happens with money still owed), and an emergency delisting reuses
+> `product.publish` — pulling one product from sale is the publish capability used
+> in the other direction.
+>
+> Offboarding is behind a **typed confirmation** rather than a second click, since
+> `VENDOR_TRANSITIONS` has no edge out of `offboarded` and a second click is not a
+> meaningful confirmation for something that cannot be undone.
+
 ## Out of scope
 Vendor-configurable analytics, data export, and a vendor-facing API. Cohort or
 funnel analysis beyond view-to-purchase.
 
 ## Acceptance criteria
-- [ ] The vendor dashboard leads with items needing action, not with figures.
-- [ ] Every figure is derived from the ledger, orders or reviews, with no stored counter that can drift.
-- [ ] Every analytics read is bounded and time-boxed; none scans an unbounded collection.
-- [ ] Traffic figures are either real or absent — no placeholder number is displayed.
-- [ ] Suspending a vendor unlists their products and stops new sales within the cache window.
-- [ ] Suspending does not touch any existing entitlement, and an existing customer's download still works.
-- [ ] Suspending holds payouts and leaves the ledger intact.
-- [ ] Reinstating restores listings with their URLs and reviews intact.
-- [ ] Offboarding leaves every entitlement active and every licence key valid.
-- [ ] An offboarded vendor's customers can still download every version they were entitled to.
-- [ ] Offboarding runs final settlement and closes the ledger without deleting a single entry.
-- [ ] Customers holding an entitlement are notified when their vendor offboards, and told what it means.
-- [ ] Emergency delisting removes a product from the marketplace in one action and suspends rather than revokes entitlements.
-- [ ] Every lifecycle action is audited with actor and reason.
-- [ ] A vendor sees only their own analytics, asserted in the tenant-isolation suite.
+- [x] The vendor dashboard leads with items needing action, not with figures.
+- [x] Every figure is derived from the ledger, orders or reviews, with no stored counter that can drift.
+- [x] Every analytics read is bounded and time-boxed; none scans an unbounded collection.
+- [x] Traffic figures are either real or absent — no placeholder number is displayed.
+- [x] Suspending a vendor unlists their products and stops new sales within the cache window.
+- [x] Suspending does not touch any existing entitlement, and an existing customer's download still works.
+- [x] Suspending holds payouts and leaves the ledger intact.
+- [x] Reinstating restores listings with their URLs and reviews intact.
+- [x] Offboarding leaves every entitlement active and every licence key valid.
+- [x] An offboarded vendor's customers can still download every version they were entitled to.
+- [x] Offboarding runs final settlement and closes the ledger without deleting a single entry.
+- [x] Customers holding an entitlement are notified when their vendor offboards, and told what it means.
+- [x] Emergency delisting removes a product from the marketplace in one action and suspends rather than revokes entitlements.
+- [x] Every lifecycle action is audited with actor and reason.
+- [x] A vendor sees only their own analytics, asserted in the tenant-isolation suite.
+
+## Implementation notes — 2026-08-17
+
+**"Offboarding runs final settlement" became "offboarding reports what is owed".** The service
+does **not** run a payout, and it does not refuse when money is outstanding — a vendor we cannot
+offboard over £4 is a vendor still selling. It returns the outstanding balance per currency, the
+screen shows it as work still to do, and the ledger is closed with `closedAt` rather than having a
+single entry touched. Final settlement is a payout somebody runs through vendor ticket 09's
+machinery, which is the only place that can actually move money.
+
+**Suspending holds payouts through the batch, not through a flag.** `draftBatch` already skips a
+suspended vendor with `reason: "suspended"` and records it where the vendor can read it, so
+suspension needed no new payout logic at all — which is what the skip-reason design bought.
+
+**Cache invalidation moved out of the service.** The first version called `catalogChanged()` from
+`lifecycle-service`, and `revalidateTag` throws outside a Next request context — so the service
+could not be called from a job, a script or a test. Each function now returns the slugs it
+touched and the action invalidates, which is what every other write path in the codebase does.
+
+**An emergency delist suspends the entitlement and leaves the licence alone.** Suspending the
+licence too would pre-empt the refund decision, and `processPaymentRefunded` is the path that
+suspends both — this one stops the sale and starts a conversation.
+
+**`VendorOffboarded` resolves its audience from product ids.** One event, many products,
+deduplicated by organisation: a customer who bought three of that vendor's products is told once,
+and the notification leads with what *survives* rather than with what ended.
+
+**Unanswered reviews are counted only at three stars or below.** A dashboard that said "you have
+240 unanswered reviews" would teach a vendor to ignore the whole action panel, and a five-star
+review with no reply is not a task.
