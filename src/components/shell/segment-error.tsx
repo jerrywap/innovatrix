@@ -34,9 +34,22 @@ export function SegmentError({
   homeHref: Route;
   homeLabel: string;
 }) {
-  const refused = /permission|access|staff account|don’t have|do not have/i.test(
-    error.message ?? "",
-  );
+  /*
+   * `confirm your email` is in this list because it was not, and the omission was visible.
+   *
+   * `requireVerifiedUser()` throws "Please confirm your email address before completing a
+   * purchase" — a refusal by every measure, matching none of the words above it, so it rendered as
+   * a fault: "Something went wrong. Trying again usually works." A reader was advised to retry
+   * something that could never succeed and never told what would.
+   *
+   * Matching on prose is fragile and this addition does not fix that — it narrows one known gap.
+   * The durable fix is for a page to handle its own refusals rather than throwing them at a
+   * boundary that has to guess (see `dashboard/selling/apply`), which is why this stays a backstop.
+   */
+  const refused =
+    /permission|access|staff account|don’t have|do not have|confirm your email/i.test(
+      error.message ?? "",
+    );
 
   if (refused) {
     return (
