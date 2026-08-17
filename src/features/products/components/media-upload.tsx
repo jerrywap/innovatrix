@@ -66,13 +66,30 @@ export function MediaUpload({
 
     setPhase({ status: "signing" });
 
-    const ticket = await createMediaUploadAction({
-      productId,
-      filename: file.name,
-      contentType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-      ...(replaceKey ? { replaceKey } : {}),
-    });
+    /*
+     * The mint is inside a `try` — it was not, and that difference is a hang rather than an error.
+     *
+     * `!ticket.ok` was handled; the action call **rejecting** was not. The caller does
+     * `void upload(file)`, so a network failure reaching the server became an unhandled rejection
+     * and the phase stayed `"signing"` for ever — a spinner with no message and no way out. The
+     * same shape was fixed in the vendor document upload after somebody sat in it.
+     */
+    let ticket: Awaited<ReturnType<typeof createMediaUploadAction>>;
+    try {
+      ticket = await createMediaUploadAction({
+        productId,
+        filename: file.name,
+        contentType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+        ...(replaceKey ? { replaceKey } : {}),
+      });
+    } catch {
+      setPhase({
+        status: "failed",
+        message: "We could not start the upload. Check your connection and try again.",
+      });
+      return;
+    }
 
     if (!ticket.ok) {
       setPhase({ status: "failed", message: ticket.error });
@@ -88,12 +105,12 @@ export function MediaUpload({
     } catch (error) {
       setPhase({
         status: "failed",
-        // The browser reports a CORS rejection as an opaque network error, so
-        // this cannot say which it was. It can say what to check.
+        // `put()` already tells the two cases apart — S3's own `<Code>` for a refusal, and a
+        // distinct message when the request never arrived — so this passes it through.
         message:
           error instanceof Error && error.message
             ? error.message
-            : "The upload failed. If this persists, check the bucket's CORS rules.",
+            : "The upload failed. Nothing was saved.",
       });
       return;
     }
@@ -186,11 +203,21 @@ function put(
       );
     });
 
+    /*
+     * The request never arrived — no status, no body, nothing to read.
+     *
+     * This said "usually a CORS rule that does not allow this origin", which was true when it was
+     * written and is not any more: the bucket's CORS was measured on 2026-08-17 and allows `PUT`
+     * with `content-type` from this origin (the numbers are in
+     * `vendors/components/document-upload`). Leaving that guess in place sends somebody to
+     * reconfigure a bucket that is already right, so the message now names what actually produces
+     * this once CORS is correct.
+     */
     request.addEventListener("error", () =>
       reject(
         new Error(
-          "The upload could not reach the bucket — usually a CORS rule that does not " +
-            "allow this origin.",
+          "The image never reached our storage. Something between this browser and it blocked " +
+            "the request — usually an extension, a VPN or a corporate proxy.",
         ),
       ),
     );

@@ -12,6 +12,58 @@
 const isDev = process.env.NODE_ENV === "development";
 
 /**
+ * The storage origin the browser uploads to, or `null`.
+ *
+ * ## Why `connect-src` needs it at all
+ *
+ * **Bytes never pass through the Next.js server** — that is an architectural constraint in
+ * `AGENTS.md`, not a preference: a presigned `PUT` goes browser→S3 directly, because proxying a
+ * 2GB release artefact through this process's memory and request timeout does not work, and a
+ * Server Action's body limit is something a phone photograph clears without trying.
+ *
+ * So every upload in this app is a cross-origin `fetch` to the storage host, and `connect-src`
+ * decides whether the browser will make it. It said `'self'` — with the comment "the browser talks
+ * to us and to nobody else", which was true when it was written and stopped being true the moment
+ * the first presigned upload shipped.
+ *
+ * The symptom was maximally misleading: the browser refuses the request *before* it goes out, so
+ * `fetch` rejects with `TypeError: Failed to fetch` and there is no status, no response and no S3
+ * access log entry to look at. Every server-side check passes — the signature, the bucket policy,
+ * the CORS preflight — because curl and Node ignore CSP entirely. Four upload components were
+ * broken this way, in a codebase where the CORS measurement had been repeated three times.
+ *
+ * `img-src` already allowed `https:`, which is why nobody noticed: *displaying* a stored image
+ * worked, and only writing was blocked.
+ *
+ * ## Derived, and narrow
+ *
+ * The exact bucket host, not `https:` and not `*.amazonaws.com` — a `connect-src` wide enough to
+ * cover every S3 bucket on earth is a `connect-src` that has stopped doing its job. Built the same
+ * way `publicObjectUrl()` builds it, from the same three variables:
+ *
+ * - `STORAGE_ENDPOINT` set (R2, MinIO) ⇒ that origin, verbatim.
+ * - absent ⇒ AWS's virtual-hosted form, `https://<bucket>.s3.<region>.amazonaws.com`.
+ *
+ * `null` when the variables are absent — a build with no storage configured emits no entry rather
+ * than allowlisting `https://undefined.s3.undefined.amazonaws.com`.
+ */
+function storageOrigin(): string | null {
+  const endpoint = process.env.STORAGE_ENDPOINT?.trim();
+  if (endpoint) {
+    try {
+      // The origin only. The bucket path segment is irrelevant to a CSP, which matches on origin.
+      return new URL(endpoint).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  const bucket = process.env.STORAGE_BUCKET?.trim();
+  const region = process.env.STORAGE_REGION?.trim() || "us-east-1";
+  return bucket ? `https://${bucket}.s3.${region}.amazonaws.com` : null;
+}
+
+/**
  * ## The CSP decision, and the thing that decided it
  *
  * The strict answer is a per-request nonce with `'strict-dynamic'`, minted in
@@ -60,9 +112,21 @@ function contentSecurityPolicy(): string {
     // both are already allowlisted for the optimizer in `next.config.ts`.
     "img-src 'self' blob: data: https:",
     "font-src 'self' data:",
-    // The browser talks to us and to nobody else. Payment providers are called
-    // server-side; there is no client SDK to allowlist.
-    `connect-src 'self'${isDev ? " ws: wss:" : ""}`,
+    /*
+     * Us, and the storage host we upload to. See `storageOrigin()` for why the second one is not
+     * optional and what its absence broke.
+     *
+     * Payment providers are still called server-side; there is no client SDK to allowlist, and
+     * nothing else in the app talks to a third party from the browser.
+     */
+    [
+      "connect-src 'self'",
+      storageOrigin(),
+      // The dev server's HMR socket.
+      isDev ? "ws: wss:" : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
     // Nothing is embedded, and nothing embeds us. `frame-ancestors` is the
     // header that actually stops clickjacking; `X-Frame-Options` below is for
     // the browsers that predate it.

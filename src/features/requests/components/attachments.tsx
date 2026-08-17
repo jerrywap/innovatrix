@@ -51,27 +51,54 @@ export function Attachments({
     setBusy(true);
     setError(null);
 
-    const ticket = await createAttachmentUploadAction({
-      requestId,
-      filename: file.name,
-      contentType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-    });
-
-    if (!ticket.ok) {
-      setBusy(false);
-      setError(ticket.error);
-      return;
-    }
-
+    /*
+     * The mint is inside the `try` — it was outside, and that is a hang rather than an error.
+     *
+     * `!ticket.ok` was handled; the action call **rejecting** was not. The caller does
+     * `void upload(file)`, so a network failure reaching the server became an unhandled rejection:
+     * `busy` stayed true, the spinner span for ever, and nothing was ever shown. The same shape
+     * was fixed in the vendor document upload after somebody sat in it.
+     */
     try {
-      // Straight to S3 — bytes never pass through the app server (AGENTS.md).
+      const ticket = await createAttachmentUploadAction({
+        requestId,
+        filename: file.name,
+        contentType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      });
+
+      if (!ticket.ok) throw new Error(ticket.error);
+
+      /*
+       * Straight to S3 — bytes never pass through the app server (AGENTS.md) — and the one place a
+       * browser fails in a way the server never sees.
+       *
+       * `fetch` rejects with `TypeError: Failed to fetch` when nothing completed: a blocked
+       * request, no network, a refused preflight. Passing that message through tells somebody
+       * nothing they can act on, so the two cases are separated — a bad *status* is ours to
+       * explain, and no response at all is theirs to look at.
+       *
+       * The bucket's CORS is configured and measured (see `vendors/components/document-upload`),
+       * so a blocked request here is an extension, a VPN or a proxy rather than the rules.
+       */
       const response = await fetch(ticket.data.uploadUrl, {
         method: "PUT",
         headers: ticket.data.headers,
         body: file,
+      }).catch(() => {
+        throw new Error(
+          "The file never reached our storage. Something between this browser and it blocked the " +
+            "request — usually an extension, a VPN or a corporate proxy.",
+        );
       });
-      if (!response.ok) throw new Error(`Upload refused (${response.status}).`);
+
+      if (!response.ok) {
+        throw new Error(
+          response.status === 403
+            ? "That upload link had expired. Choose the file again — it is only valid for a few minutes."
+            : `Our storage refused the file (${response.status}). Nothing was saved.`,
+        );
+      }
 
       // Recorded only after the bytes landed. Attaching first would leave a row
       // pointing at an object that does not exist — the state ticket 14's

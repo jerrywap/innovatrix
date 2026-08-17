@@ -101,8 +101,10 @@ export function DocumentUpload({
      *
      * It was outside, and a failure there was unrecoverable in the worst way: the rejection was
      * unhandled (the caller does `void upload(file)`), so `busy` stayed true, the spinner spun for
-     * ever and no message appeared. Three of the four upload components in this codebase share
-     * that shape; this is the one that had somebody stuck in it.
+     * ever and no message appeared. Four of the five upload components in this codebase shared
+     * that shape — this is the one that had somebody stuck in it, and the other three
+     * (`requests/attachments`, `products/media-upload`, `payments/evidence-upload`) were fixed
+     * with it.
      */
     try {
       const ticket = await requestDocumentUploadAction({
