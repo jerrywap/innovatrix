@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { FileText } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatDateTime } from "@/lib/dates";
 import { can, requireAnyPermissionOrForbid } from "@/lib/auth/dal";
@@ -14,6 +16,7 @@ import {
   ApplicationDecision,
   VerificationDecision,
 } from "@/features/vendors/components/review-panel";
+import { VendorMoney } from "@/features/vendors/components/vendor-money";
 
 export const metadata: Metadata = { title: "Vendor" };
 
@@ -30,7 +33,11 @@ export const metadata: Metadata = { title: "Vendor" };
  * are re-checked in the actions; this only decides what is drawn.
  */
 export default async function Page({ params }: PageProps<"/staff/vendor-applications/[id]">) {
-  await requireAnyPermissionOrForbid(["vendor.review", "vendor.verify"]);
+  // Four permissions reach this screen, and each section below is gated on its own.
+  // `vendor.view_ledger` is here because `finance` may need a vendor's money without
+  // holding either review permission — a page gated more narrowly than its contents
+  // would be a 403 for somebody entitled to half of it.
+  await requireAnyPermissionOrForbid(["vendor.review", "vendor.verify", "vendor.view_ledger"]);
 
   const { id } = await params;
   const parsed = objectIdSchema.safeParse(id);
@@ -40,12 +47,28 @@ export default async function Page({ params }: PageProps<"/staff/vendor-applicat
   if (!vendor) notFound();
 
   const vendorId = String(vendor._id);
-  const [documents, members, mayReview, mayVerify, mayReadDocuments] = await Promise.all([
+  const [
+    documents,
+    members,
+    mayReview,
+    mayVerify,
+    mayReadDocuments,
+    mayReadLedger,
+    mayManageCommission,
+    mayAdjust,
+  ] = await Promise.all([
     listDocuments(vendorId),
     listMembers(vendorId),
     can("vendor.review"),
     can("vendor.verify"),
     can("vendor.view_documents"),
+    // Vendor tickets 07–08. Three permissions, read separately, because the roles
+    // that hold them barely overlap: `finance` reads the ledger and adjusts it,
+    // `marketplace_manager` sets the rate and reads the ledger, and neither is a
+    // superset of the other.
+    can("vendor.view_ledger"),
+    can("vendor.manage_commission"),
+    can("vendor.adjust_ledger"),
   ]);
 
   return (
@@ -188,6 +211,17 @@ export default async function Page({ params }: PageProps<"/staff/vendor-applicat
           </div>
         )}
       </section>
+
+      {(mayReadLedger || mayManageCommission) && (
+        <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
+          <VendorMoney
+            vendorId={vendorId}
+            canReadLedger={mayReadLedger}
+            canManageCommission={mayManageCommission}
+            canAdjust={mayAdjust}
+          />
+        </Suspense>
+      )}
 
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-[15.5px] tracking-[-0.02em]">Who has access</h2>

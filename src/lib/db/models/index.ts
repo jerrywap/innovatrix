@@ -7,6 +7,7 @@
  */
 export * from "./identity";
 export * from "./vendors";
+export * from "./ledger";
 export * from "./catalog";
 export * from "./commerce";
 export * from "./requests";

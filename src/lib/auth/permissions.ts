@@ -70,6 +70,15 @@ export const PERMISSIONS = [
   "vendor.verify",
   "vendor.view_documents",
 
+  /* Vendor money (vendor tickets 07–09). Split from the three above for the
+     same reason they are split from each other: setting a commission rate
+     changes what every future order pays, adjusting a ledger moves money on the
+     platform's own authority, and approving a payout is the point at which cash
+     actually leaves. Nobody should hold all three by accident. */
+  "vendor.manage_commission",
+  "vendor.view_ledger",
+  "vendor.adjust_ledger",
+
   /* Customers & organizations */
   "customer.view_all",
   "customer.update",
@@ -271,6 +280,10 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     "vendor.review",
     "vendor.verify",
     "vendor.view_documents",
+    // What we take is a commercial decision, so the rate sits here. Moving money
+    // — adjusting a ledger, approving a payout — does not: that is finance.
+    "vendor.manage_commission",
+    "vendor.view_ledger",
   ],
 
   finance: [
@@ -293,6 +306,11 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // vendor may sell here at all* stays commercial: no `vendor.review`.
     "vendor.verify",
     "vendor.view_documents",
+    // The ledger and the adjustments are finance's, and only finance's. An
+    // adjustment is money created or destroyed on our own authority, which is
+    // exactly the shape of thing that belongs with whoever reconciles it.
+    "vendor.view_ledger",
+    "vendor.adjust_ledger",
   ],
 
   devops: ["system.manage_jobs", "audit.view", "settings.manage", "product.view_all"],

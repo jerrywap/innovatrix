@@ -399,6 +399,14 @@ export const ADMIN_NAV: readonly NavSection[] = [
         permission: "payment_provider.configure",
       },
       {
+        // Its own item because its own permission: setting our cut is a
+        // commercial decision (`marketplace_manager`), and provider keys are not.
+        label: "Commission",
+        href: "/admin/settings/commission",
+        icon: "percent",
+        permission: "vendor.manage_commission",
+      },
+      {
         label: "Tax",
         href: "/admin/settings/tax",
         icon: "receipt",

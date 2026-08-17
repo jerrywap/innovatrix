@@ -92,6 +92,33 @@ export interface VendorDoc {
   >;
   /** Appended, never replaced. The record of what was decided outlives what was seen. */
   verificationDecisions: VendorVerificationDecision[];
+  /**
+   * This vendor's commission, overriding the platform default — vendor ticket 07.
+   *
+   * Set by **staff**, never by the vendor: every other field on their product is theirs
+   * and this one is not, which is worth stating because it is the exception. Absent ⇒
+   * the platform default.
+   *
+   * Changing it is a change of terms — notified, effective from a date, and never
+   * retroactive. The snapshot on the order line is what makes "never retroactive" true
+   * rather than promised.
+   */
+  commissionBasisPoints?: number;
+  /**
+   * Where money goes — vendor ticket 09.
+   *
+   * The one thing only an `owner` may read or write, and the reason the two-role model
+   * exists at all: a wrong price is reversible and audited; a wrong account number is
+   * money in a stranger's hands.
+   */
+  payout?: {
+    accountName?: string;
+    /** Deliberately loose — IBANs, sort codes and NUBANs have nothing in common. */
+    accountIdentifier?: string;
+    bankName?: string;
+    country?: string;
+    updatedAt?: Date;
+  };
   deletedAt: Date | null;
 }
 
@@ -154,6 +181,19 @@ const vendorSchema = new Schema<VendorDoc>(
       },
     },
     verificationDecisions: { type: [verificationDecisionSchema], default: [] },
+    commissionBasisPoints: {
+      type: Number,
+      min: 0,
+      max: 10_000,
+      validate: (v: unknown) => v == null || Number.isInteger(v),
+    },
+    payout: {
+      accountName: { type: String, trim: true },
+      accountIdentifier: { type: String, trim: true },
+      bankName: { type: String, trim: true },
+      country: { type: String, uppercase: true, trim: true },
+      updatedAt: Date,
+    },
     // Inline rather than via `softDeletable()`: that helper returns
     // `T & SchemaDefinition`, and the intersection widens every enum literal in
     // the definition to `string`, which breaks `new Schema<VendorDoc>`. `Product`

@@ -9,6 +9,8 @@ import { auditLogs } from "@/repositories/audit-log.repository";
 import { products } from "@/repositories/product.repository";
 import { writeAuditLog, type AuditActor } from "@/services/audit";
 import { emit } from "@/lib/events";
+import { Vendor } from "@/lib/db/models/vendors";
+import { VENDOR_AGREEMENT_VERSION } from "@/services/vendors/vendor-service";
 import * as productService from "./product-service";
 
 /**
@@ -79,6 +81,11 @@ export async function submit(
 
   const product = await products.findScoped(input.productId, input.scope);
   if (!product) throw new NotFoundError("product", { id: input.productId });
+
+  // After the ownership read, deliberately. A caller asking about a product that is not
+  // theirs must get the same 404 whatever the state of their own paperwork — otherwise the
+  // order of the two checks decides what a probe learns.
+  await assertAgreementCurrent(input.scope);
 
   const changedSections = await sectionsChangedSinceApproval(input.productId);
   const currentVersion = await currentVersionLabel(product);
@@ -367,4 +374,40 @@ export async function listSubmissions(limit = 100): Promise<SubmissionRow[]> {
 export async function countAwaitingReview(): Promise<number> {
   await connectToDatabase();
   return Product.countDocuments({ status: "submitted", deletedAt: null });
+}
+
+/**
+ * The agreement gate — vendor ticket 07.
+ *
+ * A new agreement version requires re-acceptance, and **submission** is where that bites:
+ * the vendor can go on servicing every customer they already have, their published products
+ * stay published, and the only thing they cannot do is put something *new* in front of our
+ * customers under terms they have not agreed. That is the softest gate that still means
+ * something, which is what the ticket asked for.
+ *
+ * Here rather than in the action, and before the ownership read, because it is a fact about
+ * the vendor rather than about the product — an action-layer check would have to be repeated
+ * on every future submission path, and the one that gets forgotten is the one that matters.
+ *
+ * A `ValidationError` rather than a `ForbiddenError`: nothing is being refused on
+ * authority, there is a specific thing to do about it, and `ActionResult` carries the
+ * message to the form.
+ */
+async function assertAgreementCurrent(scope: VendorScope): Promise<void> {
+  const vendorId = scope.vendorId?.trim();
+  // No vendor scope means a first-party product, submitted by staff. There is no agreement
+  // between Innovatrix and itself.
+  if (!vendorId) return;
+
+  const vendor = await Vendor.findById(vendorId)
+    .select({ agreement: 1 })
+    .lean<{ agreement?: { version: string } }>();
+
+  if (vendor?.agreement?.version === VENDOR_AGREEMENT_VERSION) return;
+
+  throw new ValidationError(
+    "Our vendor agreement has been updated. Accept the new version before submitting " +
+      "anything new — everything already on sale is unaffected.",
+    { agreement: ["Accept the current agreement in your selling settings."] },
+  );
 }

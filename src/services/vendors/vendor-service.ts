@@ -403,6 +403,70 @@ export async function saveProfile(
   return updated;
 }
 
+/**
+ * Accept the current agreement version — vendor ticket 07.
+ *
+ * Owner-only at the guard, because it is the owner who is bound by it. The record replaces
+ * the previous acceptance rather than appending: the audit log holds the history, and it is
+ * the collection designed for "what was true and when", so a second copy on the vendor
+ * would be a second answer to the same question.
+ *
+ * Idempotent — accepting the version already accepted is a no-op that still returns the
+ * vendor, so a double-submitted form does not need a guard of its own.
+ */
+export async function acceptAgreement(
+  vendorId: string,
+  userId: string,
+  actor: AuditActor,
+): Promise<VendorDoc> {
+  await connectToDatabase();
+
+  const before = await Vendor.findOne({ _id: toObjectId(vendorId), deletedAt: null })
+    .select({ agreement: 1 })
+    .lean<{ agreement?: { version: string } }>();
+  if (!before) throw new NotFoundError("vendor", { id: vendorId });
+
+  if (before.agreement?.version === VENDOR_AGREEMENT_VERSION) {
+    const current = await findById(vendorId);
+    if (!current) throw new NotFoundError("vendor", { id: vendorId });
+    return current;
+  }
+
+  const updated = await Vendor.findOneAndUpdate(
+    { _id: toObjectId(vendorId), deletedAt: null },
+    {
+      $set: {
+        agreement: {
+          version: VENDOR_AGREEMENT_VERSION,
+          acceptedAt: new Date(),
+          acceptedByUserId: toObjectId(userId),
+        },
+      },
+    },
+    { returnDocument: "after" },
+  ).lean<VendorDoc>();
+
+  if (!updated) throw new NotFoundError("vendor", { id: vendorId });
+
+  await writeAuditLog({
+    action: "vendor.agreement_accepted",
+    actor,
+    subject: { type: "vendor", id: vendorId },
+    // The versions themselves, not field names: which text was agreed is the whole value of
+    // the row, and it is the thing a takedown or a dispute turns on.
+    before: { version: before.agreement?.version ?? null },
+    after: { version: VENDOR_AGREEMENT_VERSION },
+    source: "vendor",
+  });
+
+  return updated;
+}
+
+/** Whether this vendor has accepted the version currently in force. */
+export function agreementIsCurrent(vendor: Pick<VendorDoc, "agreement">): boolean {
+  return vendor.agreement?.version === VENDOR_AGREEMENT_VERSION;
+}
+
 /** A vendor by id, or null. Staff-facing — no scope, by design. */
 export async function findById(vendorId: string): Promise<VendorDoc | null> {
   await connectToDatabase();

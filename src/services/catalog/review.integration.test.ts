@@ -24,6 +24,8 @@ let productView: typeof import("./product-view");
 let catalog: typeof import("@/lib/db/models/catalog");
 let communication: typeof import("@/lib/db/models/communication");
 let errors: typeof import("@/lib/errors");
+let vendors: typeof import("@/lib/db/models/vendors");
+let vendorService: typeof import("@/services/vendors/vendor-service");
 
 const VENDOR = "7b00c46f6c887b38e2f0e0a1";
 const OTHER_VENDOR = "7b00c46f6c887b38e2f0e0a2";
@@ -57,6 +59,8 @@ beforeAll(async () => {
   catalog = await import("@/lib/db/models/catalog");
   communication = await import("@/lib/db/models/communication");
   errors = await import("@/lib/errors");
+  vendors = await import("@/lib/db/models/vendors");
+  vendorService = await import("@/services/vendors/vendor-service");
 
   const { connectToDatabase } = await import("@/lib/db/client");
   await connectToDatabase();
@@ -69,6 +73,7 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
+  await vendors.Vendor.deleteMany({});
   await catalog.Product.deleteMany({});
   await catalog.ProductVersion.deleteMany({});
   await catalog.ProductFile.deleteMany({});
@@ -84,6 +89,11 @@ afterEach(async () => {
  * is a publishable one.
  */
 async function seedReadyProduct(overrides: Record<string, unknown> = {}) {
+  // The vendor itself, with the agreement in force accepted — vendor ticket 07 gates
+  // submission on it, so a fixture without a vendor is a fixture that cannot submit. Which
+  // is correct behaviour, and the reason this appeared here rather than in production.
+  await seedVendor(vendorService.VENDOR_AGREEMENT_VERSION);
+
   await catalog.Product.create({
     _id: PRODUCT,
     name: "Northwind Dispatch",
@@ -144,6 +154,29 @@ async function seedReadyProduct(overrides: Record<string, unknown> = {}) {
     contentType: "application/zip",
     sizeBytes: 1024,
     scanStatus: "pending",
+  });
+}
+
+/** The vendor row, accepting the given agreement version — `null` for never accepted. */
+async function seedVendor(agreementVersion: string | null) {
+  await vendors.Vendor.create({
+    _id: VENDOR,
+    displayName: "Northwind Labs",
+    slug: "northwind-labs",
+    contactEmail: "ada@northwind.test",
+    country: "GB",
+    status: "verified",
+    pitch: "We build dispatch tooling for small distributors.",
+    appliedAt: new Date(),
+    ...(agreementVersion
+      ? {
+          agreement: {
+            version: agreementVersion,
+            acceptedAt: new Date(),
+            acceptedByUserId: VENDOR_USER,
+          },
+        }
+      : {}),
   });
 }
 
@@ -236,6 +269,80 @@ describe("submitting", () => {
 });
 
 /* ────────────────────────────────────────────── the ceiling on a vendor */
+
+/**
+ * The agreement gate — vendor ticket 07.
+ *
+ * "A new agreement version blocks new submissions until accepted, without affecting products
+ * already on sale." Both halves are asserted, because the second is the one that would go
+ * unnoticed: a gate that also stopped an existing product selling would be a much harder
+ * change of terms than the one we told the vendor about.
+ */
+describe("a stale agreement blocks a new submission", () => {
+  it("refuses the submission and says what to do", async () => {
+    await seedReadyProduct();
+    await vendors.Vendor.updateOne(
+      { _id: VENDOR },
+      { $set: { "agreement.version": "2020-01-01" } },
+    );
+
+    await expect(submit()).rejects.toBeInstanceOf(errors.ValidationError);
+    await expect(submit()).rejects.toThrow(/agreement/i);
+
+    // Nothing moved.
+    const product = await catalog.Product.findById(PRODUCT).lean();
+    expect(product!.status).toBe("draft");
+    expect(product!.reviewNotes).toEqual([]);
+  });
+
+  it("refuses when no agreement was ever recorded", async () => {
+    await seedReadyProduct();
+    await vendors.Vendor.updateOne({ _id: VENDOR }, { $unset: { agreement: "" } });
+
+    await expect(submit()).rejects.toBeInstanceOf(errors.ValidationError);
+  });
+
+  it("lets the submission through once the new version is accepted", async () => {
+    await seedReadyProduct();
+    await vendors.Vendor.updateOne(
+      { _id: VENDOR },
+      { $set: { "agreement.version": "2020-01-01" } },
+    );
+    await expect(submit()).rejects.toBeInstanceOf(errors.ValidationError);
+
+    await vendorService.acceptAgreement(VENDOR, VENDOR_USER, VENDOR_ACTOR);
+
+    const product = await submit();
+    expect(product.status).toBe("submitted");
+  });
+
+  /** A published product is untouched by a stale agreement. */
+  it("leaves a product already on sale alone", async () => {
+    await seedReadyProduct({ status: "published", publishedAt: new Date() });
+    await vendors.Vendor.updateOne(
+      { _id: VENDOR },
+      { $set: { "agreement.version": "2020-01-01" } },
+    );
+
+    const product = await catalog.Product.findById(PRODUCT).lean();
+    expect(product!.status).toBe("published");
+
+    // And the vendor-facing read still works — nothing is hidden from them.
+    expect(productView.toVendorReviewNotes(product!)).toBeTruthy();
+  });
+
+  /** A first-party product has no agreement to be stale. */
+  it("does not gate a staff submission with no vendor scope", async () => {
+    await seedReadyProduct();
+    await catalog.Product.updateOne({ _id: PRODUCT }, { $unset: { vendorId: "" } });
+
+    const product = await reviewService.submit(
+      { productId: PRODUCT, scope: {}, attested: true },
+      { ...STAFF_ACTOR, userId: STAFF },
+    );
+    expect(product.status).toBe("submitted");
+  });
+});
 
 describe("what a vendor cannot do", () => {
   it("cannot publish, however the transition is called", async () => {

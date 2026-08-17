@@ -402,9 +402,9 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 | 20.3 | Two vendor roles (`owner`/`member`), invitations in our own `VendorInvitation` collection | [x] | [x] | vendor 03 | ← the `Verification` "rails" the ticket assumed do not exist — Better Auth owns that collection outright
 | 20.4 | Product ownership (`vendorId`), vendor authoring workspace, vendor facet | [x] | [~] | vendor 04 | ← nine of ten wizard steps; **versions deferred to vendor 06**, which owns delivery methods and has to scope ticket 07's file actions anyway
 | 20.5 | Submission, staff review, rejection reasons, resubmission | [x] | [x] | vendor 05 | ← `PRODUCT_TRANSITION_RULES` as data, replacing an ad-hoc ternary that existed twice
-| 20.6 | Delivery: platform archive **first**, then vendor-hosted mirror and repository-pulled release | [ ] | [ ] | vendor 06 |
-| 20.7 | Configurable commission (platform → vendor), snapshot on the order line | [ ] | [ ] | vendor 07 |
-| 20.8 | Append-only earnings ledger, clearance, refund clawback | [ ] | [ ] | vendor 08 |
+| 20.6 | Delivery: platform archive **first**, then vendor-hosted mirror and repository-pulled release | [x] | [x] | vendor 06 | ← all three methods; scanning is still the `scanStatus` seam, so "cannot release until it passes a scan" is not claimed
+| 20.7 | Configurable commission (platform → vendor), snapshot on the order line | [x] | [x] | vendor 07 | ← `/admin/settings/commission` as its own route: the payments page is gated on `payment_provider.configure`, which the role that sets our cut does not hold
+| 20.8 | Append-only earnings ledger, clearance, refund clawback | [x] | [x] | vendor 08 | ← the 14-day refund window existed only as prose; this introduces the constant and asserts clearance exceeds it. Statements deferred to 20.9, which owns them
 | 20.9 | Payouts, `PayoutProvider` interface, batches, self-billed statements | [ ] | [ ] | vendor 09 |
 | 20.10 | Purchase-gated ratings and reviews, moderation, `AggregateRating` | [ ] | [ ] | vendor 10 |
 | 20.11 | Public vendor storefront, attribution, dynamic JSON-LD `seller` | [ ] | [ ] | vendor 11 |

@@ -4,6 +4,7 @@ import {
   VENDOR_ROLES,
   VENDOR_VERIFICATION_LEVELS,
 } from "@/lib/db/enums";
+import { CURRENCY_CODES } from "@/lib/money";
 import { emailSchema, objectIdSchema, optionalText } from "@/validators/common";
 
 /**
@@ -94,6 +95,55 @@ export const verificationDecisionSchema = z.object({
   level: z.enum(VENDOR_VERIFICATION_LEVELS),
   outcome: z.enum(["approved", "rejected"]),
   note: optionalText(1000),
+});
+
+/* ────────────────────────────────────────────── money (tickets 07–08) */
+
+/**
+ * A percentage on screen, basis points in the database.
+ *
+ * Nobody types "3000" to mean 30%, and asking them to is how a rate ends up a hundred
+ * times wrong. So the form takes a percentage with up to two decimals and this converts
+ * — `Math.round` on a value already bounded to two places, which is exact for every
+ * input the field accepts.
+ */
+export const commissionRateSchema = z.object({
+  percent: z.coerce
+    .number()
+    .min(0, "A rate cannot be negative.")
+    .max(100, "A rate cannot exceed 100%.")
+    .refine((value) => Number.isFinite(value), "Not a number."),
+});
+
+export const platformCommissionSchema = commissionRateSchema;
+
+/**
+ * A vendor override, where **empty means "follow the platform"**.
+ *
+ * That is a different state from "set to the current default": cleared means a later
+ * platform change carries this vendor with it, and the two must not be collapsed into one
+ * field that cannot express the difference.
+ */
+export const vendorCommissionSchema = z.object({
+  vendorId: objectIdSchema,
+  percent: z
+    .union([z.literal(""), z.coerce.number().min(0).max(100)])
+    .transform((value) => (value === "" ? null : value)),
+});
+
+export const ledgerAdjustmentSchema = z.object({
+  vendorId: objectIdSchema,
+  currency: z.enum(CURRENCY_CODES),
+  /**
+   * A decimal amount, signed. Negative is a deduction — a chargeback fee, a correction
+   * against the vendor — and the form says so, because a finance user who has to enter a
+   * deduction as a positive number in a field labelled "credit" will eventually enter the
+   * wrong sign.
+   */
+  amount: z.coerce
+    .number()
+    .refine((value) => value !== 0, "An adjustment of zero changes nothing."),
+  note: z.string().trim().min(1, "Say why. Somebody will read this a year from now.").max(500),
 });
 
 export type VendorApplicationInput = z.infer<typeof vendorApplicationSchema>;

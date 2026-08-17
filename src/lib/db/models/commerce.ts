@@ -96,6 +96,26 @@ export interface OrderItem {
   quantity: number;
   unitPrice: MoneyDocument;
   lineTotal: MoneyDocument;
+  /**
+   * Who sells this line — vendor ticket 07. Absent ⇒ first-party.
+   *
+   * On the *line*, not the order: an order can mix a vendor's product with one of ours,
+   * and with an add-on that belongs to neither.
+   */
+  vendorId?: Types.ObjectId;
+  /**
+   * The commission rate **resolved at checkout and never re-read**.
+   *
+   * This is the whole point of the field. A rate change must never rewrite what a vendor
+   * earned last month, and resolving at payout time would do exactly that — silently,
+   * and in the platform's favour, which is the worst possible direction for a mistake in
+   * a revenue share. §61 already freezes a historical price; a rate is the same kind of
+   * fact and gets the same treatment.
+   *
+   * Basis points, so 3000 is 30% and every calculation is integer. A percentage held as
+   * `0.3` is the same mistake as a price held as a float.
+   */
+  commissionBasisPoints?: number;
 }
 
 /**
@@ -204,6 +224,15 @@ const orderItemSchema = new Schema(
     quantity: { type: Number, required: true, min: 1 },
     unitPrice: { type: MoneySchema, required: true },
     lineTotal: { type: MoneySchema, required: true },
+    // Vendor ticket 07. Absent on a first-party line, and absence is the only signal —
+    // no sentinel vendor, no `commissionBasisPoints: 0` meaning "ours".
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
+    commissionBasisPoints: {
+      type: Number,
+      min: 0,
+      max: 10_000,
+      validate: (v: unknown) => v == null || Number.isInteger(v),
+    },
   },
   { _id: false },
 );
@@ -603,6 +632,19 @@ export const Download = defineModel<DownloadDoc>("Download", downloadSchema);
 
 /* ────────────────────────────────────────────── PaymentSettings */
 
+/**
+ * The platform's default commission — vendor ticket 07.
+ *
+ * On `PaymentSettings` rather than a collection of its own: it is one number, it is
+ * platform-wide, and it belongs beside the tax and payment configuration a person is
+ * already looking at when they think about what the platform takes.
+ *
+ * A vendor override lives on the `Vendor`. Two levels, not three — vendor ticket 07
+ * dropped the per-product level as the one with the least demand and the most
+ * explaining, and `resolveCommission()` is written so a third is additive.
+ */
+export const DEFAULT_COMMISSION_BASIS_POINTS = 3000;
+
 export interface PaymentSettingsDoc {
   _id: Types.ObjectId;
   singleton: "global";
@@ -630,6 +672,8 @@ export interface PaymentSettingsDoc {
   offlineInstructions?: string;
   /** Off ⇒ the option is not offered at checkout at all. */
   offlineEnabled: boolean;
+  /** Vendor ticket 07. Absent ⇒ `DEFAULT_COMMISSION_BASIS_POINTS`. */
+  commissionBasisPoints?: number;
   updatedByUserId?: Types.ObjectId;
 }
 
@@ -668,6 +712,14 @@ const paymentSettingsSchema = new Schema<PaymentSettingsDoc>(
     // Default on: the machinery exists, and a platform that cannot take a bank
     // transfer is the state this ticket set out to fix.
     offlineEnabled: { type: Boolean, default: true },
+    // Vendor ticket 07. Same validator set as `TaxRuleDoc.basisPoints` — an integer,
+    // 0..10000, because a rate held as a float is the mistake §84 settled for money.
+    commissionBasisPoints: {
+      type: Number,
+      min: 0,
+      max: 10_000,
+      validate: (v: unknown) => v == null || Number.isInteger(v),
+    },
     updatedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
   },
   schemaOptions({ collection: "paymentSettings" }),

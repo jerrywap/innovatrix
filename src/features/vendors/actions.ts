@@ -117,6 +117,37 @@ export async function saveProfileAction(
   });
 }
 
+/**
+ * Accept the current agreement version — vendor ticket 07.
+ *
+ * Owner-only: it is the owner who is bound by the terms, and a `member` invited to help with
+ * products has no business agreeing to them on somebody else's behalf.
+ *
+ * No form fields at all beyond the submit — the version in force is a server fact, and
+ * taking it from the request would let a caller accept a version that no longer exists.
+ */
+export async function acceptAgreementAction(
+  // Both parameters are unused and both must stay: `useActionState` calls an action with
+  // `(previousState, formData)`, and there is deliberately no field to read — see above.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _previous: ActionResult<unknown> | null,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _formData: FormData,
+): Promise<ActionResult<{ accepted: true }>> {
+  return withAction(async () => {
+    const context = await requireVendorOwner();
+
+    await vendorService.acceptAgreement(
+      context.vendorId,
+      context.user.id,
+      vendorActor(context.user, context.vendorId),
+    );
+
+    refreshSelling();
+    return ok({ accepted: true as const });
+  });
+}
+
 /* ────────────────────────────────────────────── team */
 
 /**

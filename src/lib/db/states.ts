@@ -7,6 +7,7 @@ import type {
   ProductStatus,
   ProductVersionStatus,
   QuoteStatus,
+  PayoutStatus,
   RequestStatus,
   VendorStatus,
 } from "./enums";
@@ -80,6 +81,29 @@ export const VENDOR_TRANSITIONS: TransitionMap<VendorStatus> = {
   suspended: ["verified", "offboarded"],
   rejected: [],
   offboarded: [],
+};
+
+/**
+ * A payout's life — vendor ticket 09.
+ *
+ * `draft → approved` is a human decision and stays one. Money leaving the platform on a
+ * schedule with nobody looking is not a feature: a batch is prepared automatically and
+ * released deliberately.
+ *
+ * `failed → approved` rather than `failed → draft`: a failed transfer has already been
+ * approved once and nothing about the decision changed — the bank did. Sending it back to
+ * `draft` would ask somebody to re-approve a payment they already approved, which is how
+ * approval becomes a formality.
+ *
+ * `paid` is terminal. Un-paying is not a state change; it is a new negative entry.
+ */
+export const PAYOUT_TRANSITIONS: TransitionMap<PayoutStatus> = {
+  draft: ["approved", "cancelled"],
+  approved: ["sending", "cancelled"],
+  sending: ["paid", "failed"],
+  failed: ["approved", "cancelled"],
+  paid: [],
+  cancelled: [],
 };
 
 /**
@@ -622,6 +646,7 @@ export const STATE_MACHINES = {
   quote: QUOTE_TRANSITIONS,
   invoice: INVOICE_TRANSITIONS,
   vendor: VENDOR_TRANSITIONS,
+  payout: PAYOUT_TRANSITIONS,
 } as const;
 
 export type StateMachineName = keyof typeof STATE_MACHINES;

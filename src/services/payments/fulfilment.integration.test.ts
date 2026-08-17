@@ -20,6 +20,8 @@ let commerce: typeof import("@/lib/db/models/commerce");
 
 const ORG = "6a80c46f6c887b38e2f0e0b4";
 const USER = "6a80c46f6c887b38e2f0e0b2";
+/** Vendor ticket 08 — the seller on the vendor-line fixtures below. */
+const VENDOR = "6a80c46f6c887b38e2f0e0b5";
 const ACTOR = { type: "system" } as const;
 
 beforeAll(async () => {
@@ -66,6 +68,9 @@ afterEach(async () => {
     commerce.Licence.deleteMany({}),
     commerce.Cart.deleteMany({}),
     commerce.WebhookEvent.deleteMany({}),
+    // Through the driver, not the model: ledger deletion is refused there by design
+    // (vendor ticket 08), and relaxing that for a test would remove the guarantee.
+    mongoose.connection.collection("ledgerEntries").deleteMany({}),
     mongoose.connection.collection("auditLogs").deleteMany({}),
     mongoose.connection.collection("activityEvents").deleteMany({}),
   ]);
@@ -602,6 +607,53 @@ describe("offline payment — the transfer route", () => {
     expect(isValidLicenceKeyFormat(licence!.key)).toBe(true);
   });
 
+  /**
+   * Vendor ticket 08's criterion, stated as a test rather than as "same function".
+   *
+   * A bank transfer has no provider behind it, which is exactly why this is worth
+   * asserting: if the earning had been written by a provider webhook handler rather than by
+   * fulfilment, a vendor selling to a customer who pays by transfer would never be paid, and
+   * nothing would look broken.
+   */
+  it("writes the vendor's earning for a recorded transfer, like any other payment", async () => {
+    const order = await offlineOrder(10_000);
+    await commerce.Order.updateOne(
+      { _id: order._id },
+      {
+        $set: {
+          "items.0.vendorId": new mongoose.Types.ObjectId(VENDOR),
+          "items.0.commissionBasisPoints": 3000,
+        },
+      },
+    );
+
+    const payment = await commerce.Payment.create({
+      reference: `PAY-2026-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+      organizationId: new mongoose.Types.ObjectId(ORG),
+      provider: "manual",
+      providerRef: `manual-${Math.random().toString(36).slice(2, 12)}`,
+      subjectType: "order",
+      subjectId: order._id,
+      amount: order.total,
+      status: "pending",
+      recordedByUserId: new mongoose.Types.ObjectId(USER),
+    });
+
+    await fulfilment.processPaymentSucceeded({
+      provider: "manual",
+      providerRef: payment.providerRef,
+      source: `manual:${USER}`,
+      actor: ACTOR,
+      skipVerification: true,
+    });
+
+    const entries = await mongoose.connection.collection("ledgerEntries").find({}).toArray();
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.amount).toMatchObject({ amount: 7_000, currency: "GBP" });
+    expect(entries[0]!.status).toBe("pending");
+  });
+
   it("refuses a mismatched amount without fulfilling anything", async () => {
     // A staff typo must not create licences. There is no provider to catch it,
     // so this check is the only thing standing between a fat finger and a
@@ -693,5 +745,127 @@ describe("offline payment — the transfer route", () => {
     const stored = await commerce.Payment.findById(payment._id).lean();
     expect(stored!.evidence!.storageKey).toMatch(/^innovatrix\//);
     expect(JSON.stringify(stored!.evidence)).not.toMatch(/https?:\/\//);
+  });
+});
+
+/* ────────────────────────────────────────────── the vendor's earning */
+
+/** A payable order whose single line belongs to a vendor at 30%. */
+async function vendorOrder(total = 10_000) {
+  const { order, payment } = await paidableOrder(total, 1);
+
+  await commerce.Order.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        "items.0.vendorId": new mongoose.Types.ObjectId(VENDOR),
+        "items.0.commissionBasisPoints": 3000,
+      },
+    },
+  );
+
+  return { order, payment };
+}
+
+/**
+ * Vendor ticket 08 — the earning is written by fulfilment, or it is not written at all.
+ *
+ * These live here rather than in `ledger.integration.test.ts` because the claim is about
+ * *fulfilment*: that the earning shares the entitlement's transaction and the payment's
+ * idempotency guards. Testing `recordEarnings` in isolation proves the arithmetic; only this
+ * proves a retried webhook cannot pay a vendor twice.
+ */
+describe("a vendor's earning rides the fulfilment transaction", () => {
+  it("writes one earning when the order is paid", async () => {
+    const { payment } = await vendorOrder();
+    stubVerify({ status: "succeeded", amount: 10_000 });
+
+    await succeed(payment);
+
+    const entries = await mongoose.connection.collection("ledgerEntries").find({}).toArray();
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.kind).toBe("earning");
+    expect(entries[0]!.amount).toMatchObject({ amount: 7_000, currency: "GBP" });
+    expect(entries[0]!.status).toBe("pending");
+    expect(String(entries[0]!.vendorId)).toBe(VENDOR);
+  });
+
+  it("writes nothing for a first-party order", async () => {
+    const { payment } = await paidableOrder(10_000, 1);
+    stubVerify({ status: "succeeded", amount: 10_000 });
+
+    await succeed(payment);
+
+    expect(await mongoose.connection.collection("ledgerEntries").countDocuments({})).toBe(0);
+  });
+
+  /** The retried-webhook case, through the real path rather than the service alone. */
+  it("produces one earning across five deliveries", async () => {
+    const { payment } = await vendorOrder();
+    stubVerify({ status: "succeeded", amount: 10_000 });
+
+    for (let attempt = 0; attempt < 5; attempt += 1) await succeed(payment);
+
+    expect(await mongoose.connection.collection("ledgerEntries").countDocuments({})).toBe(1);
+  });
+
+  it("produces one earning across five simultaneous deliveries", async () => {
+    const { payment } = await vendorOrder();
+    stubVerify({ status: "succeeded", amount: 10_000 });
+
+    await Promise.allSettled(Array.from({ length: 5 }, () => succeed(payment)));
+
+    expect(await mongoose.connection.collection("ledgerEntries").countDocuments({})).toBe(1);
+  });
+
+  /**
+   * A rolled-back fulfilment leaves **no** ledger entry.
+   *
+   * The criterion the ticket states, and the reason the write is inside the transaction
+   * rather than after it. The failure is injected where a real one would land — the
+   * entitlement write — so the earning is already in the session when the abort happens.
+   */
+  it("leaves no entry when the transaction rolls back", async () => {
+    const { payment } = await vendorOrder();
+    stubVerify({ status: "succeeded", amount: 10_000 });
+
+    const boom = vi
+      .spyOn(commerce.Licence, "create")
+      .mockRejectedValue(new Error("injected failure"));
+
+    await expect(succeed(payment)).rejects.toThrow(/injected failure/);
+    boom.mockRestore();
+
+    expect(await mongoose.connection.collection("ledgerEntries").countDocuments({})).toBe(0);
+
+    // And the payment is back to `pending` so the sweep retries — the existing
+    // behaviour, restated here because the earning now depends on it.
+    const after = await commerce.Payment.findById(payment._id).lean();
+    expect(after!.status).toBe("pending");
+  });
+
+  /** A refund reverses it, through the same path a provider webhook takes. */
+  it("claws the earning back on a refund", async () => {
+    const { payment } = await vendorOrder();
+    stubVerify({ status: "succeeded", amount: 10_000 });
+    await succeed(payment);
+
+    await fulfilment.processPaymentRefunded({
+      provider: "stripe",
+      providerRef: payment.providerRef,
+      source: "webhook",
+      actor: ACTOR,
+    });
+
+    const entries = await mongoose.connection
+      .collection("ledgerEntries")
+      .find({})
+      .sort({ kind: 1 })
+      .toArray();
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["earning", "refund"]);
+    expect(entries.find((entry) => entry.kind === "earning")!.status).toBe("reversed");
+    expect(entries.find((entry) => entry.kind === "refund")!.amount.amount).toBe(-7_000);
   });
 });

@@ -2,6 +2,7 @@ import "server-only";
 import { defineJob } from "../registry";
 import { PermanentJobError } from "../types";
 import { log } from "@/lib/logger";
+import { clearDueEarnings } from "@/services/vendors/ledger-service";
 
 /**
  * Vendor jobs — vendor ticket 06.
@@ -52,4 +53,27 @@ export function registerVendorJobs(): void {
     },
     { maxAttempts: 5, backoffMs: 5 * 60_000, backoffCapMs: 6 * 3_600_000 },
   );
+
+  /**
+   * Vendor ticket 08 — earnings whose clearance date has passed become payable.
+   *
+   * **Idempotent by its filter** rather than by a marker: `{ status: "pending", clearsAt:
+   * { $lte: now } }` finds nothing the second time it runs, so a double tick, a manual
+   * "run now" on `/admin/jobs` and a retry after a crash all produce the same ledger.
+   *
+   * Unbounded on purpose, unlike the reminder sweeps: this is one indexed `updateMany`
+   * over `{status, clearsAt}` rather than a per-document loop that sends an email, and a
+   * `BATCH` cap would mean some vendors' money cleared a day late for no reason a vendor
+   * could be told.
+   *
+   * Never retried, and it does not need to be — tomorrow's tick clears whatever today's
+   * missed, and being one day late is the failure mode rather than money being lost.
+   */
+  defineJob("clear-vendor-earnings", async () => {
+    const { cleared } = await clearDueEarnings();
+
+    if (cleared > 0) {
+      log.info("Vendor earnings cleared", { code: "vendor_ledger.cleared", cleared });
+    }
+  });
 }

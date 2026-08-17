@@ -44,6 +44,11 @@ export const SCHEDULE: readonly ScheduledJob[] = [
   { name: "expire-quotes", everyMinutes: 24 * 60 },
   { name: "send-invoice-reminders", everyMinutes: 24 * 60 },
   { name: "send-followup-reminders", everyMinutes: 24 * 60 },
+
+  // Daily for the same reason, and clearance is a date passing by definition. A
+  // vendor's money becoming payable a few hours after midnight rather than at it
+  // is not a difference anybody can act on — the payout batch is monthly.
+  { name: "clear-vendor-earnings", everyMinutes: 24 * 60 },
 ];
 
 export interface ScheduleTickResult {

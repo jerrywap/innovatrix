@@ -29,6 +29,8 @@ export function SellingNav({ isOwner }: { isOwner: boolean }) {
 
   const items: ReadonlyArray<{ label: string; href: Route; segment: string | null }> = [
     { label: "Overview", href: "/dashboard/selling", segment: null },
+    { label: "Products", href: "/dashboard/selling/products", segment: "products" },
+    { label: "Earnings", href: "/dashboard/selling/earnings", segment: "earnings" },
     { label: "Verification", href: "/dashboard/selling/verification", segment: "verification" },
     ...(isOwner
       ? ([

@@ -46,6 +46,8 @@ let catalog: typeof import("@/lib/db/models/catalog");
 let errors: typeof import("@/lib/errors");
 let scope: typeof import("@/lib/auth/scope");
 let productService: typeof import("@/services/catalog/product-service");
+let ledger: typeof import("@/services/vendors/ledger-service");
+let moneyLib: typeof import("@/lib/money");
 
 /** Org A owns everything. Org B is authenticated and is the attacker. */
 /* Vendor ticket 04 — a second axis of tenancy beside the organisation one. */
@@ -87,6 +89,8 @@ beforeAll(async () => {
   messagingService = await import("@/services/messaging/messaging-service");
   aiConversations = await import("@/services/ai/conversation-service");
   productService = await import("@/services/catalog/product-service");
+  ledger = await import("@/services/vendors/ledger-service");
+  moneyLib = await import("@/lib/money");
 
   billing = await import("@/lib/db/models/billing");
   commerce = await import("@/lib/db/models/commerce");
@@ -561,5 +565,42 @@ describe("AI conversations", () => {
         anonymousKey: "cold-visitor-cookie",
       }),
     ).resolves.toBeTruthy();
+  });
+});
+
+/**
+ * Vendor ticket 08 — the ledger is the same axis, and the highest stakes on it.
+ *
+ * A product leak shows somebody a draft. A **ledger** leak shows one vendor what another
+ * earns, which is commercially confidential in a way a product description is not, and it is
+ * the one screen where the answer is a number rather than a page.
+ *
+ * The empty-scope cases are here rather than only in `ledger.integration.test.ts` for the
+ * reason this whole file exists: the question is "is there any scoped resource that doesn't
+ * scope", and a resource whose only isolation test lives in its own suite is a resource
+ * nobody will notice is missing from this list.
+ */
+describe("Vendor B is refused Vendor A's money", () => {
+  it("has a real fixture — the control", async () => {
+    await ledger.recordAdjustment(
+      { vendorId: VENDOR_A, amount: moneyLib.money(4_200, "GBP"), note: "A's credit." },
+      { type: "staff", userId: USER_A, name: "Ana" },
+    );
+
+    const [balance] = await ledger.balanceFor({ vendorId: VENDOR_A });
+    expect(balance!.cleared).toBe(4_200);
+  });
+
+  it("shows Vendor B nothing of it", async () => {
+    expect(await ledger.balanceFor({ vendorId: VENDOR_B })).toEqual([]);
+    expect(await ledger.listEntries({ vendorId: VENDOR_B })).toEqual([]);
+    expect(await ledger.clearedEntriesFor(VENDOR_B, "GBP")).toEqual([]);
+  });
+
+  it("refuses an empty vendor scope rather than widening to every vendor", async () => {
+    await expect(ledger.balanceFor({ vendorId: "" })).rejects.toBeInstanceOf(scope.ScopeError);
+    await expect(ledger.listEntries({ vendorId: "   " })).rejects.toBeInstanceOf(
+      scope.ScopeError,
+    );
   });
 });

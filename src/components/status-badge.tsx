@@ -16,6 +16,8 @@ import {
   VENDOR_INVITATION_STATUSES,
   VENDOR_STATUSES,
   VENDOR_VERIFICATION_STATUSES,
+  LEDGER_ENTRY_STATUSES,
+  PAYOUT_STATUSES,
 } from "@/lib/db/enums";
 
 /**
@@ -141,6 +143,14 @@ const STATUS_TONES: Record<string, StatusTone> = {
   verified: "positive",
   offboarded: "muted",
   unstarted: "neutral",
+
+  /* money owed and money sent — vendor tickets 08, 09. `cleared` is progress rather than
+     positive: the vendor is owed it and has not been paid, so it is not settled yet.
+     `reversed` is muted rather than negative — a refund reversing an unpaid earning is
+     ordinary commerce, not a failure. */
+  cleared: "progress",
+  reversed: "muted",
+  sending: "progress",
 };
 
 /**
@@ -221,6 +231,8 @@ const ALL_STATUS_ENUMS: ReadonlyArray<readonly string[]> = [
   VENDOR_STATUSES,
   VENDOR_INVITATION_STATUSES,
   VENDOR_VERIFICATION_STATUSES,
+  LEDGER_ENTRY_STATUSES,
+  PAYOUT_STATUSES,
 ];
 
 /**

@@ -56,6 +56,16 @@ export interface JobPayloadMap {
    * release whose mirror failed never looks like a release.
    */
   "mirror-vendor-artefact": { versionId: string };
+
+  /**
+   * Vendor ticket 08 — `pending` earnings whose `clearsAt` has passed → `cleared`.
+   *
+   * The one thing that turns an earning into money a vendor may be paid, and the reason
+   * `clearsAt` is stored rather than computed on read: a payout has to claim specific
+   * entries, and "cleared" has to be a fact in the collection for a claim to be
+   * reconcilable.
+   */
+  "clear-vendor-earnings": Record<string, never>;
 }
 
 /*

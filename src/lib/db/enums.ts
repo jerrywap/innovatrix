@@ -104,6 +104,52 @@ export const VENDOR_VERIFICATION_STATUSES = values([
 ] as const);
 export type VendorVerificationStatus = (typeof VENDOR_VERIFICATION_STATUSES)[number];
 
+/**
+ * A ledger entry's kind — vendor ticket 08.
+ *
+ * Signed amounts: earnings and adjustments-up positive, refunds and payouts negative. One
+ * collection rather than four, because a balance is the sum of its history and a history
+ * split across tables is one somebody has to reassemble to answer "how much do we owe".
+ */
+export const LEDGER_ENTRY_KINDS = values([
+  "earning",
+  "refund",
+  "adjustment",
+  "payout",
+] as const);
+export type LedgerEntryKind = (typeof LEDGER_ENTRY_KINDS)[number];
+
+/**
+ * Where one entry is in its life.
+ *
+ * `pending` → `cleared` on the clearance sweep, `cleared` → `paid` when a payout settles
+ * it. `reversed` is for an entry a refund cancelled before it ever cleared.
+ */
+export const LEDGER_ENTRY_STATUSES = values([
+  "pending",
+  "cleared",
+  "paid",
+  "reversed",
+] as const);
+export type LedgerEntryStatus = (typeof LEDGER_ENTRY_STATUSES)[number];
+
+/**
+ * A payout's life — vendor ticket 09.
+ *
+ * `draft → approved` is a human decision and stays one: money leaving the platform on a
+ * schedule with nobody looking is not a feature. A batch is *prepared* automatically and
+ * *released* deliberately.
+ */
+export const PAYOUT_STATUSES = values([
+  "draft",
+  "approved",
+  "sending",
+  "paid",
+  "failed",
+  "cancelled",
+] as const);
+export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
+
 export const VENDOR_DOCUMENT_KINDS = values([
   "government_id",
   "proof_of_address",

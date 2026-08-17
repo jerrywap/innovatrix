@@ -3,7 +3,7 @@
  *
  *   npm run vendors:probe
  *
- * Vendor tickets 01–03. The integration suite proves the same rules against an
+ * Vendor tickets 01–08. The integration suite proves the same rules against an
  * ephemeral replica set; this runs them against the database the dev server
  * actually reads, so the screens can be opened afterwards and looked at. That is
  * the gap it fills — a test can assert a status field, and only a person can tell
@@ -382,6 +382,108 @@ async function main() {
     ? pass("approved into internal_review — not straight onto sale")
     : fail(`expected internal_review, got ${approved!.status}`);
 
+  /* 6. the money — vendor tickets 07 and 08 */
+
+  console.log("\ncommission and earnings");
+
+  const commission = await import("@/services/vendors/commission-service");
+  const ledger = await import("@/services/vendors/ledger-service");
+  const { Order } = await import("@/lib/db/models/commerce");
+  const { LedgerEntry } = await import("@/lib/db/models/ledger");
+
+  // Previous runs, cleaned through the driver: deletion is refused on the model by design,
+  // and relaxing that for a probe would remove the guarantee it is meant to demonstrate.
+  await LedgerEntry.collection.deleteMany({ vendorId: vendor._id });
+  await Order.deleteMany({ reference: "ORD-PROBE-0001" });
+
+  await commission.setVendorCommission(id, 2500, staff(userId));
+  const rate = await commission.resolveCommissionForVendor(id);
+  rate.basisPoints === 2500 && rate.source === "vendor"
+    ? pass(`the vendor override wins — ${commission.formatRate(rate.basisPoints)}`)
+    : fail(`expected a 2500 vendor rate, got ${rate.basisPoints} from ${rate.source}`);
+
+  await commission.setVendorCommission(id, null, staff(userId));
+  const cleared = await commission.resolveCommissionForVendor(id);
+  cleared.source === "platform"
+    ? pass(
+        `cleared, so the platform rate applies — ${commission.formatRate(cleared.basisPoints)}`,
+      )
+    : fail("clearing the override did not fall back to the platform rate");
+
+  // A paid order carrying one of this vendor's lines. Written directly rather than through
+  // checkout: the probe is about the ledger, and `checkout.integration.test.ts` owns the
+  // question of whether the snapshot lands.
+  const [order] = await Order.create([
+    {
+      reference: "ORD-PROBE-0001",
+      organizationId: userId,
+      userId,
+      currency: "GBP",
+      items: [
+        {
+          lineId: "line-1",
+          kind: "product_licence",
+          productId,
+          productName: "Brightpath Dispatch",
+          productSlug: "brightpath-dispatch",
+          quantity: 1,
+          unitPrice: { amount: 10_000, currency: "GBP" },
+          lineTotal: { amount: 10_000, currency: "GBP" },
+          vendorId: vendor._id,
+          commissionBasisPoints: cleared.basisPoints,
+        },
+      ],
+      subtotal: { amount: 10_000, currency: "GBP" },
+      total: { amount: 10_000, currency: "GBP" },
+      status: "paid",
+      paidAt: new Date(),
+      billingSnapshot: { country: "GB" },
+      paymentMethod: "online",
+    },
+  ]);
+
+  const { written } = await ledger.recordEarnings(order!.toObject(), undefined);
+  written === 1 ? pass("one earning written for the vendor line") : fail("no earning written");
+
+  try {
+    await ledger.recordEarnings(order!.toObject(), undefined);
+    fail("a second earning was written for the same line");
+  } catch {
+    pass("a retried write is refused by the unique index");
+  }
+
+  const [balance] = await ledger.balanceFor({ vendorId: id });
+  const expected = 10_000 - Math.round((10_000 * cleared.basisPoints) / 10_000);
+  balance?.pending === expected
+    ? pass(`pending balance is ${expected} minor units, and nothing is payable yet`)
+    : fail(`expected ${expected} pending, got ${balance?.pending}`);
+
+  balance?.cleared === 0
+    ? pass("nothing clears before its date, so nothing is payable")
+    : fail(`expected 0 cleared, got ${balance?.cleared}`);
+
+  try {
+    await LedgerEntry.deleteMany({ vendorId: vendor._id });
+    fail("the ledger allowed a deletion");
+  } catch {
+    pass("the ledger refuses deletion — append-only, on the model");
+  }
+
+  await ledger.recordAdjustment(
+    { vendorId: id, amount: { amount: -500, currency: "GBP" }, note: "Probe chargeback fee." },
+    staff(userId),
+  );
+  const [afterAdjustment] = await ledger.balanceFor({ vendorId: id });
+  afterAdjustment?.cleared === -500
+    ? pass("an adjustment is immediately payable, and can be negative")
+    : fail(`expected -500 cleared, got ${afterAdjustment?.cleared}`);
+
+  const recon = await ledger.reconcile(new Date(Date.now() - 86_400_000), new Date());
+  const row = recon.rows.find((candidate) => candidate.currency === "GBP");
+  row && row.drift === 0 && row.missingEntries.length === 0
+    ? pass(`reconciles with no drift over ${recon.ordersRead} order(s)`)
+    : fail(`reconciliation drift ${row?.drift}, missing ${row?.missingEntries.length}`);
+
   console.log(
     [
       "",
@@ -394,12 +496,14 @@ async function main() {
       "  /dashboard/selling/settings         — profile, with the slug fixed",
       "  /dashboard/selling/team             — the invitation waiting to be accepted",
       "  /dashboard/selling/products         — the product, with its readiness gaps",
+      "  /dashboard/selling/earnings         — the rate, the three figures, the entries",
       `  /dashboard/selling/products/${productId}/basics`,
       "",
       "And as market@innovatrix.test:",
       `  /staff/vendor-applications/${id}`,
       "  /admin/products                     — the Seller column, and ?vendor= to filter",
       "  /staff/vendor-submissions           — the review queue, oldest first",
+      "  /admin/settings/commission          — the platform default rate",
       `  /staff/vendor-submissions/${productId}`,
       "",
       process.exitCode ? "PROBE FAILED" : "probe complete — all checks passed",
