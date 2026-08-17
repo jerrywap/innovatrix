@@ -14,6 +14,7 @@ import {
   QUOTE_STATUSES,
   REQUEST_STATUSES,
   VENDOR_INVITATION_STATUSES,
+  VENDOR_BRIEF_STATUSES,
   VENDOR_STATUSES,
   VENDOR_VERIFICATION_STATUSES,
   LEDGER_ENTRY_STATUSES,
@@ -151,6 +152,16 @@ const STATUS_TONES: Record<string, StatusTone> = {
   cleared: "progress",
   reversed: "muted",
   sending: "progress",
+
+  /* vendor briefs — vendor ticket 14. `sent` is `attention` rather than `progress` because it is
+     waiting on the vendor, which is the same reason `waiting_for_customer` is: the tone answers
+     "is anyone blocked on me". `answered` is positive from the vendor's side — they have done what
+     was asked — and staff read the price rather than the badge. `declined` is negative and
+     `withdrawn` muted: a vendor refusing is a real outcome, staff pulling a brief back is not. */
+  sent: "attention",
+  answered: "positive",
+  declined: "negative",
+  withdrawn: "muted",
 };
 
 /**
@@ -165,6 +176,8 @@ const STATUS_LABELS: Record<string, string> = {
   waiting_for_customer: "Needs your input",
   internal_review: "In review",
   technical_review: "Technical review",
+  // A brief the vendor has priced. "Answered" alone reads as a message rather than a figure.
+  answered: "Priced",
   partially_paid: "Part paid",
   requires_review: "Under review",
   canceled: "Cancelled",
@@ -233,6 +246,7 @@ const ALL_STATUS_ENUMS: ReadonlyArray<readonly string[]> = [
   VENDOR_VERIFICATION_STATUSES,
   LEDGER_ENTRY_STATUSES,
   PAYOUT_STATUSES,
+  VENDOR_BRIEF_STATUSES,
 ];
 
 /**

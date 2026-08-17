@@ -237,6 +237,18 @@ export interface CustomerRequestDoc {
   baseProductId?: Types.ObjectId;
   baseProductVersionId?: Types.ObjectId;
   baseProductVersionNumber?: string;
+  /**
+   * Whose software this is about — vendor ticket 14. Absent ⇒ first-party.
+   *
+   * Denormalised from `Product.vendorId` at submission rather than joined on read, and that is the
+   * same call `Product.vendorSlug`/`vendorName` made in vendor ticket 04: it is what a vendor queue
+   * filters on, and a `$lookup` per row on the staff queues is the N+1 those indexes exist to avoid.
+   *
+   * It is a **snapshot of who owned the product when the request was made**, which is also the
+   * honest answer: if a product changed hands afterwards, the request was still asked of the vendor
+   * who was selling it.
+   */
+  vendorId?: Types.ObjectId;
   customerRequirements: Requirement[];
   assumptions: Requirement[];
   requirementsVersion: number;
@@ -270,6 +282,8 @@ const customerRequestSchema = new Schema<CustomerRequestDoc>(
     baseProductId: { type: Schema.Types.ObjectId, ref: "Product" },
     baseProductVersionId: { type: Schema.Types.ObjectId, ref: "ProductVersion" },
     baseProductVersionNumber: String,
+    /** Vendor ticket 14 — absent on every request that existed before it, and on first-party ones. */
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
 
     /**
      * §34: "Customer-confirmed requirements should not be silently changed by
@@ -337,6 +351,18 @@ customerRequestSchema.index({ waitingOn: 1, updatedAt: 1 });
  * resetting the age of the thing most at risk.
  */
 customerRequestSchema.index({ status: 1, currentAssigneeUserId: 1, createdAt: 1 });
+
+/**
+ * The vendor's own view of requests about their software — vendor ticket 14.
+ *
+ * None of the five indexes above can serve it: every one starts with `organizationId` (the
+ * *customer's* org) or with `status`, and a vendor query is `{vendorId, status}` sorted by age. A
+ * `status`-prefixed index would scan every request in that status across every vendor.
+ *
+ * `createdAt` descending rather than ascending, unlike the unassigned queue: a vendor is looking at
+ * their own small list and wants the newest first, where staff are working a backlog oldest-first.
+ */
+customerRequestSchema.index({ vendorId: 1, status: 1, createdAt: -1 });
 
 export const CustomerRequest = defineModel<CustomerRequestDoc>(
   "CustomerRequest",

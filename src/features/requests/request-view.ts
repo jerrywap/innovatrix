@@ -56,6 +56,8 @@ export interface RequestDetailView {
 
   /** §20/§101 — what this is a customisation *of*. */
   baseProduct?: { id: string; slug: string; name: string; version?: string };
+  /** Staff-only — vendor ticket 14. Whose software this is about, when it is not ours. */
+  vendorName?: string;
 
   /**
    * Files on the request — a mockup, a spec, a spreadsheet.
@@ -229,8 +231,10 @@ export async function loadRequest(
   const [product, events, conversation, assignee] = await Promise.all([
     request.baseProductId
       ? Product.findById(request.baseProductId)
-          .select({ slug: 1, name: 1 })
-          .lean<{ _id: unknown; slug: string; name: string }>()
+          // `vendorName` for vendor ticket 14: the staff screen has to know whether there is a
+          // vendor to send this to, and this loader was the only reason it could not.
+          .select({ slug: 1, name: 1, vendorName: 1 })
+          .lean<{ _id: unknown; slug: string; name: string; vendorName?: string }>()
       : null,
 
     ActivityEvent.find({
@@ -327,6 +331,15 @@ export async function loadRequest(
           ...(request.internalInterpretation
             ? { internalInterpretation: request.internalInterpretation }
             : {}),
+          /*
+           * Vendor ticket 14, and **staff-only on purpose**.
+           *
+           * A customer is not told which of the two possible parties is scoping their change. They
+           * bought from a marketplace and the platform is answering them; who we ask internally is
+           * ours. Spread in with the other staff fields so a customer's view object has no key for
+           * it at all.
+           */
+          ...(product?.vendorName ? { vendorName: product.vendorName } : {}),
           ...(conversation ? { transcript: conversation.messages } : {}),
           organizationId: String(request.organizationId),
           ...(assignee?.name ? { assigneeName: assignee.name } : {}),

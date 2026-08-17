@@ -157,6 +157,40 @@ export interface DomainEventMap {
     reason: string;
   };
 
+  /* ── vendor ticket 14: vendor-directed customization ── */
+
+  /**
+   * Staff handed a customization to the vendor whose product it is about.
+   *
+   * Carries **no customer field of any kind** — not the organisation, not the user, not the request
+   * reference, which is the customer's handle for it. The audience is `vendor_member`, and an event
+   * payload is the one place a mediated boundary is easiest to forget: a notification email
+   * mentioning who asked would undo the whole design. `briefId` is what the vendor's screen needs
+   * and the only handle they are given.
+   */
+  CustomizationRoutedToVendor: {
+    briefId: string;
+    vendorId: string;
+    productName: string;
+  };
+
+  /** The vendor priced it. Goes to staff, who decide what the customer is quoted. */
+  VendorBriefAnswered: {
+    briefId: string;
+    requestId: string;
+    vendorId: string;
+    productName: string;
+  };
+
+  /** The vendor will not do it, with their reason. Staff have to tell the customer something. */
+  VendorBriefDeclined: {
+    briefId: string;
+    requestId: string;
+    vendorId: string;
+    productName: string;
+    reason: string;
+  };
+
   /* ── vendor ticket 12: lifecycle ── */
 
   /**
@@ -438,6 +472,9 @@ const EVENT_NAME_SET: Record<DomainEventName, true> = {
   FollowUpDue: true,
   WorkReadyToStart: true,
   RequestProgressPosted: true,
+  CustomizationRoutedToVendor: true,
+  VendorBriefAnswered: true,
+  VendorBriefDeclined: true,
 };
 
 export const EVENT_NAMES = Object.keys(EVENT_NAME_SET) as DomainEventName[];

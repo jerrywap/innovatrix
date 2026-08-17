@@ -501,6 +501,22 @@ export const CONVERSATION_SUBJECT_TYPES = values([
   "order",
   "quote",
   "vendor_support",
+  /**
+   * Vendor ticket 14 — the staff↔vendor half of a mediated customization.
+   *
+   * A **fifth subject type and a second thread on one request**, which needs justifying because
+   * §38 is one-conversation-per-subject and this looks like two. It is two subjects: the customer's
+   * request, and the brief a vendor was asked to price. They have to be separate because the
+   * visibility table above cannot express "customer and staff, but not the vendor" — a `customer`
+   * message is visible to the vendor by design, and `VendorMessage` carries `senderName`. Adding a
+   * fourth level would fix the projection and not the problem, since no visibility rule stops a
+   * customer typing their own phone number into a body.
+   *
+   * So the vendor is not a participant in the customer's conversation at all, and mediation is
+   * structural rather than a flag. The unique index on `{subjectType, subjectId}` is what makes the
+   * separate type necessary rather than optional.
+   */
+  "vendor_brief",
 ] as const);
 export type ConversationSubjectType = (typeof CONVERSATION_SUBJECT_TYPES)[number];
 
@@ -530,6 +546,25 @@ export type MessageSenderType = (typeof MESSAGE_SENDER_TYPES)[number];
  * boolean.
  */
 export const MESSAGE_VISIBILITIES = values(["customer", "vendor", "internal"] as const);
+
+/**
+ * A brief's life — vendor ticket 14.
+ *
+ * `sent` the moment staff hand it over; `answered` once the vendor has priced it; `declined` when
+ * they say they will not; `withdrawn` when staff pull it back — which is also what a requirements
+ * revision does to the brief it supersedes, because a brief is **what the vendor was shown** and
+ * editing one would destroy the only record of that.
+ *
+ * `answered` is not terminal: staff may ask for a revised price, which reopens it. `declined` and
+ * `withdrawn` are, and a new brief is the way forward from either.
+ */
+export const VENDOR_BRIEF_STATUSES = values([
+  "sent",
+  "answered",
+  "declined",
+  "withdrawn",
+] as const);
+export type VendorBriefStatus = (typeof VENDOR_BRIEF_STATUSES)[number];
 export type MessageVisibility = (typeof MESSAGE_VISIBILITIES)[number];
 
 /**
@@ -647,6 +682,10 @@ export const DOMAIN_EVENTS = values([
   "ProductSubmitted",
   "ProductChangesRequested",
   "ProductApproved",
+  // Vendor ticket 14.
+  "CustomizationRoutedToVendor",
+  "VendorBriefAnswered",
+  "VendorBriefDeclined",
 ] as const);
 export type DomainEventType = (typeof DOMAIN_EVENTS)[number];
 

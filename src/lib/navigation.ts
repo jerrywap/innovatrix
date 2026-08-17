@@ -191,6 +191,15 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         requiresVendor: true,
       },
       {
+        // Vendor ticket 14 — customization work a vendor has been asked to price. Above Earnings
+        // because it is something waiting on them, and §102 puts what needs doing before any figure.
+        label: "Requests",
+        href: "/dashboard/selling/requests",
+        icon: "clipboard",
+        matchNested: true,
+        requiresVendor: true,
+      },
+      {
         label: "Earnings",
         href: "/dashboard/selling/earnings",
         icon: "banknote",

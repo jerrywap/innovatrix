@@ -103,6 +103,22 @@ export function registerNotificationHandlers(): void {
     await dispatch("VendorApplied", payload, { vendorId: payload.vendorId });
   });
 
+  /*
+   * Vendor ticket 14. The routed event resolves a `vendor_member` audience by query from its
+   * `vendorId`; the two answers go to a staff permission audience and need no lookup.
+   */
+  on("CustomizationRoutedToVendor", async (payload) => {
+    await dispatch("CustomizationRoutedToVendor", payload, { vendorId: payload.vendorId });
+  });
+
+  on("VendorBriefAnswered", async (payload) => {
+    await dispatch("VendorBriefAnswered", payload, {});
+  });
+
+  on("VendorBriefDeclined", async (payload) => {
+    await dispatch("VendorBriefDeclined", payload, {});
+  });
+
   on("VendorVerified", async (payload) => {
     await dispatch("VendorVerified", payload, { vendorId: payload.vendorId });
   });

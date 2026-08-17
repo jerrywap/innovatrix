@@ -301,6 +301,47 @@ export const CATALOG: Catalog = {
     },
   ],
 
+  /*
+   * Vendor ticket 14. **Everything a mediated boundary can get wrong is in a notification.**
+   *
+   * A title naming the customer, a body quoting their message, an href to a staff screen — each of
+   * them would undo the whole design, and an email is the one place the leak leaves the building.
+   * So the payload has no customer field to accidentally interpolate (see
+   * `CustomizationRoutedToVendor` in `events/index.ts`), the title names the *product*, and the href
+   * is the brief.
+   */
+  CustomizationRoutedToVendor: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "requests",
+      title: (p) => `A customer wants changes to ${p.productName}`,
+      body: () =>
+        "We have passed on what they asked for. Take a look and tell us what it would cost.",
+      href: (p) => `/dashboard/selling/requests/${p.briefId}`,
+    },
+  ],
+
+  VendorBriefAnswered: [
+    {
+      audience: { kind: "staff", permission: "request.view_all" },
+      category: "requests",
+      title: (p) => `${p.productName} — the vendor has priced it`,
+      href: (p) => `/staff/requests/${p.requestId}`,
+    },
+  ],
+
+  VendorBriefDeclined: [
+    {
+      audience: { kind: "staff", permission: "request.view_all" },
+      category: "requests",
+      title: (p) => `${p.productName} — the vendor declined`,
+      // Verbatim, and the reason `decline()` refuses without one: "no capacity until March" and
+      // "that would break every other install" need entirely different things said to the customer.
+      body: (p) => p.reason,
+      href: (p) => `/staff/requests/${p.requestId}`,
+    },
+  ],
+
   VendorVerified: [
     {
       audience: { kind: "vendor_member" },

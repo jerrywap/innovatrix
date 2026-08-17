@@ -13,6 +13,7 @@ export * from "./takedowns";
 export * from "./catalog";
 export * from "./commerce";
 export * from "./requests";
+export * from "./briefs";
 export * from "./billing";
 export * from "./communication";
 export * from "./system";

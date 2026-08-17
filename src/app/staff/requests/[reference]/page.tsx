@@ -19,6 +19,13 @@ import { staffThread } from "@/services/messaging/messaging-service";
 import { QuotePanel } from "@/features/quotes/components/quote-panel";
 import { listQuotesForRequest } from "@/features/quotes/quote-view";
 import { Timeline } from "@/components/timeline";
+import { formatDateTime } from "@/lib/dates";
+import { format, money, type CurrencyCode } from "@/lib/money";
+import { listForRequest as listBriefsForRequest } from "@/services/vendors/brief-service";
+import {
+  VendorBriefPanel,
+  type BriefSummary,
+} from "@/features/staff/components/vendor-brief-panel";
 
 export const metadata: Metadata = { title: "Request" };
 
@@ -54,6 +61,33 @@ export default async function Page({ params }: PageProps<"/staff/requests/[refer
   // above is what makes that legitimate.
   const request = await loadRequest(reference, { audience: "staff" });
   if (!request) notFound();
+
+  /*
+   * Vendor ticket 14. Loaded here rather than in `loadRequest` because it is staff-only and
+   * screen-specific: the customer's loader has no business reading briefs, and the money is
+   * formatted server-side because it renders through `lib/money.ts` and a client component doing
+   * the arithmetic is how a JPY figure acquires a decimal point.
+   */
+  const briefSummaries: BriefSummary[] = (await listBriefsForRequest(request.id)).map(
+    (brief) => ({
+      id: String(brief._id),
+      status: brief.status,
+      sentAt: formatDateTime(brief.sentAt),
+      vendorName: request.vendorName ?? "The vendor",
+      ...(brief.proposal
+        ? {
+            proposal: {
+              formatted: format(
+                money(brief.proposal.amount, brief.proposal.currency as CurrencyCode),
+              ),
+              effort: brief.proposal.effort,
+              ...(brief.proposal.caveats ? { caveats: brief.proposal.caveats } : {}),
+            },
+          }
+        : {}),
+      ...(brief.declinedReason ? { declinedReason: brief.declinedReason } : {}),
+    }),
+  );
 
   const actions = permittedTransitions(request.status, {
     type: "staff",
@@ -165,6 +199,28 @@ export default async function Page({ params }: PageProps<"/staff/requests/[refer
 
           {request.transcript && request.transcript.length > 0 && (
             <Transcript messages={request.transcript} />
+          )}
+
+          {/*
+            Vendor ticket 14 — the vendor half of a customization, and the relay.
+            
+            Above the customer thread rather than below it, because the order is the workflow: read
+            what the customer said, get the vendor to price it, then answer the customer. Two
+            separate composers on one screen is deliberate — mediation means the vendor is not in
+            the customer's thread at all, so staff are the only route between them, and a single
+            composer with an audience switch would put "who reads this" one mis-click from leaking a
+            customer's identity to a vendor.
+          */}
+          {request.kind === "customization" && (
+            <section className="flex flex-col gap-3">
+              <h2 className="font-display text-[16px] tracking-[-0.02em]">The vendor</h2>
+              <VendorBriefPanel
+                requestId={request.id}
+                {...(request.vendorName ? { vendorName: request.vendorName } : {})}
+                briefs={briefSummaries}
+                canRoute={staff.permissions.has("request.update_status")}
+              />
+            </section>
           )}
 
           {request.organizationId && (

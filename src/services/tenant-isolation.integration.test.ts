@@ -647,3 +647,66 @@ describe("Vendor B is refused Vendor A's analytics", () => {
     );
   });
 });
+
+/**
+ * Vendor ticket 14 — a customization brief, on the same axis.
+ *
+ * This one carries a second question the others do not. Every case above asks "can Vendor B read
+ * Vendor A's row"; a brief also has to answer **"can Vendor A read the customer's identity"**, which
+ * is a boundary in the other direction and the whole point of the ticket. Both belong here, because
+ * this file's question is whether there is any scoped resource that does not scope — and a brief is
+ * the first resource with two scopes crossing it.
+ */
+describe("Vendor B is refused Vendor A's briefs, and neither reads the customer", () => {
+  it("has a real fixture — the control", async () => {
+    const briefs = await import("@/services/vendors/brief-service");
+    const briefModels = await import("@/lib/db/models/briefs");
+
+    await briefModels.VendorBrief.create({
+      requestId: REQUEST,
+      organizationId: ORG_A,
+      vendorId: VENDOR_A,
+      productId: VENDOR_A_PRODUCT,
+      productName: "Northwind Dispatch",
+      title: "Alpha's private request",
+      currency: "GBP",
+      requirements: [{ key: "x", label: "A change", origin: "confirmed" }],
+      requirementsVersion: 1,
+      status: "sent",
+      sentByUserId: USER_A,
+      sentAt: new Date(),
+    });
+
+    const own = await briefs.listForVendor({ vendorId: VENDOR_A });
+    expect(own).toHaveLength(1);
+    expect(own[0]!.productName).toBe("Northwind Dispatch");
+  });
+
+  it("shows Vendor B nothing", async () => {
+    const briefs = await import("@/services/vendors/brief-service");
+    expect(await briefs.listForVendor({ vendorId: VENDOR_B })).toEqual([]);
+  });
+
+  it("shows Vendor A nothing about who asked", async () => {
+    const briefs = await import("@/services/vendors/brief-service");
+
+    // The other direction, and the reason `VendorBriefView` is a separate type: it has no field an
+    // organisation id, a user id or a request reference could occupy. Asserted on the serialised
+    // payload, because that is what would reach a screen if a view spread the document.
+    const payload = JSON.stringify(await briefs.listForVendor({ vendorId: VENDOR_A }));
+    for (const identifier of [ORG_A, USER_A, REQUEST, "REQ-2026-9001"]) {
+      expect(payload, `${identifier} reached the vendor`).not.toContain(identifier);
+    }
+  });
+
+  it("refuses an empty scope rather than reading every brief", async () => {
+    const briefs = await import("@/services/vendors/brief-service");
+
+    await expect(briefs.listForVendor({ vendorId: "" })).rejects.toBeInstanceOf(
+      scope.ScopeError,
+    );
+    await expect(briefs.countAwaitingVendor({ vendorId: "   " })).rejects.toBeInstanceOf(
+      scope.ScopeError,
+    );
+  });
+});
