@@ -6,20 +6,42 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { changeSlugAction, saveBasicsAction } from "../actions";
-import { Field, FieldGroup, FormErrors, SectionForm } from "./section-form";
+import {
+  Field,
+  FieldGroup,
+  FormErrors,
+  SectionForm,
+  type SectionFormProps,
+} from "./section-form";
 import { RichTextEditor } from "./rich-text-editor";
 import type { AdminProductView } from "@/services/catalog/product-view";
 
+/**
+ * Name, summary and description — §42 step 1.
+ *
+ * `action` is a prop so this form serves both wizard surfaces (vendor ticket 04),
+ * defaulted to the staff action so existing callers are unchanged.
+ *
+ * `canChangeSlug` is separate and defaults to **true** for staff. A vendor does not
+ * get it: the slug is the product's public address, `slugHistory` is what keeps old
+ * links alive, and retiring an address is a decision about the marketplace rather
+ * than about one listing. Nothing is lost — a vendor who needs it asks, and a staff
+ * member does it on the admin surface.
+ */
 export function BasicsForm({
   product,
   nextHref,
+  action = saveBasicsAction,
+  canChangeSlug = true,
 }: {
   product: AdminProductView;
   nextHref: string;
+  action?: SectionFormProps["action"];
+  canChangeSlug?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-8">
-      <SectionForm action={saveBasicsAction} productId={product.id} nextHref={nextHref}>
+      <SectionForm action={action} productId={product.id} nextHref={nextHref}>
         <Field label="Name" htmlFor="product-name" required>
           <Input
             id="product-name"
@@ -57,7 +79,7 @@ export function BasicsForm({
         </Field>
       </SectionForm>
 
-      <SlugForm product={product} />
+      {canChangeSlug && <SlugForm product={product} />}
     </div>
   );
 }

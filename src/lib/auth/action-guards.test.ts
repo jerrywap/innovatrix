@@ -182,7 +182,23 @@ function code(source: string): string {
  */
 function functions(source: string): Fn[] {
   const found: Fn[] = [];
-  const declaration = /(export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/g;
+  /*
+   * The `(?:<[^(]*>)?` is for **generic** declarations, and it closes a fail-open
+   * gap rather than a cosmetic one.
+   *
+   * Without it `function save<S extends z.ZodType>(` does not match, so a generic
+   * helper is invisible and the guard it calls stops counting for everything that
+   * calls it — noisy but safe. The dangerous half is the same omission on an
+   * *exported* generic: `export async function doThing<T>(…)` would not be
+   * discovered at all, so it would never be checked, and an unguarded action would
+   * pass this suite in silence. Found while adding the vendor wizard, whose section
+   * saves share a generic helper.
+   *
+   * `[^(]*` rather than `.*` so the type parameter list cannot swallow the
+   * parameter list's own opening paren.
+   */
+  const declaration =
+    /(export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*(?:<[^(]*>)?\s*\(/g;
 
   let match: RegExpExecArray | null;
   while ((match = declaration.exec(source)) !== null) {

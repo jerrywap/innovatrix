@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { stepHref } from "../steps";
+import { stepHref, type WizardSurface } from "../steps";
 import type { ReadinessGap } from "@/services/catalog/readiness";
 
 /**
@@ -16,18 +16,24 @@ import type { ReadinessGap } from "@/services/catalog/readiness";
  * the same `computeReadiness` call — a list column computed by a different code
  * path than the publish gate would eventually disagree with it, and the version
  * that says "ready" while the button says otherwise is the one people trust.
+ *
+ * `surface` picks which wizard the links point at (vendor ticket 04). It defaults to
+ * `admin`, so every existing caller is unchanged, and a vendor's gap links land on
+ * the vendor's own steps rather than on a 403.
  */
 export function ReadinessGaps({
   gaps,
   productId,
   compact,
   className,
+  surface = "admin",
 }: {
   gaps: readonly ReadinessGap[];
   productId: string;
   /** The list column: terse, and only the first few. */
   compact?: boolean;
   className?: string;
+  surface?: WizardSurface;
 }) {
   if (gaps.length === 0) {
     return (
@@ -53,7 +59,7 @@ export function ReadinessGaps({
           <span key={gap.code}>
             {index > 0 && ", "}
             <Link
-              href={stepHref(productId, gap.section)}
+              href={stepHref(productId, gap.section, surface)}
               className="hover:text-foreground underline decoration-dotted underline-offset-2"
             >
               {gap.message.toLowerCase()}
@@ -71,7 +77,7 @@ export function ReadinessGaps({
         <li key={gap.code} className="flex items-start gap-2 text-[13.5px]">
           <span className="bg-signal mt-1.5 size-1.5 shrink-0 rounded-full" aria-hidden />
           <Link
-            href={stepHref(productId, gap.section)}
+            href={stepHref(productId, gap.section, surface)}
             className="hover:text-signal-text underline decoration-dotted underline-offset-2"
           >
             {gap.message}

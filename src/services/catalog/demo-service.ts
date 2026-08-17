@@ -3,6 +3,7 @@ import { connectToDatabase } from "@/lib/db/client";
 import type { DemoCredential, ProductDoc } from "@/lib/db/models/catalog";
 import type { DemoExposure } from "@/lib/db/enums";
 import { NotFoundError } from "@/lib/errors";
+import type { VendorScope } from "@/lib/auth/scope";
 import { open, seal } from "@/lib/crypto";
 import { products } from "@/repositories/product.repository";
 import { writeAuditLog, type AuditActor } from "@/services/audit";
@@ -289,10 +290,20 @@ export async function saveDemo(
   productId: string,
   input: SaveDemoInput,
   actor: AuditActor,
+  /**
+   * Vendor ticket 04 — present ⇒ the product must belong to this vendor.
+   *
+   * The credential sealing below binds each ciphertext to the **product id** as
+   * AAD, so a `passwordCipher` copied between products fails to open. That already
+   * stops the bytes travelling; this stops a vendor writing to a product that is
+   * not theirs in the first place.
+   */
+  scope: VendorScope = {},
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const product = await products.findById(productId);
+  const product = await products.findScoped(productId, scope);
+  // 404 for "not yours" as well as "not there" — see `saveSection`.
   if (!product) throw new NotFoundError("product", { id: productId });
 
   const existingByRole = new Map(

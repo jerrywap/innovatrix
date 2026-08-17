@@ -257,6 +257,34 @@ export interface ProductDoc {
   name: string;
   summary: string;
   /**
+   * Who sells this — vendor ticket 04.
+   *
+   * **Absent means first-party**, published by Innovatrix, and that is the only
+   * meaning absence carries. Optional rather than required because the seeded
+   * products and everything the platform sells itself have no vendor and must keep
+   * working untouched; there is no house `Vendor` row and no sentinel.
+   *
+   * Ownership is a new axis on this collection — there was no owner field of any
+   * kind before, only two audit breadcrumbs — so it needs its own index rather than
+   * an extension of an existing one. `ProductVersion` and `ProductFile` derive
+   * ownership through `productId` and gain no field, which is already how storage
+   * authorisation works.
+   */
+  vendorId?: Types.ObjectId;
+  /**
+   * The vendor's slug and display name, denormalised.
+   *
+   * `vendorSlug` feeds the `vend:` facet; `vendorName` lets a marketplace card
+   * attribute itself without a `$lookup` or a query per row (§94). Both are
+   * derived — `Vendor` is the source of truth (§103).
+   *
+   * The slug is immutable once a vendor is verified, so it cannot drift. The
+   * display name can change, which is why the two are separate fields and why a
+   * rename has to sweep this collection.
+   */
+  vendorSlug?: string;
+  vendorName?: string;
+  /**
    * The long description, as a **ProseMirror node tree** — never an HTML
    * string, so nothing downstream is ever tempted to render it with
    * `dangerouslySetInnerHTML`. `richTextDocumentSchema` validates it on write;
@@ -322,6 +350,10 @@ const productSchema = new Schema<ProductDoc>(
     slug: { type: String, required: true, lowercase: true, trim: true },
     name: { type: String, required: true, trim: true },
     summary: { type: String, required: true },
+    // Vendor ticket 04. Absent ⇒ first-party.
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
+    vendorSlug: { type: String, lowercase: true, trim: true },
+    vendorName: { type: String, trim: true },
     // Mixed, because the tree's shape is defined by Zod rather than by
     // Mongoose. A Mongoose sub-schema here would be a second, weaker copy of
     // `richTextDocumentSchema` that could drift from it.
@@ -423,6 +455,18 @@ productSchema.index({ status: 1, orderCount: -1 });
 // The admin product list's default sort. The storefront indexes above are
 // ordered for browsing, not for "what did we touch most recently".
 productSchema.index({ status: 1, updatedAt: -1 });
+/**
+ * The vendor workspace's list — vendor ticket 04.
+ *
+ * A new index rather than an extension: none of the four above has room for a
+ * vendor prefix, and a vendor's list is scoped *first* by owner and only then by
+ * status, so the prefix has to be `vendorId`.
+ *
+ * Sparse, because most products have no vendor and a first-party product has no
+ * business occupying a key here. The `vend:` facet serves the *marketplace*
+ * filter; this serves the workspace, which needs the id rather than the slug.
+ */
+productSchema.index({ vendorId: 1, status: 1, updatedAt: -1 }, { sparse: true });
 // Single-field multikey indexes for admin views that filter by one taxonomy.
 productSchema.index({ categoryIds: 1 });
 productSchema.index({ industryIds: 1 });
@@ -464,6 +508,16 @@ export const FACET_PREFIX = {
   industry: "ind",
   technology: "tech",
   productType: "type",
+  /**
+   * Who made it — vendor ticket 04.
+   *
+   * A fifth dimension in the flattened array rather than a field beside it,
+   * because that array is the only thing that makes faceted filtering indexable:
+   * MongoDB refuses a compound index across parallel arrays, which is why
+   * `facets` exists at all. Filtering, facet counts, URL parsing and chip
+   * rendering all come free by fitting the existing design instead of fighting it.
+   */
+  vendor: "vend",
 } as const;
 
 /**
@@ -478,12 +532,15 @@ export function buildProductFacets(input: {
   industrySlugs?: string[];
   technologySlugs?: string[];
   productTypeSlug?: string;
+  /** The owning vendor's slug. Absent for a first-party product. */
+  vendorSlug?: string;
 }): string[] {
   const facets = [
     ...(input.categorySlugs ?? []).map((s) => `${FACET_PREFIX.category}:${s}`),
     ...(input.industrySlugs ?? []).map((s) => `${FACET_PREFIX.industry}:${s}`),
     ...(input.technologySlugs ?? []).map((s) => `${FACET_PREFIX.technology}:${s}`),
     ...(input.productTypeSlug ? [`${FACET_PREFIX.productType}:${input.productTypeSlug}`] : []),
+    ...(input.vendorSlug ? [`${FACET_PREFIX.vendor}:${input.vendorSlug}`] : []),
   ];
   return [...new Set(facets)].sort();
 }
@@ -502,6 +559,9 @@ export function facetFilter(query: FacetQuery): string[] {
     productTypeSlug: Array.isArray(query.productType)
       ? query.productType[0]
       : query.productType,
+    ...(query.vendor
+      ? { vendorSlug: Array.isArray(query.vendor) ? query.vendor[0] : query.vendor }
+      : {}),
   });
 }
 
@@ -510,6 +570,8 @@ export interface FacetQuery {
   industry?: string[];
   technology?: string[];
   productType?: string | string[];
+  /** Vendor ticket 04. Several vendors mean "any of these", like every dimension. */
+  vendor?: string | string[];
 }
 
 /**
@@ -557,6 +619,7 @@ export function facetMatch(query: FacetQuery): { $and: FacetDimensionFilter[] } 
     FACET_PREFIX.productType,
     typeof query.productType === "string" ? [query.productType] : query.productType,
   );
+  add(FACET_PREFIX.vendor, typeof query.vendor === "string" ? [query.vendor] : query.vendor);
 
   return dimensions.length > 0 ? { $and: dimensions } : null;
 }

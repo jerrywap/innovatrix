@@ -42,6 +42,8 @@ export interface MarketplaceQueryInput {
   industry?: readonly string[];
   technology?: readonly string[];
   productType?: string;
+  /** Vendor ticket 04 — who made it. Several mean "any of these". */
+  vendor?: readonly string[];
   minPrice?: number;
   maxPrice?: number;
   customisable?: boolean;
@@ -73,6 +75,19 @@ const CARD_PROJECTION = {
   publishedAt: 1,
   activePrice: 1,
   hasPrice: 1,
+  /**
+   * Vendor ticket 04 — who made it, so a card can say so.
+   *
+   * Denormalised onto `Product` precisely so it can be projected here. A `$lookup`
+   * against `vendors` would run per row on the marketplace's hottest query, and
+   * resolving the name in the mapper would be a query per card — §94's
+   * "no unbounded reads" applies to `n` small reads as much as to one large one.
+   *
+   * Absent on a first-party product, which is how the card knows to render no
+   * attribution at all: "by Innovatrix" on a platform called Innovatrix is noise.
+   */
+  vendorSlug: 1,
+  vendorName: 1,
 } as const;
 
 export function buildMarketplacePipeline(
@@ -126,6 +141,7 @@ function primaryMatch(input: MarketplaceQueryInput): Record<string, unknown> {
     ...(input.industry ? { industry: [...input.industry] } : {}),
     ...(input.technology ? { technology: [...input.technology] } : {}),
     ...(input.productType ? { productType: input.productType } : {}),
+    ...(input.vendor ? { vendor: [...input.vendor] } : {}),
   });
   if (facets) Object.assign(match, facets);
 
@@ -234,7 +250,7 @@ function sortStage(input: MarketplaceQueryInput): Record<string, unknown> {
 /* ────────────────────────────────────────────── facet counts */
 
 export interface FacetCount {
-  dimension: "category" | "industry" | "technology" | "productType";
+  dimension: "category" | "industry" | "technology" | "productType" | "vendor";
   slug: string;
   count: number;
 }
@@ -244,6 +260,7 @@ const PREFIX_TO_DIMENSION: Record<string, FacetCount["dimension"]> = {
   [FACET_PREFIX.industry]: "industry",
   [FACET_PREFIX.technology]: "technology",
   [FACET_PREFIX.productType]: "productType",
+  [FACET_PREFIX.vendor]: "vendor",
 };
 
 /** Turn the raw `{_id: "cat:crm", count: 3}` rows into something renderable. */
@@ -287,12 +304,14 @@ export function dimensionsWithHonestCounts(
     "industry",
     "technology",
     "productType",
+    "vendor",
   ]);
 
   if (input.category?.length) honest.delete("category");
   if (input.industry?.length) honest.delete("industry");
   if (input.technology?.length) honest.delete("technology");
   if (input.productType) honest.delete("productType");
+  if (input.vendor?.length) honest.delete("vendor");
 
   return honest;
 }

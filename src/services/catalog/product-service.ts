@@ -6,6 +6,8 @@ import { PRODUCT_TRANSITIONS, assertTransition } from "@/lib/db/states";
 import { descriptionFields, type ProductDoc } from "@/lib/db/models/catalog";
 import type { ProductStatus } from "@/lib/db/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { vendorFilter, type VendorScope } from "@/lib/auth/scope";
+import type { Paginated } from "@/repositories/base";
 import { isEmptyDocument, type RichTextDocument } from "@/lib/rich-text/schema";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import { withTransaction } from "@/lib/db/transaction";
@@ -35,6 +37,14 @@ export interface CreateDraftInput {
   name: string;
   summary: string;
   description?: RichTextDocument;
+  /**
+   * The owning vendor — vendor ticket 04. Absent ⇒ first-party.
+   *
+   * Set at creation and never edited by the vendor: ownership is not a field on a
+   * form. Staff reassigning a product is a different operation with its own audit
+   * row, and it has to re-derive facets and re-denormalise the name.
+   */
+  vendor?: { id: string; slug: string; name: string };
 }
 
 /**
@@ -61,10 +71,22 @@ export async function createDraft(
       slug,
       status: "draft",
       ...descriptionFields(input.description),
+      ...(input.vendor
+        ? {
+            vendorId: toObjectId(input.vendor.id),
+            vendorSlug: input.vendor.slug,
+            vendorName: input.vendor.name,
+          }
+        : {}),
       // Present-but-empty rather than absent: `facets` is derived on every
       // classification save, and a missing field would make the marketplace's
       // `$in` behave differently from an empty one.
-      facets: [],
+      //
+      // Except for the vendor term. This used to be a literal `[]`, which was
+      // right when a draft had nothing to derive from — but a vendor's product is
+      // owned from the moment it exists, and leaving the `vend:` term until the
+      // first classification save would hide it from its own storefront in between.
+      facets: await deriveFacets(input.vendor ? { vendorSlug: input.vendor.slug } : {}),
       // §47 — the checklist exists from the start so "not yet tested" is
       // visible rather than being indistinguishable from "no checklist".
       testingChecklist: DEFAULT_TESTING_CHECKLIST.map((item) => ({
@@ -106,10 +128,26 @@ export async function saveSection(
   section: string,
   update: Record<string, unknown>,
   actor: AuditActor,
+  /**
+   * Vendor ticket 04. Present ⇒ the write only lands if the product belongs to
+   * this vendor; absent ⇒ a staff write across every product.
+   *
+   * The check is **in the filter**, not a read before the write. A caller who omits
+   * the scope gets a staff-wide write, which is why omitting it has to be
+   * deliberate — and `vendorFilter` throws on a blank string rather than widening,
+   * so `scope: { vendorId: someValue ?? "" }` cannot silently become god mode.
+   */
+  scope: VendorScope = {},
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const saved = await products.updateById(productId, setAndUnset(update));
+  const saved =
+    scope.vendorId === undefined
+      ? await products.updateById(productId, setAndUnset(update))
+      : await products.updateScoped(productId, scope, setAndUnset(update));
+
+  // 404 for "not yours" as well as "not there". Distinguishing them tells a caller
+  // which product ids are real, and a vendor product id is a URL somebody will try.
   if (!saved) throw new NotFoundError("product", { id: productId });
 
   await writeAuditLog({
@@ -173,10 +211,30 @@ export async function saveClassification(
     productTypeId?: string;
   },
   actor: AuditActor,
+  scope: VendorScope = {},
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const facets = await deriveFacets(input);
+  /*
+   * The vendor slug is read from the product rather than taken from the caller.
+   *
+   * This is the trap vendor ticket 04 names: facets are rewritten wholesale here,
+   * so a `vend:` term that is not re-derived on this path is **silently wiped** the
+   * next time anybody edits a product's categories. Nothing errors — the product
+   * just stops appearing under its vendor, and the bug surfaces weeks later as
+   * "why is my storefront empty".
+   *
+   * Reading it from the document rather than trusting an argument means the term
+   * survives every caller, including one written later by somebody who has not read
+   * this comment.
+   */
+  const owner = await products.findScoped(productId, scope);
+  if (!owner) throw new NotFoundError("product", { id: productId });
+
+  const facets = await deriveFacets({
+    ...input,
+    ...(owner.vendorSlug ? { vendorSlug: owner.vendorSlug } : {}),
+  });
 
   return saveSection(
     productId,
@@ -191,6 +249,7 @@ export async function saveClassification(
       facets,
     },
     actor,
+    scope,
   );
 }
 
@@ -248,6 +307,39 @@ export async function changeSlug(
  * The rest is already embedded on the document, which is the payoff of the
  * embed-vs-reference split in `ERD.md`.
  */
+/**
+ * One vendor's products — vendor ticket 04.
+ *
+ * `vendorFilter` supplies the scope and throws on a blank one, so this cannot be
+ * called in a way that lists everybody's products by accident. The vendor id comes
+ * from `requireVendor()`, never from the request: a `vendorId` in a query string
+ * is a claim, and `parseListParams`' `filterable` list deliberately does not
+ * include it.
+ *
+ * Bounded and sorted on `{ vendorId, status, updatedAt }` (§94).
+ */
+export async function listForVendor(
+  scope: VendorScope,
+  options: {
+    status?: ProductStatus;
+    page?: number;
+    limit?: number;
+    sort?: Record<string, 1 | -1>;
+  } = {},
+): Promise<Paginated<ProductDoc>> {
+  await connectToDatabase();
+
+  return products.list({
+    filter: {
+      ...vendorFilter(scope),
+      ...(options.status ? { status: options.status } : {}),
+    },
+    page: options.page ?? 1,
+    limit: options.limit ?? 25,
+    sort: options.sort ?? { updatedAt: -1 },
+  });
+}
+
 export async function readinessFor(product: ProductDoc): Promise<Readiness> {
   const versions = await productVersions.listForProduct(String(product._id));
   const released = versions.filter((version) => version.status === "released");
@@ -382,11 +474,17 @@ export async function transition(
   productId: string,
   to: ProductStatus,
   actor: AuditActor,
-  options: { reason?: string; ip?: string; userAgent?: string } = {},
+  options: {
+    reason?: string;
+    ip?: string;
+    userAgent?: string;
+    /** Vendor ticket 04 — a vendor may only move their own product. */
+    scope?: VendorScope;
+  } = {},
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const product = await products.findById(productId);
+  const product = await products.findScoped(productId, options.scope ?? {});
   if (!product) throw new NotFoundError("product", { id: productId });
 
   const from = product.status;

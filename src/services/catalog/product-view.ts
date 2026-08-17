@@ -239,6 +239,8 @@ export interface AdminProductRow {
   slug: string;
   name: string;
   status: ProductStatus;
+  /** Vendor ticket 04. Absent ⇒ first-party, published by Innovatrix. */
+  vendorName?: string;
   isFeatured: boolean;
   priceCount: number;
   screenshotCount: number;
@@ -255,6 +257,7 @@ export function toAdminProductRow(product: ProductDoc): AdminProductRow {
     slug: product.slug,
     name: product.name,
     status: product.status,
+    ...(product.vendorName ? { vendorName: product.vendorName } : {}),
     isFeatured: product.isFeatured,
     priceCount: product.prices.length,
     screenshotCount: product.media.filter((item) => item.kind === "screenshot").length,

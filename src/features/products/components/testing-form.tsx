@@ -2,7 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/status-badge";
-import { FieldGroup, SectionForm } from "./section-form";
+import { FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { saveTestingAction } from "../actions";
 import { TESTING_CHECKLIST_STATUSES } from "@/lib/db/enums";
 import type { AdminProductView } from "@/services/catalog/product-view";
@@ -38,15 +38,17 @@ export function TestingForm({
   product,
   checklist,
   nextHref,
+  action = saveTestingAction,
 }: {
   product: AdminProductView;
   checklist: readonly ChecklistRow[];
   nextHref: string;
+  action?: SectionFormProps["action"];
 }) {
   const outstanding = checklist.filter((row) => row.status === "pending").length;
 
   return (
-    <SectionForm action={saveTestingAction} productId={product.id} nextHref={nextHref}>
+    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <FieldGroup
         title="Before this can be marked ready"
         description={

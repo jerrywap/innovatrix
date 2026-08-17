@@ -45,8 +45,14 @@ let identity: typeof import("@/lib/db/models/identity");
 let catalog: typeof import("@/lib/db/models/catalog");
 let errors: typeof import("@/lib/errors");
 let scope: typeof import("@/lib/auth/scope");
+let productService: typeof import("@/services/catalog/product-service");
 
 /** Org A owns everything. Org B is authenticated and is the attacker. */
+/* Vendor ticket 04 — a second axis of tenancy beside the organisation one. */
+const VENDOR_A = "6b00c46f6c887b38e2f0e0d1";
+const VENDOR_B = "6b00c46f6c887b38e2f0e0d2";
+const VENDOR_A_PRODUCT = "6b00c46f6c887b38e2f0e0d3";
+
 const ORG_A = "6b00c46f6c887b38e2f0e0a1";
 const ORG_B = "6b00c46f6c887b38e2f0e0b1";
 
@@ -80,6 +86,7 @@ beforeAll(async () => {
   entitlementService = await import("@/services/entitlements/entitlement-service");
   messagingService = await import("@/services/messaging/messaging-service");
   aiConversations = await import("@/services/ai/conversation-service");
+  productService = await import("@/services/catalog/product-service");
 
   billing = await import("@/lib/db/models/billing");
   commerce = await import("@/lib/db/models/commerce");
@@ -123,6 +130,9 @@ async function seed(): Promise<void> {
     { organizationId: ORG_B, userId: USER_B, role: "owner", status: "active" },
   ]);
 
+  // No `vendorId` — Atlas is **first-party**, and it is the control for every vendor
+  // assertion below: absence must keep behaving exactly as it did before ownership
+  // existed.
   await catalog.Product.create({
     _id: PRODUCT,
     name: "Atlas",
@@ -131,6 +141,18 @@ async function seed(): Promise<void> {
     status: "published",
     prices: [MONEY],
     currentVersionId: VERSION,
+  });
+
+  await catalog.Product.create({
+    _id: VENDOR_A_PRODUCT,
+    name: "Northwind Dispatch",
+    slug: "northwind-dispatch",
+    summary: "Vendor A's product",
+    status: "draft",
+    vendorId: VENDOR_A,
+    vendorSlug: "northwind-labs",
+    vendorName: "Northwind Labs",
+    facets: ["vend:northwind-labs"],
   });
 
   await catalog.ProductVersion.create({
@@ -328,6 +350,155 @@ describe("a staff scope is the absence of one, not a wildcard string", () => {
     await expect(
       requestService.findByReference("REQ-2026-9001", { organizationId: "" }),
     ).rejects.toBeInstanceOf(scope.ScopeError);
+  });
+});
+
+/**
+ * Vendor ticket 04 — the second axis.
+ *
+ * Same shape as the organisation cases above, deliberately: create as A, ask as B,
+ * expect nothing. The difference worth stating is the **error type**. A cross-vendor
+ * read raises `NotFoundError`, not `ForbiddenError`, for the reason the AI-conversation
+ * case below documents: the refusal and the absence must be indistinguishable, or the
+ * workspace becomes an oracle for which product ids are real. A vendor product id is a
+ * URL somebody will try.
+ */
+describe("Vendor B is refused Vendor A's products", () => {
+  it("has a real fixture — the control", async () => {
+    const own = await productService.listForVendor({ vendorId: VENDOR_A });
+    expect(own.total).toBe(1);
+    expect(own.items[0]!.name).toBe("Northwind Dispatch");
+  });
+
+  it("does not list one vendor's products for another", async () => {
+    const theirs = await productService.listForVendor({ vendorId: VENDOR_B });
+    expect(theirs.total).toBe(0);
+    expect(theirs.items).toEqual([]);
+  });
+
+  /**
+   * Absence of an owner must not read as "mine" — the case that caught a real leak.
+   *
+   * A dev server whose registered schema predated `Product.vendorId` dropped the filter
+   * under `strictQuery` and served a vendor an Innovatrix product's edit form. Both
+   * halves are asserted: the list, and the **single-document read** the wizard uses,
+   * because it was the second that leaked while the first looked fine.
+   */
+  it("does not return a first-party product to any vendor", async () => {
+    const all = await productService.listForVendor({ vendorId: VENDOR_A });
+    expect(all.items.map((p) => p.slug)).not.toContain("atlas");
+
+    const { products } = await import("@/repositories/product.repository");
+    expect(await products.findScoped(PRODUCT, { vendorId: VENDOR_A })).toBeNull();
+
+    // Non-vacuity: the fixture is genuinely there and genuinely unowned, so the two
+    // nulls above mean scoping rather than a missing document.
+    const unscoped = await catalog.Product.findById(PRODUCT).lean();
+    expect(unscoped).not.toBeNull();
+    expect(unscoped!.vendorId).toBeUndefined();
+  });
+
+  /**
+   * The runtime backstop for the same failure, asserted rather than trusted.
+   *
+   * `strictQuery: true` silently drops a filter on an undeclared path, so a scoped read
+   * against a schema without `vendorId` would be a read across every vendor. The
+   * repository refuses instead. `schema-paths.test.ts` catches a removal in CI; this
+   * proves the guard fires if one ever reaches a running process.
+   */
+  it("refuses a vendor-scoped query rather than running it unscoped", async () => {
+    const { products } = await import("@/repositories/product.repository");
+    const { RepositoryError } = await import("@/repositories/base");
+
+    const path = catalog.Product.schema.path("vendorId");
+    catalog.Product.schema.remove("vendorId");
+    try {
+      await expect(
+        products.findScoped(VENDOR_A_PRODUCT, { vendorId: VENDOR_A }),
+      ).rejects.toBeInstanceOf(RepositoryError);
+    } finally {
+      // Put it back, or every later test in this file runs against a broken schema.
+      catalog.Product.schema.add({ vendorId: path.options });
+    }
+
+    // And it works again once the path is there.
+    expect(await products.findScoped(VENDOR_A_PRODUCT, { vendorId: VENDOR_A })).not.toBeNull();
+  });
+
+  it("refuses a section save on another vendor's product, as a 404", async () => {
+    await expect(
+      productService.saveSection(
+        VENDOR_A_PRODUCT,
+        "basics",
+        { name: "Hijacked" },
+        { type: "vendor", userId: USER_B, vendorId: VENDOR_B },
+        { vendorId: VENDOR_B },
+      ),
+    ).rejects.toBeInstanceOf(errors.NotFoundError);
+
+    // And nothing was written.
+    const after = await catalog.Product.findById(VENDOR_A_PRODUCT).lean();
+    expect(after!.name).toBe("Northwind Dispatch");
+  });
+
+  it("refuses a classification save, which is the facet-rewriting path", async () => {
+    await expect(
+      productService.saveClassification(
+        VENDOR_A_PRODUCT,
+        { categoryIds: [], industryIds: [], technologyIds: [] },
+        { type: "vendor", userId: USER_B, vendorId: VENDOR_B },
+        { vendorId: VENDOR_B },
+      ),
+    ).rejects.toBeInstanceOf(errors.NotFoundError);
+  });
+
+  it("refuses a transition on another vendor's product", async () => {
+    await expect(
+      productService.transition(
+        VENDOR_A_PRODUCT,
+        "internal_review",
+        { type: "vendor", userId: USER_B, vendorId: VENDOR_B },
+        { scope: { vendorId: VENDOR_B } },
+      ),
+    ).rejects.toBeInstanceOf(errors.NotFoundError);
+  });
+
+  /**
+   * The owner's own classification save must **keep** the `vend:` term.
+   *
+   * This is the trap vendor ticket 04 names, asserted rather than trusted: facets are
+   * rewritten wholesale, so a term not re-derived here is silently wiped and the
+   * product quietly stops appearing under its own vendor. Nothing errors.
+   */
+  it("preserves the vendor facet when its owner edits the classification", async () => {
+    await productService.saveClassification(
+      VENDOR_A_PRODUCT,
+      { categoryIds: [], industryIds: [], technologyIds: [] },
+      { type: "vendor", userId: USER_A, vendorId: VENDOR_A },
+      { vendorId: VENDOR_A },
+    );
+
+    const after = await catalog.Product.findById(VENDOR_A_PRODUCT).lean();
+    expect(after!.facets).toContain("vend:northwind-labs");
+  });
+
+  it("refuses a blank vendor scope rather than treating it as no scope", async () => {
+    // The same accident as `organizationId: value ?? ""`, and the same answer.
+    await expect(productService.listForVendor({ vendorId: "" })).rejects.toBeInstanceOf(
+      scope.ScopeError,
+    );
+
+    await expect(productService.listForVendor({ vendorId: "  " })).rejects.toBeInstanceOf(
+      scope.ScopeError,
+    );
+  });
+
+  it("still lets staff read across every vendor, by omitting the scope", async () => {
+    // Staff scope is `undefined`, and nothing else is.
+    const product = await productService.readinessFor(
+      (await catalog.Product.findById(VENDOR_A_PRODUCT).lean())!,
+    );
+    expect(product.gaps.length).toBeGreaterThan(0);
   });
 });
 

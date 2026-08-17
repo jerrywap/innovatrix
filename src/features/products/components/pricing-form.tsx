@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FieldGroup, SectionForm } from "./section-form";
+import { FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { MoneyInput } from "./money-input";
 import { Repeater } from "./repeater";
 import { savePricingAction } from "../actions";
@@ -40,16 +40,23 @@ import type {
  *
  * Amounts are typed as decimals and converted server-side by `fromDecimal`,
  * which knows each currency's exponent. The client never multiplies by 100.
+ *
+ * `action` is a prop so this form serves both wizard surfaces — vendor ticket 04.
+ * Defaulted to the staff action, so every existing caller is unchanged and the
+ * vendor pages pass their own. A second copy of the form per surface is how one of
+ * them quietly stops having a field the other has.
  */
 export function PricingForm({
   product,
   nextHref,
+  action = savePricingAction,
 }: {
   product: AdminProductView;
   nextHref: string;
+  action?: SectionFormProps["action"];
 }) {
   return (
-    <SectionForm action={savePricingAction} productId={product.id} nextHref={nextHref}>
+    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <FieldGroup
         title="Price"
         description="Set each currency deliberately — nothing is converted from a rate."

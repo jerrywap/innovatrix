@@ -11,18 +11,22 @@ import { objectIdSchema } from "@/validators/common";
 import {
   productBasicsSchema,
   productClassificationSchema,
-  productContentSchema,
-  productMediaSchema,
-  productOptionsSchema,
-  productPricingSchema,
   productDemoSchema,
-  productSeoSchema,
   productSlugSchema,
   productTestingSchema,
 } from "@/validators/product-sections";
 import { richTextDocumentSchema, type RichTextDocument } from "@/lib/rich-text/schema";
 import { PRODUCT_STATUSES, type ProductStatus } from "@/lib/db/enums";
 import { descriptionFields } from "@/lib/db/models/catalog";
+import {
+  BASICS_SECTION,
+  CONTENT_SECTION,
+  MEDIA_SECTION,
+  OPTIONS_SECTION,
+  PRICING_SECTION,
+  SEO_SECTION,
+  type SectionConfig,
+} from "./section-config";
 import { staffActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
@@ -120,12 +124,7 @@ export async function createProductAction(
  * and the invalidation cannot drift apart between steps — which is exactly how
  * one step ends up saving without checking a permission.
  */
-function sectionAction<S extends z.ZodType>(config: {
-  section: string;
-  permission: Parameters<typeof requirePermission>[0];
-  schema: S;
-  toUpdate: (input: z.infer<S>) => Record<string, unknown>;
-}) {
+function sectionAction<S extends z.ZodType>(config: SectionConfig<S>) {
   return async function saveSectionAction(
     _previous: ActionResult<unknown> | null,
     formData: FormData,
@@ -158,34 +157,15 @@ function sectionAction<S extends z.ZodType>(config: {
   };
 }
 
-export const saveBasicsAction = sectionAction({
-  section: "basics",
-  permission: "product.update",
-  schema: productBasicsSchema,
-  toUpdate: (input) => ({
-    name: input.name,
-    summary: input.summary,
-    // Both description fields, or neither — see `descriptionFields`.
-    ...descriptionFields(input.description),
-  }),
-});
-
-export const saveContentAction = sectionAction({
-  section: "content",
-  permission: "product.update",
-  schema: productContentSchema,
-  toUpdate: (input) => ({
-    features: input.features,
-    requirements: input.requirements,
-  }),
-});
-
-export const saveMediaAction = sectionAction({
-  section: "media",
-  permission: "product.update",
-  schema: productMediaSchema,
-  toUpdate: (input) => ({ media: input.media }),
-});
+/*
+ * Built from the shared configs in `section-config.ts`, which vendor ticket 04
+ * extracted when the wizard gained a second surface. The field mappings live there
+ * so a field added to a section is saved by staff *and* by a vendor — the copy that
+ * would otherwise drift is the one nothing would report.
+ */
+export const saveBasicsAction = sectionAction(BASICS_SECTION);
+export const saveContentAction = sectionAction(CONTENT_SECTION);
+export const saveMediaAction = sectionAction(MEDIA_SECTION);
 
 /**
  * A presigned PUT for one screenshot — §42 step 5.
@@ -287,39 +267,9 @@ export async function createMediaUploadAction(input: unknown): Promise<
   });
 }
 
-export const savePricingAction = sectionAction({
-  section: "pricing",
-  // §77 gives this to `sales` and `finance` and withholds it from
-  // `content_manager`, who can edit copy but not what anything costs.
-  permission: "product.manage_pricing",
-  schema: productPricingSchema,
-  toUpdate: (input) => ({
-    prices: input.prices,
-    licencePackages: input.licencePackages,
-    addons: input.addons,
-  }),
-});
-
-export const saveOptionsAction = sectionAction({
-  section: "options",
-  permission: "product.update",
-  schema: productOptionsSchema,
-  toUpdate: (input) => ({
-    installation: input.installation,
-    "customization.available": input.customization.available,
-    "customization.aiWorkflowEnabled": input.customization.aiWorkflowEnabled,
-    "customization.technicalReviewRequired": input.customization.technicalReviewRequired,
-    "customization.typicalTurnaround": input.customization.typicalTurnaround,
-    "customization.suggestedAreas": input.customization.suggestedAreas,
-  }),
-});
-
-export const saveSeoAction = sectionAction({
-  section: "seo",
-  permission: "product.update",
-  schema: productSeoSchema,
-  toUpdate: (input) => ({ seo: input.seo }),
-});
+export const savePricingAction = sectionAction(PRICING_SECTION);
+export const saveOptionsAction = sectionAction(OPTIONS_SECTION);
+export const saveSeoAction = sectionAction(SEO_SECTION);
 
 /**
  * Classification is not built from the factory.

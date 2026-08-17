@@ -75,15 +75,21 @@ async function ProductTable({ searchParams }: { searchParams: Promise<RawSearchP
     defaultLimit: 25,
     sortable: ["updatedAt", "name", "orderCount"],
     defaultSort: "updatedAt",
-    filterable: ["status"],
+    // Vendor ticket 04. `vendor` here is a **slug**, not an id, and it is a staff
+    // screen — staff read across every vendor by design, so this is a convenience
+    // filter rather than a scope. A vendor's *own* list takes its scope from the
+    // session and deliberately has no such key.
+    filterable: ["status", "vendor"],
   });
 
   await connectToDatabase();
 
   const status = params.filters.status;
+  const vendorSlug = params.filters.vendor;
   const page = await products.list({
     filter: {
       ...(status && isProductStatus(status) ? { status } : {}),
+      ...(vendorSlug ? { vendorSlug } : {}),
       ...(params.q ? { $text: { $search: params.q } } : {}),
     },
     sort: params.sort ? { [params.sort]: params.direction === "asc" ? 1 : -1 } : undefined,
@@ -142,6 +148,19 @@ function columns(readiness: Map<string, Readiness>): Array<Column<AdminProductRo
       key: "status",
       header: "Status",
       cell: (row) => <StatusBadge status={row.status} />,
+    },
+    {
+      key: "vendorName",
+      header: "Seller",
+      secondary: true,
+      // "Innovatrix" rather than a dash for a first-party product: on this screen the
+      // distinction between "we sell this" and "somebody else does" is the point, and
+      // an empty cell reads as missing data.
+      cell: (row) => (
+        <span className="text-muted-foreground text-[12.5px]">
+          {row.vendorName ?? "Innovatrix"}
+        </span>
+      ),
     },
     {
       key: "readiness",

@@ -43,14 +43,23 @@ const KIND_LABELS: Record<VendorDocumentKind, string> = {
  * Action body: there is a body limit a phone photo clears without trying, and
  * proxying puts the file through this process's memory for no benefit.
  *
- * ⚠️ **The browser half cannot work in this environment yet.** Bucket CORS is
- * unset and `GetBucketCors` is denied for the app's credential, so the preflight
- * for the `PUT` below fails — the same blocker that made product media take a URL
- * instead of an upload (ticket 05, ticket 06 note 3). A KYC document has no URL
- * alternative, so the path is built and proven server-side by
- * `npm run storage:probe`. The error the vendor sees is the fetch failure, which
- * is honest but unhelpful; it becomes correct the moment the bucket policy is set,
- * with no change here.
+ * ## CORS: checked, not assumed
+ *
+ * Ticket 05 recorded that bucket CORS was unset, which would kill the preflight
+ * for the `PUT` below — and that is why product media took a URL instead of an
+ * upload. It is **no longer true**: a real `OPTIONS` against a signed
+ * `vendor-document` URL from `http://127.0.0.1:3000` returns `200` with
+ * `access-control-allow-origin`, the same finding `createMediaUploadAction`
+ * records for its own scope. `npm run storage:probe` covers the server half so the
+ * answer can be re-established rather than argued about.
+ *
+ * ## What still does not work
+ *
+ * `s3:DeleteObject` remains denied. So the retention rule in vendor ticket 02 —
+ * documents are removed once a level is decided — cannot be honoured by this
+ * environment: `purgeDecidedDocuments` attempts the delete, tolerates the refusal,
+ * and stamps `purgedAt` to record that the object *should* be gone. It does not
+ * claim that it is.
  */
 export function DocumentUpload({
   level,

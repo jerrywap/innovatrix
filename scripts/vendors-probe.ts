@@ -137,19 +137,120 @@ async function main() {
     pass("an invitation cannot be accepted by a different address");
   }
 
+  /* 6. product ownership — vendor ticket 04 */
+  const productService = await import("@/services/catalog/product-service");
+  const { Product } = await import("@/lib/db/models/catalog");
+  const { products } = await import("@/repositories/product.repository");
+
+  await Product.deleteMany({ vendorId: vendor._id });
+
+  const product = await productService.createDraft(
+    {
+      name: "Brightpath Dispatch",
+      summary: "Dispatch and route planning for small distributors.",
+      vendor: { id, slug: vendor.slug, name: vendor.displayName },
+    },
+    { type: "vendor", userId, vendorId: id },
+  );
+  const productId = String(product._id);
+
+  product.vendorSlug === vendor.slug && product.vendorName === vendor.displayName
+    ? pass("draft created, owned by this vendor")
+    : fail("ownership was not stamped on the draft");
+
+  // The `vend:` term has to exist from creation, not from the first classification
+  // save — otherwise the product is invisible on its own storefront in between.
+  product.facets.includes(`vend:${vendor.slug}`)
+    ? pass(`facets carry vend:${vendor.slug} from creation`)
+    : fail(`facets are ${JSON.stringify(product.facets)} — the vendor term is missing`);
+
+  const mine = await productService.listForVendor({ vendorId: id });
+  mine.total === 1
+    ? pass("appears in this vendor's own list")
+    : fail("not in the vendor's list");
+
+  /* 7. the trap: a classification save must not wipe the vendor term */
+  await productService.saveClassification(
+    productId,
+    { categoryIds: [], industryIds: [], technologyIds: [] },
+    { type: "vendor", userId, vendorId: id },
+    { vendorId: id },
+  );
+  const afterClassification = await Product.findById(productId).lean();
+  afterClassification!.facets.includes(`vend:${vendor.slug}`)
+    ? pass("the vendor term survives a classification save")
+    : fail("the vendor term was wiped by a classification save — storefront now empty");
+
+  /* 8. cross-vendor writes are refused as 404 */
+  const OTHER_VENDOR = "652f1a2b3c4d5e6f70819299";
+  try {
+    await productService.saveSection(
+      productId,
+      "basics",
+      { name: "Hijacked" },
+      { type: "vendor", userId, vendorId: OTHER_VENDOR },
+      { vendorId: OTHER_VENDOR },
+    );
+    fail("another vendor wrote to this product");
+  } catch (e) {
+    (e as Error).name === "NotFoundError"
+      ? pass("another vendor's write is refused as a 404, not a 403")
+      : fail(`expected NotFoundError, got ${(e as Error).name}`);
+  }
+
+  const untouched = await Product.findById(productId).lean();
+  untouched!.name === "Brightpath Dispatch"
+    ? pass("and nothing was written")
+    : fail("the cross-vendor write landed anyway");
+
+  /*
+   * 9. a first-party product is not a vendor's product.
+   *
+   * The case that actually caught a real leak: absence of `vendorId` must not read as
+   * "mine". A dev server whose schema predated the field dropped the filter under
+   * `strictQuery` and served a vendor an Innovatrix product's edit form, so this is
+   * checked against the live database rather than assumed from the type.
+   */
+  const firstParty = await Product.findOne({ vendorId: { $exists: false } })
+    .select({ _id: 1, name: 1 })
+    .lean();
+
+  if (!firstParty) {
+    console.log("  ! no first-party product to test against — run `npm run db:seed`");
+  } else {
+    const leaked = await products.findScoped(String(firstParty._id), { vendorId: id });
+    leaked
+      ? fail(`a first-party product (${leaked.name}) is visible to a vendor`)
+      : pass("a first-party product is not visible to a vendor");
+  }
+
+  /* 10. a blank scope must throw rather than widen */
+  try {
+    await productService.listForVendor({ vendorId: "" });
+    fail("a blank vendor scope listed every vendor's products");
+  } catch (e) {
+    (e as Error).name === "ScopeError"
+      ? pass("a blank vendor scope throws rather than widening")
+      : fail(`expected ScopeError, got ${(e as Error).name}`);
+  }
+
   console.log(
     [
       "",
-      `vendor id : ${id}`,
+      `vendor id  : ${id}`,
+      `product id : ${productId}`,
       "",
       "Now look at these while signed in as the applicant:",
-      "  /dashboard/selling              — the overview, with a Selling group in the nav",
-      "  /dashboard/selling/verification — identity approved, business outstanding",
-      "  /dashboard/selling/settings     — profile, with the slug fixed",
-      "  /dashboard/selling/team         — the invitation waiting to be accepted",
+      "  /dashboard/selling                  — the overview, with a Selling group in the nav",
+      "  /dashboard/selling/verification     — identity approved, business outstanding",
+      "  /dashboard/selling/settings         — profile, with the slug fixed",
+      "  /dashboard/selling/team             — the invitation waiting to be accepted",
+      "  /dashboard/selling/products         — the product, with its readiness gaps",
+      `  /dashboard/selling/products/${productId}/basics`,
       "",
       "And as market@innovatrix.test:",
       `  /staff/vendor-applications/${id}`,
+      "  /admin/products                     — the Seller column, and ?vendor= to filter",
       "",
       process.exitCode ? "PROBE FAILED" : "probe complete — all checks passed",
     ].join("\n"),
