@@ -42,7 +42,15 @@ export const STATIC_PATHS: ReadonlyArray<[string, ChangeFrequency, number]> = [
   ["/custom-software", "monthly", 0.8],
   ["/services", "monthly", 0.7],
   ["/pricing", "monthly", 0.7],
+  /*
+   * Vendor ticket 01. `/sell` is how a developer finds out they can sell here, and it was absent
+   * from this list as well as from every visible link — so the one recruitment page on the site
+   * was invisible to crawlers too. `0.6` rather than `0.7`: it is a real destination but a
+   * narrower audience than the buyer-facing pages above it.
+   */
+  ["/sell", "monthly", 0.6],
   ["/terms", "yearly", 0.2],
+  ["/terms/vendor", "yearly", 0.2],
   ["/privacy", "yearly", 0.2],
 ];
 

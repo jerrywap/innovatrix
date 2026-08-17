@@ -103,7 +103,25 @@ export function ApplyForm({
               accept an older one. */}
           <Checkbox id="acceptAgreement" name="acceptAgreement" required />
           <label htmlFor="acceptAgreement" className="text-[13px] leading-relaxed">
-            I accept the Innovatrix vendor agreement{" "}
+            I accept the{" "}
+            {/*
+              A link to the actual text — vendor ticket 01's gap, closed.
+              
+              The checkbox recorded an acceptance of a versioned document that did not exist: the
+              only "agreement" page was `/terms`, which is written for a buyer and never mentions
+              vendors. An acceptance of nothing is not evidence of anything, and ticket 13 leans
+              on this record when a takedown is weighed.
+              
+              `target="_blank"` so reading it does not discard a part-filled application.
+            */}
+            <a
+              href="/terms/vendor"
+              target="_blank"
+              rel="noopener"
+              className="underline underline-offset-4"
+            >
+              Innovatrix vendor agreement
+            </a>{" "}
             <span className="text-subtle font-mono text-[11px]">({agreementVersion})</span>, and
             I confirm I own or am licensed to distribute everything I list.
           </label>

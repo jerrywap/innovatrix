@@ -81,15 +81,21 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const { user, organization, organizationId, role } = context;
   const [organizations, vendor] = await Promise.all([
     listUserOrganizations(),
-    // Vendor ticket 01: whether to draw the Selling group. One indexed lookup,
-    // `cache()`d in the DAL, and *only* about the chrome — the segment's own pages
-    // establish their scope for themselves and must never read it from here.
+    // Vendor ticket 01: whether to draw the Vendor group, and whether it includes the
+    // owner-only settings link. One indexed lookup, `cache()`d in the DAL, and *only* about
+    // the chrome — the segment's own pages establish their scope for themselves and must never
+    // read it from here.
     requireVendorOrNull(),
   ]);
 
   return (
     <AppShell
-      sections={customerNavFor(role, { isVendor: vendor !== null })}
+      sections={customerNavFor(role, {
+        isVendor: vendor !== null,
+        // Both, from the same context. A `member` sees the workspace and not the payout
+        // account, which is the one capability the two-role model exists to separate.
+        isVendorOwner: vendor?.role === "owner",
+      })}
       homeHref="/dashboard"
       contextLabel={organization.isPersonal ? undefined : organization.name}
       banner={!user.emailVerified ? <VerifyEmailBanner /> : undefined}
