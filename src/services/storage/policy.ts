@@ -1,4 +1,5 @@
 import { formatBytes } from "@/lib/format-bytes";
+import { ValidationError } from "@/lib/errors";
 import type { StorageScope } from "./keys";
 
 /**
@@ -102,9 +103,26 @@ export const STORAGE_POLICY: Record<StorageScope, ScopePolicy> = {
   healthcheck: { maxBytes: 1024, contentTypes: ["text/plain"], extensions: ["txt"] },
 };
 
-export class StoragePolicyError extends Error {
+/**
+ * A refusal, with a sentence the person who tried is meant to read.
+ *
+ * ## It extends `ValidationError`, and it did not
+ *
+ * It extended plain `Error`, so `isDomainError()` was false and `withAction` treated every storage
+ * refusal as an unmodelled fault: the carefully written message was replaced with **"Something went
+ * wrong on our side. Please try again. (ref E-…)"** and logged as a server error. A vendor uploading
+ * a release got an incident reference instead of the reason, and the reason was sitting in the
+ * error object the whole time.
+ *
+ * `VALIDATION` is the right code — a rejected upload is a bad input, not a server failure — and it
+ * carries a 400 rather than a 500, which is also what the log should have been saying.
+ *
+ * The `name` is preserved deliberately: `storage.test.ts` asserts `toThrow(StoragePolicyError)`, and
+ * the class identity is what the storage service's own callers catch on.
+ */
+export class StoragePolicyError extends ValidationError {
   constructor(message: string) {
-    super(message);
+    super(message, { file: [message] });
     this.name = "StoragePolicyError";
   }
 }
@@ -243,6 +261,25 @@ export function assertBytesMatchDeclared(head: Uint8Array, declaredContentType: 
   }
 
   const declared = declaredContentType.split(";")[0]?.trim().toLowerCase() ?? "";
+
+  /*
+   * `application/octet-stream` is the *absence* of a declaration, not a competing one.
+   *
+   * Every uploader in this app sends `file.type || "application/octet-stream"`, and the file
+   * uploader says why in its own comment: "an unknown type from the OS is better declared as a
+   * byte stream than guessed". The browser leaves `file.type` empty for plenty of ordinary files —
+   * a `.zip` from some archivers, a `.tar.gz`, anything with an extension the OS has no mapping
+   * for. This function then compared "unknown" against the type it had just recognised and called
+   * the difference a mismatch, so a vendor's release archive was refused for being *more*
+   * identifiable than declared. The client was doing exactly what it was told and the policy
+   * treated it as a lie.
+   *
+   * Nothing is weakened by accepting it. The executable check above is unconditional and already
+   * ran; the scope's extension and content-type allowlists ran at ticket time in
+   * `assertUploadAllowed`; and the case this whole function exists for — a `.exe` renamed `.zip` —
+   * is caught by `EXECUTABLE_TYPES` regardless of what was declared.
+   */
+  if (declared === "application/octet-stream") return;
   // docx/xlsx are zip containers; treat the family as equivalent.
   const zipFamily = ["application/zip", "application/x-zip-compressed"];
   const isZipish =
