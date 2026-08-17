@@ -140,11 +140,16 @@ export default async function Page() {
       <div className="border-border rounded-xl border p-5">
         <h2 className="font-display text-[15.5px] tracking-[-0.02em]">Your storefront</h2>
         <p className="text-muted-foreground mt-1 text-[13px]">
-          Customers see this when they follow your name from a product. It appears once you have
-          something published.
+          Customers see this when they follow your name from a product. It goes live once you
+          are verified and have something published.
         </p>
+        {/*
+          The preview, not `/vendors/${vendor.slug}` — which this button linked to until a vendor
+          with one draft followed it into a 404 and read that as their storefront being broken.
+          The preview renders in every state and links onward to the live page once there is one.
+        */}
         <Button asChild variant="outline" className="mt-3.5">
-          <Link href={`/vendors/${vendor.slug}` as Route}>View your storefront</Link>
+          <Link href="/dashboard/selling/storefront">View your storefront</Link>
         </Button>
       </div>
 

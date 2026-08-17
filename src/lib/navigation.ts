@@ -204,6 +204,15 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         requiresVendor: true,
       },
       {
+        // A preview, and the only storefront link a vendor can always follow — the public
+        // `/vendors/[slug]` is 404 until they are verified with something published, so linking
+        // *that* from the nav would put a not-found page in the sidebar of every new vendor.
+        label: "Storefront",
+        href: "/dashboard/selling/storefront",
+        icon: "globe",
+        requiresVendor: true,
+      },
+      {
         label: "Reviews",
         href: "/dashboard/selling/reviews",
         icon: "star",

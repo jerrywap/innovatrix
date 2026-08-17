@@ -132,6 +132,7 @@ Each is a content surface with its own moderation problem and none is asked for.
 - [x] Publishing or unpublishing a product refreshes the storefront within the documented cache window.
 - [x] `sitemap.xml` lists storefronts with published products only, and every URL in it resolves.
 - [x] The storefront's `BreadcrumbList` matches the visible breadcrumb exactly.
+- [x] A vendor can see their own storefront before it is public, and is told why it is not.
 
 ## Implementation notes — 2026-08-17
 
@@ -166,3 +167,32 @@ the cached side has no logic the tests cannot reach.
 `/staff/reviews` appeared in the nav, which is the drift check working: the entry meant
 "post-MVP module with no route", and reviews now have both. Removing it is the fix rather than an
 exception — see vendor ticket 10 and the un-deferral note in `01-mvp-todo.md`.
+
+### Follow-up — the 404 a vendor met on their own storefront
+
+Reported on 2026-08-17: a verified vendor with one draft product followed **View your storefront**
+on `/dashboard/selling` and landed on a 404. Both halves of the eligibility rule were working
+exactly as this ticket specifies — the button was the defect, because it pointed at the public
+route from inside the workspace, where the answer is unconditional.
+
+The public rule did not move. The presentation was extracted to
+`features/storefront/components/storefront-body.tsx` and a preview added at
+`/dashboard/selling/storefront`, behind `requireVendorOrForbid`, which renders in **every** vendor
+state with a notice naming what is missing — verification or a published product, whichever it is —
+and links onward to the live page once there is one. It is in the vendor nav as *Storefront*, and
+it is the only storefront link a vendor can always follow.
+
+Three things the preview deliberately does not share with the public page:
+
+- **No JSON-LD and no `BreadcrumbList`.** It sits behind the authenticated-area `robots.ts`
+  disallow, so an `Organization` node here is noise at best, and a breadcrumb node would disagree
+  with the visible workspace navigation.
+- **`loadVendorProfile`, not `getVendorProfile`.** The cached reader is scoped to the public rule
+  and returns `null` for an unverified vendor — the very vendor most likely to be looking. Reading
+  the uncached loader also means a profile edit is visible immediately, which is what a preview is
+  for, and leaves the public page's cache tag untouched.
+- **The notice.** A preview indistinguishable from the live page teaches the wrong lesson about
+  what customers can see.
+
+`sitemap.xml` is unchanged: `storefrontSlugs` still lists only vendors with published products, so
+the preview adds no URL to it.
