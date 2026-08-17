@@ -150,6 +150,26 @@ export const PAYOUT_STATUSES = values([
 ] as const);
 export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
 
+/**
+ * Why a vendor was not paid in a run — vendor ticket 09.
+ *
+ * "Skipped and told why" is the requirement, and it needs a closed set: a vendor silently
+ * excluded from three runs has no way to discover it, and a free-text reason written by a
+ * job is a sentence nobody can filter, count or explain twice the same way.
+ */
+export const PAYOUT_SKIP_REASONS = values([
+  /** Business verification incomplete — money must not leave to an unverified account. */
+  "unverified",
+  /** No payout account on file. Nothing to send to. */
+  "no_account",
+  /** Cleared balance below the configured threshold. */
+  "below_threshold",
+  /** Cleared balance is negative — a refund clawed back more than was earned. */
+  "negative_balance",
+  "suspended",
+] as const);
+export type PayoutSkipReason = (typeof PAYOUT_SKIP_REASONS)[number];
+
 export const VENDOR_DOCUMENT_KINDS = values([
   "government_id",
   "proof_of_address",
@@ -488,6 +508,9 @@ export const DOMAIN_EVENTS = values([
   "VendorVerified",
   "VendorRejected",
   "VendorSuspended",
+  // Vendor ticket 09 — the first events about money leaving.
+  "VendorPayoutPaid",
+  "VendorPayoutFailed",
   // Vendor ticket 05.
   "ProductSubmitted",
   "ProductChangesRequested",

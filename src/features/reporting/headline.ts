@@ -7,6 +7,7 @@ import { Product } from "@/lib/db/models/catalog";
 import { CustomerRequest } from "@/lib/db/models/requests";
 import { Organization } from "@/lib/db/models/identity";
 import { Job } from "@/lib/db/models/system";
+import { Payout } from "@/lib/db/models/ledger";
 import type { Money } from "@/lib/money";
 
 /**
@@ -53,6 +54,14 @@ export interface AdminHeadline {
   newOrganizationsThisMonth: number;
   jobsQueued: number;
   jobsFailed: number;
+  /**
+   * Vendor ticket 09 — payouts waiting on a person.
+   *
+   * `draft` and `failed` together, because both mean "money we owe that is not moving and
+   * nobody has looked". A separate figure for each would be two numbers where the action is
+   * the same: open the queue.
+   */
+  payoutsAwaiting: number;
 }
 
 export interface StaffHeadline {
@@ -132,6 +141,7 @@ export async function adminHeadline(): Promise<AdminHeadline> {
     newOrganizationsThisMonth,
     jobsQueued,
     jobsFailed,
+    payoutsAwaiting,
   ] = await Promise.all([
     revenueBetween(thisMonth, nextMonth),
     revenueBetween(lastMonth, thisMonth),
@@ -142,6 +152,7 @@ export async function adminHeadline(): Promise<AdminHeadline> {
     Organization.countDocuments({ createdAt: { $gte: thisMonth } }),
     Job.countDocuments({ status: "pending" }),
     Job.countDocuments({ status: "failed" }),
+    Payout.countDocuments({ status: { $in: ["draft", "failed"] } }),
   ]);
 
   return {
@@ -154,6 +165,7 @@ export async function adminHeadline(): Promise<AdminHeadline> {
     newOrganizationsThisMonth,
     jobsQueued,
     jobsFailed,
+    payoutsAwaiting,
   };
 }
 

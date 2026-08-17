@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { requireVendorOwner } from "@/lib/auth/dal";
 import { ProfileForm } from "@/features/vendors/components/profile-form";
 import { AgreementNotice } from "@/features/vendors/components/agreement-notice";
+import { PayoutAccountForm } from "@/features/vendors/components/payout-account-form";
 import {
   VENDOR_AGREEMENT_VERSION,
   agreementIsCurrent,
@@ -58,6 +59,25 @@ export default async function Page() {
         slug={vendor.slug}
       />
 
+      {/*
+        Vendor ticket 09. On this page because it is owner-only and this page already is —
+        and the masking happens here rather than in the component, so the full account number
+        never crosses the RSC boundary at all.
+      */}
+      <section className="border-border border-t pt-6">
+        <PayoutAccountForm
+          account={{
+            ...(vendor.payout?.accountName ? { accountName: vendor.payout.accountName } : {}),
+            ...(vendor.payout?.bankName ? { bankName: vendor.payout.bankName } : {}),
+            ...(vendor.payout?.country ? { country: vendor.payout.country } : {}),
+            ...(vendor.payout?.accountIdentifier
+              ? { masked: mask(vendor.payout.accountIdentifier) }
+              : {}),
+          }}
+          verificationStatus={vendor.verification.business.status}
+        />
+      </section>
+
       <section className="border-border flex flex-wrap items-center justify-between gap-3 border-t pt-6">
         <div>
           <h2 className="font-display text-[15.5px] tracking-[-0.02em]">Team</h2>
@@ -72,4 +92,15 @@ export default async function Page() {
       </section>
     </div>
   );
+}
+
+/**
+ * Last four characters only.
+ *
+ * Done here, on the server, so the full identifier is never in the payload — a masked value
+ * computed in a client component would have to be sent the whole thing first.
+ */
+function mask(identifier: string): string {
+  const trimmed = identifier.replace(/\s+/g, "");
+  return trimmed.length <= 4 ? "••••" : `••••${trimmed.slice(-4)}`;
 }

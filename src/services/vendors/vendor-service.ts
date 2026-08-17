@@ -403,6 +403,91 @@ export async function saveProfile(
   return updated;
 }
 
+export interface PayoutAccountInput {
+  accountName: string;
+  accountIdentifier: string;
+  bankName: string;
+  country: string;
+}
+
+/**
+ * Where money goes — vendor ticket 09.
+ *
+ * ## Three things happen, and the second two are the point
+ *
+ * 1. The details are stored.
+ * 2. **Business verification returns to `pending`.** A changed account is a changed payee,
+ *    and the whole reason business verification gates payouts is that money must not leave to
+ *    an account nobody checked. An attacker who reaches a vendor session should get a *held*
+ *    payout and a re-verification queue item, not a transfer.
+ * 3. **Nothing is unpublished.** Products stay on sale, customers keep downloading, earnings
+ *    keep accruing. Only the *leaving* is held — the softest gate that still means something,
+ *    and the same principle as the agreement gate in ticket 07.
+ *
+ * The audit row records **field names, never values**. An account number in an append-only
+ * collection is an account number we can never remove, and §90's `before`/`after` convention
+ * already settled this for every other sensitive field.
+ */
+export async function savePayoutAccount(
+  vendorId: string,
+  input: PayoutAccountInput,
+  actor: AuditActor,
+): Promise<VendorDoc> {
+  await connectToDatabase();
+
+  const vendor = await Vendor.findOne({ _id: toObjectId(vendorId), deletedAt: null })
+    .select({ payout: 1, verification: 1 })
+    .lean<Pick<VendorDoc, "payout" | "verification">>();
+  if (!vendor) throw new NotFoundError("vendor", { id: vendorId });
+
+  // Whitespace matters in an account number in exactly one direction: it is never
+  // significant, and it is frequently pasted. Stored without it so a comparison works.
+  const accountIdentifier = input.accountIdentifier.replace(/\s+/g, "");
+  const changed = vendor.payout?.accountIdentifier !== accountIdentifier;
+
+  const set: Record<string, unknown> = {
+    "payout.accountName": input.accountName.trim(),
+    "payout.accountIdentifier": accountIdentifier,
+    "payout.bankName": input.bankName.trim(),
+    "payout.country": input.country.trim().toUpperCase(),
+    "payout.updatedAt": new Date(),
+  };
+
+  // Only on a real change. Re-saving the same number to fix a typo in the bank's *name*
+  // should not send a vendor back through verification.
+  const holdsPayouts = changed && vendor.verification.business.status === "approved";
+  if (holdsPayouts) set["verification.business.status"] = "pending";
+
+  const updated = await Vendor.findOneAndUpdate(
+    { _id: toObjectId(vendorId), deletedAt: null },
+    {
+      $set: set,
+      // The old decision date must go with the old decision, or the screen reads
+      // "pending, decided last Tuesday".
+      ...(holdsPayouts ? { $unset: { "verification.business.decidedAt": "" } } : {}),
+    },
+    { returnDocument: "after", runValidators: true },
+  ).lean<VendorDoc>();
+
+  if (!updated) throw new NotFoundError("vendor", { id: vendorId });
+
+  await writeAuditLog({
+    action: "vendor.payout_account_changed",
+    actor,
+    subject: { type: "vendor", id: vendorId },
+    // Names, never numbers. Whether it changed, and whether that held payouts, are the two
+    // facts somebody will need; the account itself is not one of them.
+    after: {
+      fields: ["accountName", "accountIdentifier", "bankName", "country"],
+      identifierChanged: changed,
+      businessVerificationReset: holdsPayouts,
+    },
+    source: "vendor",
+  });
+
+  return updated;
+}
+
 /**
  * Accept the current agreement version — vendor ticket 07.
  *

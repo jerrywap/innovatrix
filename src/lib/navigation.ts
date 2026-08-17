@@ -362,6 +362,15 @@ export const ADMIN_NAV: readonly NavSection[] = [
         matchNested: true,
       },
       {
+        // Vendor ticket 09 — the only outbound money in the platform, so its own
+        // item rather than a tab under Payments, which is entirely inbound.
+        label: "Payouts",
+        href: "/admin/payouts",
+        icon: "banknote",
+        permission: "payout.view_all",
+        matchNested: true,
+      },
+      {
         label: "Discounts",
         href: "/admin/discounts",
         icon: "tags",

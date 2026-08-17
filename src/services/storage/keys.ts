@@ -58,6 +58,7 @@ export type StorageScope =
   | "quote-document"
   | "invoice-document"
   | "vendor-document"
+  | "payout-evidence"
   | "healthcheck";
 
 /* ────────────────────────────────────────────── prefix */
@@ -225,6 +226,23 @@ export function vendorDocumentKey(
 ): string {
   const key =
     `${ctx.root}/vendors/${segment(vendorId, "vendorId")}/documents` +
+    `/${id()}-${safeFilename(filename)}`;
+  return assertKeyInPrefix(key, ctx.root);
+}
+
+/**
+ * Remittance advice for a payout — vendor ticket 09.
+ *
+ * Under `payouts/{payoutId}/`, not under the vendor: a payout is the thing the evidence is
+ * evidence *of*, and keying by vendor would make "which transfer is this?" a search.
+ */
+export function payoutEvidenceKey(
+  ctx: KeyBuilderContext,
+  payoutId: string,
+  filename: string,
+): string {
+  const key =
+    `${ctx.root}/payouts/${segment(payoutId, "payoutId")}/evidence` +
     `/${id()}-${safeFilename(filename)}`;
   return assertKeyInPrefix(key, ctx.root);
 }

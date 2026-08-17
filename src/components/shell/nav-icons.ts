@@ -1,4 +1,5 @@
 import {
+  Banknote,
   Bell,
   Bookmark,
   Building2,
@@ -41,6 +42,7 @@ import {
  * a compile error rather than a missing icon at runtime.
  */
 export const NAV_ICONS = {
+  banknote: Banknote,
   bell: Bell,
   bookmark: Bookmark,
   building: Building2,

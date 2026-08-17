@@ -49,6 +49,20 @@ export const SCHEDULE: readonly ScheduledJob[] = [
   // vendor's money becoming payable a few hours after midnight rather than at it
   // is not a difference anybody can act on — the payout batch is monthly.
   { name: "clear-vendor-earnings", everyMinutes: 24 * 60 },
+
+  /*
+   * Daily, even though the *cadence* is monthly.
+   *
+   * The job asks "is there a period whose payout has not been drafted yet" and the unique
+   * `(vendorId, periodStart, periodEnd)` index answers it, so running daily costs one query
+   * per vendor on twenty-nine days out of thirty and cannot double-draft on the thirtieth.
+   * A monthly schedule would instead mean one missed run delays every vendor by a month.
+   */
+  { name: "draft-vendor-payouts", everyMinutes: 24 * 60 },
+
+  // Six-hourly. A transfer that has been "sending" for two days is somebody's money in
+  // limbo, and the shape of the answer — ask the provider, else surface it — is cheap.
+  { name: "reconcile-sending-payouts", everyMinutes: 6 * 60 },
 ];
 
 export interface ScheduleTickResult {

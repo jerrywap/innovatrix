@@ -66,6 +66,18 @@ export interface JobPayloadMap {
    * reconcilable.
    */
   "clear-vendor-earnings": Record<string, never>;
+
+  /**
+   * Vendor ticket 09 — draft a payout per eligible vendor, and record why the others were
+   * skipped.
+   *
+   * Drafts only. Nothing here sends money: `draft → approved` is a human decision, and a
+   * job that could take it would make "money never leaves without somebody looking" false.
+   */
+  "draft-vendor-payouts": Record<string, never>;
+
+  /** Vendor ticket 09 — payouts stuck in `sending`, the outbound stuck-payment sweep. */
+  "reconcile-sending-payouts": Record<string, never>;
 }
 
 /*

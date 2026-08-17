@@ -146,5 +146,35 @@ export const ledgerAdjustmentSchema = z.object({
   note: z.string().trim().min(1, "Say why. Somebody will read this a year from now.").max(500),
 });
 
+/* ────────────────────────────────────────────── payout account (ticket 09) */
+
+/**
+ * Where money goes.
+ *
+ * `accountIdentifier` is deliberately loose — an IBAN, a sort code and account number, and a
+ * Nigerian NUBAN have nothing in common but being a string, and a regex that fits three
+ * countries rejects the fourth. The real check is business verification, which a person
+ * performs against a bank document; a format assertion here would only tell a vendor with an
+ * unusual bank that their own account number is invalid.
+ *
+ * Length bounds and a character class, though: an account field is not free text, and this
+ * one is rendered on a statement.
+ */
+export const payoutAccountSchema = z.object({
+  accountName: z.string().trim().min(2, "The name on the account.").max(120),
+  accountIdentifier: z
+    .string()
+    .trim()
+    .min(4, "Too short to be an account number.")
+    .max(64)
+    .regex(/^[A-Za-z0-9 -]+$/, "Letters, numbers, spaces and hyphens only."),
+  bankName: z.string().trim().min(2, "Which bank?").max(120),
+  country: z
+    .string()
+    .trim()
+    .length(2, "A two-letter country code.")
+    .regex(/^[A-Za-z]{2}$/, "A two-letter country code."),
+});
+
 export type VendorApplicationInput = z.infer<typeof vendorApplicationSchema>;
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;

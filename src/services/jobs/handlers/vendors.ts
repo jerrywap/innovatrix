@@ -3,6 +3,7 @@ import { defineJob } from "../registry";
 import { PermanentJobError } from "../types";
 import { log } from "@/lib/logger";
 import { clearDueEarnings } from "@/services/vendors/ledger-service";
+import { draftBatch, reconcileSending } from "@/services/payouts/payout-service";
 
 /**
  * Vendor jobs — vendor ticket 06.
@@ -74,6 +75,66 @@ export function registerVendorJobs(): void {
 
     if (cleared > 0) {
       log.info("Vendor earnings cleared", { code: "vendor_ledger.cleared", cleared });
+    }
+  });
+
+  /**
+   * Vendor ticket 09 — prepare the batch. **It cannot send anything.**
+   *
+   * That is the design and not a limitation: `draft → approved` is a human transition, so a
+   * job holding `payout.approve` would be the one thing this ticket set out to prevent —
+   * money leaving on a schedule with nobody looking.
+   *
+   * Runs daily against a monthly cadence, because the question it asks is "has this period
+   * been drafted" and the unique `(vendorId, period)` index answers it. Cheap when there is
+   * nothing to do, and one missed run costs a day rather than a month.
+   *
+   * Both halves are logged. A run that skipped every vendor is not a quiet success — it is
+   * the shape of a misconfigured threshold, and the counts are what make that visible.
+   */
+  defineJob("draft-vendor-payouts", async () => {
+    const outcome = await draftBatch();
+
+    if (outcome.drafted.length > 0 || outcome.skipped.length > 0) {
+      log.info("Vendor payout batch drafted", {
+        code: "vendor_payout.batch",
+        drafted: outcome.drafted.length,
+        skipped: outcome.skipped.length,
+        // The reasons, counted. "Eleven vendors skipped" prompts a question; "eleven
+        // unverified" answers it.
+        reasons: outcome.skipped.reduce<Record<string, number>>((acc, skip) => {
+          acc[skip.reason] = (acc[skip.reason] ?? 0) + 1;
+          return acc;
+        }, {}),
+      });
+    }
+  });
+
+  /**
+   * Vendor ticket 09 — a payout stuck in `sending`.
+   *
+   * The outbound twin of `reconcile-pending-payments`. An automated driver can be asked and
+   * the payout resolved; the `manual` driver truthfully answers "still sending", so those
+   * are **surfaced at warning level** for a person rather than left to a sweep that cannot
+   * decide anything. For a manual payout the person *is* the provider.
+   */
+  defineJob("reconcile-sending-payouts", async () => {
+    const { checked, resolved, stuck } = await reconcileSending();
+
+    if (resolved > 0) {
+      log.info("Stuck payouts resolved", { code: "vendor_payout.resolved", checked, resolved });
+    }
+
+    for (const payout of stuck) {
+      log.warn("A payout has been sending for too long", {
+        code: "vendor_payout.stuck",
+        reference: payout.reference,
+        payoutId: String(payout._id),
+        vendorId: String(payout.vendorId),
+        // No amount in the log line: it would put money into log aggregation for no
+        // operational gain, and the reference is enough to open the payout.
+        method: payout.method,
+      });
     }
   });
 }

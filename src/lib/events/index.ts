@@ -126,6 +126,35 @@ export interface DomainEventMap {
   /** New sales stopped. Existing entitlements are untouched (vendor ticket 12). */
   VendorSuspended: { vendorId: string; displayName: string; reason: string };
 
+  /* ── vendor ticket 09: payouts ── */
+
+  /**
+   * Money has left. The vendor is told, with the reference to match against their bank.
+   *
+   * Emitted **after** the transaction commits, like every other event: a notification about
+   * a payment that then rolled back is worse than a late one.
+   */
+  VendorPayoutPaid: {
+    vendorId: string;
+    payoutId: string;
+    reference: string;
+    amount: number;
+    currency: string;
+  };
+
+  /**
+   * A transfer was refused.
+   *
+   * The vendor is told because the likeliest cause is their own account details, and they
+   * are the only person who can fix that. Staff hear about it through the payout queue.
+   */
+  VendorPayoutFailed: {
+    vendorId: string;
+    payoutId: string;
+    reference: string;
+    reason: string;
+  };
+
   /* ── vendor ticket 05: submission and review ── */
 
   /** A vendor handed a product over. Goes to whoever can review it. */
@@ -307,6 +336,8 @@ const EVENT_NAME_SET: Record<DomainEventName, true> = {
   VendorVerified: true,
   VendorRejected: true,
   VendorSuspended: true,
+  VendorPayoutPaid: true,
+  VendorPayoutFailed: true,
   ProductSubmitted: true,
   ProductChangesRequested: true,
   ProductApproved: true,

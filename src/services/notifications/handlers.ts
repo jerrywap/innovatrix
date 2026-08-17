@@ -116,6 +116,19 @@ export function registerNotificationHandlers(): void {
   });
 
   /*
+   * Vendor ticket 09. Both go to every active member, owner or not: a member who cannot see
+   * that a payout arrived cannot answer "did we get paid", and the thing worth restricting
+   * is the payout *account*, not the news that money moved.
+   */
+  on("VendorPayoutPaid", async (payload) => {
+    await dispatch("VendorPayoutPaid", payload, { vendorId: payload.vendorId });
+  });
+
+  on("VendorPayoutFailed", async (payload) => {
+    await dispatch("VendorPayoutFailed", payload, { vendorId: payload.vendorId });
+  });
+
+  /*
    * Vendor ticket 05. `ProductSubmitted` goes to a *permission* audience and needs no
    * lookup at all; the other three resolve a `vendor_member` audience from the
    * `vendorId` on the payload — a query, never a list of user ids in the event.

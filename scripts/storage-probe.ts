@@ -128,6 +128,7 @@ async function main() {
   }
 
   await probeVendorDocuments({ pass, fail, root });
+  await probePayoutEvidence({ pass, fail, root });
 
   console.log(`\n${process.exitCode ? "PROBE FAILED" : "probe complete — all checks passed"}`);
 }
@@ -233,6 +234,81 @@ async function probeVendorDocuments({
     );
     if (!denied) process.exitCode = 1;
   }
+}
+
+/**
+ * The `payout-evidence` scope — vendor ticket 09.
+ *
+ * Shorter than the section above because it inherits its reasoning: a remittance advice is
+ * a bank document, so the same three properties matter. What is checked here is what is
+ * *new*: the key lands under the payout rather than the vendor, and a different payout's id
+ * is refused against it.
+ */
+async function probePayoutEvidence({
+  pass,
+  fail,
+  root,
+}: {
+  pass: (m: string) => void;
+  fail: (m: string) => void;
+  root: string;
+}) {
+  const { createUploadUrl, createDownloadUrl, assertPayoutEvidenceKey } =
+    await import("../src/services/storage");
+  const { payoutEvidenceKey } = await import("../src/services/storage/keys");
+  const { storageContext } = await import("../src/services/storage/client");
+
+  const PAYOUT = "652f1a2b3c4d5e6f70819300";
+  const OTHER = "652f1a2b3c4d5e6f70819399";
+
+  console.log("\npayout-evidence scope");
+
+  const key = payoutEvidenceKey(storageContext(), PAYOUT, "remittance.pdf");
+  key.startsWith(`${root}/payouts/${PAYOUT}/evidence/`)
+    ? pass("key lands on the payout's own branch")
+    : fail(`key escaped the payout branch: ${key}`);
+
+  try {
+    assertPayoutEvidenceKey(key, OTHER);
+    fail("another payout's id accepted this key");
+  } catch {
+    pass("a different payout's id is refused against this key");
+  }
+
+  const body = new TextEncoder().encode("probe\n");
+  const ticket = await createUploadUrl({
+    scope: "payout-evidence",
+    key,
+    filename: "remittance.pdf",
+    contentType: "application/pdf",
+    sizeBytes: body.byteLength,
+  });
+  const put = await fetch(ticket.url, { method: "PUT", body, headers: ticket.headers });
+  put.ok ? pass(`upload succeeded (${put.status})`) : fail(`upload failed ${put.status}`);
+
+  const base = process.env.STORAGE_ENDPOINT
+    ? `${process.env.STORAGE_ENDPOINT}/${process.env.STORAGE_BUCKET}`
+    : `https://${process.env.STORAGE_BUCKET}.s3.${process.env.STORAGE_REGION}.amazonaws.com`;
+  const anon = await fetch(`${base}/${key}`);
+  anon.status === 403 || anon.status === 401
+    ? pass(`unsigned fetch refused (${anon.status})`)
+    : fail(
+        `unsigned fetch returned ${anon.status} — a bank document is publicly readable to ` +
+          `anyone who learns the key.`,
+      );
+
+  const dl = await createDownloadUrl({
+    key,
+    filename: "remittance.pdf",
+    contentType: "application/pdf",
+    expiresInSeconds: 300,
+  });
+  (await fetch(dl.url)).ok ? pass("presigned GET works") : fail("presigned GET failed");
+
+  console.log(
+    `  ! the object is left at ${key} — s3:DeleteObject is denied, as the section above ` +
+      `reports`,
+  );
 }
 
 main().catch((e) => {

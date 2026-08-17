@@ -337,6 +337,38 @@ export const CATALOG: Catalog = {
     },
   ],
 
+  /* ── vendor ticket 09 ── */
+
+  VendorPayoutPaid: [
+    {
+      audience: { kind: "vendor_member" },
+      // `billing`, like an invoice: it is money moving, and a vendor who mutes product
+      // notifications must still hear about a payment.
+      category: "billing",
+      title: (p) => `We've paid you ${p.reference}`,
+      // The reference, because that is what they will match against their bank statement.
+      // The amount is on the statement the link leads to, rendered through `<MoneyDisplay>`
+      // rather than assembled from a number and a currency code in a string.
+      body: (p) =>
+        `Payout ${p.reference} has been sent. Quote that reference if you need to ask us ` +
+        `about it.`,
+      href: (p) => `/dashboard/selling/payouts/${p.reference}`,
+    },
+  ],
+
+  VendorPayoutFailed: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "billing",
+      title: () => "A payout to you didn't go through",
+      // The likeliest cause is their own account details, and they are the only person who
+      // can fix that — so the notification says where to look rather than only what failed.
+      body: (p) =>
+        `${p.reason} Check your payout account details; we will try again on the next run.`,
+      href: () => `/dashboard/selling/settings`,
+    },
+  ],
+
   /* ── vendor ticket 05 ── */
 
   ProductSubmitted: [

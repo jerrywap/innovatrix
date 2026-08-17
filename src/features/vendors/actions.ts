@@ -26,6 +26,7 @@ import {
   inviteMemberSchema,
   invitationIdSchema,
   memberIdSchema,
+  payoutAccountSchema,
   reviewApplicationSchema,
   vendorApplicationSchema,
   vendorProfileSchema,
@@ -107,6 +108,37 @@ export async function saveProfileAction(
     const input = parseInput(vendorProfileSchema, formDataToObject(formData));
 
     await vendorService.saveProfile(
+      context.vendorId,
+      input,
+      vendorActor(context.user, context.vendorId),
+    );
+
+    refreshSelling();
+    return ok({ saved: true as const });
+  });
+}
+
+/**
+ * Save the payout account — vendor ticket 09.
+ *
+ * `requireVendorOwner`, and that guard is the reason the two-role model exists at all: a
+ * wrong price is reversible and audited, and a wrong account number is money in a stranger's
+ * hands. A `member` is refused here in the action, not merely undrawn in the UI — and the
+ * *read* is owner-only too, because a member who can see the details can copy them out.
+ *
+ * The service holds payouts and returns the vendor to business re-verification. That belongs
+ * there rather than here: it is a domain consequence of changing a payee, and an action-layer
+ * version of it would be missed by the next caller.
+ */
+export async function savePayoutAccountAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ saved: true }>> {
+  return withAction(async () => {
+    const context = await requireVendorOwner();
+    const input = parseInput(payoutAccountSchema, formDataToObject(formData));
+
+    await vendorService.savePayoutAccount(
       context.vendorId,
       input,
       vendorActor(context.user, context.vendorId),

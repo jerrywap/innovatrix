@@ -674,6 +674,24 @@ export interface PaymentSettingsDoc {
   offlineEnabled: boolean;
   /** Vendor ticket 07. Absent ⇒ `DEFAULT_COMMISSION_BASIS_POINTS`. */
   commissionBasisPoints?: number;
+  /**
+   * The least a vendor's cleared balance may be before a payout is drafted — vendor
+   * ticket 09, decision **V3**.
+   *
+   * **Per currency, and never converted.** A single number cannot serve GBP and NGN, and
+   * picking a rate to make it would be an FX decision nobody took. A currency with no
+   * threshold configured falls back to `DEFAULT_PAYOUT_THRESHOLD_MINOR`, which is
+   * deliberately low: a threshold that is too small only means more payouts, while one
+   * that is too large silently withholds somebody's money.
+   */
+  payoutThresholds?: { currency: string; amount: number }[];
+  /**
+   * How often a batch is drafted, in days. Absent ⇒ `DEFAULT_PAYOUT_CADENCE_DAYS`.
+   *
+   * A cadence rather than a day-of-month: "the 1st" needs a calendar and a timezone
+   * argument, and a rolling period needs neither.
+   */
+  payoutCadenceDays?: number;
   updatedByUserId?: Types.ObjectId;
 }
 
@@ -720,12 +738,49 @@ const paymentSettingsSchema = new Schema<PaymentSettingsDoc>(
       max: 10_000,
       validate: (v: unknown) => v == null || Number.isInteger(v),
     },
+    // Vendor ticket 09. Minor units, integer, per currency — the same discipline as every
+    // other amount in the system, on a field that decides whether money moves.
+    payoutThresholds: {
+      type: [
+        new Schema(
+          {
+            currency: { type: String, required: true, uppercase: true },
+            amount: {
+              type: Number,
+              required: true,
+              min: 0,
+              validate: (v: unknown) => Number.isInteger(v),
+            },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
+    payoutCadenceDays: {
+      type: Number,
+      min: 1,
+      max: 365,
+      validate: (v: unknown) => v == null || Number.isInteger(v),
+    },
     updatedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
   },
   schemaOptions({ collection: "paymentSettings" }),
 );
 
 paymentSettingsSchema.index({ singleton: 1 }, { unique: true });
+
+/**
+ * The fallback threshold, in minor units — vendor ticket 09.
+ *
+ * £50 in a two-decimal currency. Low on purpose: too low means more payouts than necessary,
+ * too high means quietly sitting on somebody's earnings, and only one of those is a
+ * behaviour a vendor would call theft.
+ */
+export const DEFAULT_PAYOUT_THRESHOLD_MINOR = 5_000;
+
+/** Monthly, in days. Configurable per decision **V3**. */
+export const DEFAULT_PAYOUT_CADENCE_DAYS = 30;
 
 export const PaymentSettings = defineModel<PaymentSettingsDoc>(
   "PaymentSettings",

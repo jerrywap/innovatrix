@@ -405,7 +405,7 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 | 20.6 | Delivery: platform archive **first**, then vendor-hosted mirror and repository-pulled release | [x] | [x] | vendor 06 | ← all three methods; scanning is still the `scanStatus` seam, so "cannot release until it passes a scan" is not claimed
 | 20.7 | Configurable commission (platform → vendor), snapshot on the order line | [x] | [x] | vendor 07 | ← `/admin/settings/commission` as its own route: the payments page is gated on `payment_provider.configure`, which the role that sets our cut does not hold
 | 20.8 | Append-only earnings ledger, clearance, refund clawback | [x] | [x] | vendor 08 | ← the 14-day refund window existed only as prose; this introduces the constant and asserts clearance exceeds it. Statements deferred to 20.9, which owns them
-| 20.9 | Payouts, `PayoutProvider` interface, batches, self-billed statements | [ ] | [ ] | vendor 09 |
+| 20.9 | Payouts, `PayoutProvider` interface, batches, self-billed statements | [x] | [x] | vendor 09 | ← `manual` is a real driver (unlike inbound, where it throws); a draft claims its entries so a second batch cannot see the same money; the statement is derived, so "immutable once paid" is a property of the data
 | 20.10 | Purchase-gated ratings and reviews, moderation, `AggregateRating` | [ ] | [ ] | vendor 10 |
 | 20.11 | Public vendor storefront, attribution, dynamic JSON-LD `seller` | [ ] | [ ] | vendor 11 |
 | 20.12 | Vendor analytics; suspension, offboarding, emergency delisting | [ ] | [ ] | vendor 12 |

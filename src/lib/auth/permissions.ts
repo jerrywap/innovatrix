@@ -79,6 +79,15 @@ export const PERMISSIONS = [
   "vendor.view_ledger",
   "vendor.adjust_ledger",
 
+  /* Payouts (vendor ticket 09) — the first money that leaves the platform.
+     Three, and the split is the control: whoever *prepares* a batch should not
+     be the only person needed to release it, and reading a remittance advice is
+     a third thing again. `payout.approve` is the one that must never be held by
+     an automation. */
+  "payout.view_all",
+  "payout.approve",
+  "payout.send",
+
   /* Customers & organizations */
   "customer.view_all",
   "customer.update",
@@ -284,6 +293,9 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // — adjusting a ledger, approving a payout — does not: that is finance.
     "vendor.manage_commission",
     "vendor.view_ledger",
+    // Read-only on payouts: a marketplace manager fielding "when do I get paid"
+    // needs to see the answer, and needs no part in releasing it.
+    "payout.view_all",
   ],
 
   finance: [
@@ -311,6 +323,10 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // exactly the shape of thing that belongs with whoever reconciles it.
     "vendor.view_ledger",
     "vendor.adjust_ledger",
+    // Money leaving is finance's, end to end.
+    "payout.view_all",
+    "payout.approve",
+    "payout.send",
   ],
 
   devops: ["system.manage_jobs", "audit.view", "settings.manage", "product.view_all"],

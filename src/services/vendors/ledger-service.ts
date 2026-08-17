@@ -390,6 +390,10 @@ export async function clearedEntriesFor(
     vendorId: toObjectId(vendorId),
     status: "cleared",
     "amount.currency": currency,
+    // Unclaimed only. An entry a draft payout is already holding is not available to a
+    // second one — vendor ticket 09's first idempotency guard, and the reason `payoutId` is
+    // stamped at draft time rather than at payment.
+    payoutId: { $exists: false },
   })
     .sort({ createdAt: 1 })
     .session(session ?? null)

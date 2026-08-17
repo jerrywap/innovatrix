@@ -4,9 +4,11 @@ import { defineModel } from "../client";
 import {
   LEDGER_ENTRY_KINDS,
   LEDGER_ENTRY_STATUSES,
+  PAYOUT_SKIP_REASONS,
   PAYOUT_STATUSES,
   type LedgerEntryKind,
   type LedgerEntryStatus,
+  type PayoutSkipReason,
   type PayoutStatus,
 } from "../enums";
 
@@ -168,8 +170,16 @@ export interface PayoutDoc {
   entryIds: Types.ObjectId[];
   /** The bank reference, once sent. */
   externalReference?: string;
-  /** Remittance advice, read through an authorised route like payment evidence. */
+  /**
+   * Remittance advice, read through an authorised route like payment evidence.
+   *
+   * Three fields rather than one, mirroring `Payment.evidence`: the filename is what the
+   * download is called, and the content type is what the presigned GET has to state. A key
+   * alone would mean guessing both from the extension.
+   */
   evidenceKey?: string;
+  evidenceFilename?: string;
+  evidenceContentType?: string;
   failureReason?: string;
   approvedByUserId?: Types.ObjectId;
   sentByUserId?: Types.ObjectId;
@@ -196,6 +206,8 @@ const payoutSchema = new Schema<PayoutDoc>(
     entryIds: { type: [Schema.Types.ObjectId], default: [] },
     externalReference: { type: String, trim: true },
     evidenceKey: { type: String, trim: true },
+    evidenceFilename: { type: String, trim: true },
+    evidenceContentType: { type: String, trim: true },
     failureReason: { type: String, trim: true },
     approvedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
     sentByUserId: { type: Schema.Types.ObjectId, ref: "User" },
@@ -235,3 +247,56 @@ payoutSchema.index({ status: 1, createdAt: 1 });
 payoutSchema.index({ vendorId: 1, periodStart: 1, periodEnd: 1 }, { unique: true });
 
 export const Payout = defineModel<PayoutDoc>("Payout", payoutSchema);
+
+/* ────────────────────────────────────────────── PayoutSkip */
+
+/**
+ * A vendor a batch passed over, and why — vendor ticket 09.
+ *
+ * ## Why this is a row rather than a log line
+ *
+ * "Skipped and told why" is the requirement, and a vendor cannot read our logs. A vendor
+ * silently excluded from three runs has no way to discover it, asks support, and support
+ * has no answer either.
+ *
+ * ## Why it is not a cancelled `Payout`
+ *
+ * A cancelled payout is a payout somebody *decided* not to send. A skip is a payout that
+ * was never eligible to exist — different thing, different reader, and reusing the payout
+ * row would occupy the unique `(vendorId, period)` index and make "we could not pay you"
+ * look like "we cancelled your payment".
+ */
+export interface PayoutSkipDoc {
+  _id: Types.ObjectId;
+  vendorId: Types.ObjectId;
+  periodStart: Date;
+  periodEnd: Date;
+  reason: PayoutSkipReason;
+  /** The balance at the time, so "below threshold" can be read as a number. */
+  balance?: { amount: number; currency: string };
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const payoutSkipSchema = new Schema<PayoutSkipDoc>(
+  {
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor", required: true },
+    periodStart: { type: Date, required: true },
+    periodEnd: { type: Date, required: true },
+    reason: { type: String, enum: PAYOUT_SKIP_REASONS, required: true },
+    balance: { type: MoneySchema },
+  },
+  schemaOptions({ collection: "payoutSkips" }),
+);
+
+/**
+ * One skip per vendor per period.
+ *
+ * `upsert` against this index is what makes the batch job idempotent on the skip side: a
+ * re-run overwrites the reason rather than appending a second row, and the reason can only
+ * have changed if the vendor's situation did.
+ */
+payoutSkipSchema.index({ vendorId: 1, periodStart: 1, periodEnd: 1 }, { unique: true });
+payoutSkipSchema.index({ vendorId: 1, createdAt: -1 });
+
+export const PayoutSkip = defineModel<PayoutSkipDoc>("PayoutSkip", payoutSkipSchema);

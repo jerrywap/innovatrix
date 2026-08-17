@@ -17,6 +17,7 @@ import {
   healthcheckKey,
   paymentProofKey,
   vendorDocumentKey,
+  payoutEvidenceKey,
   productFileKey,
   productMediaKey,
   StorageKeyError,
@@ -74,6 +75,8 @@ const UPLOAD_TTL_SECONDS: Record<StorageScope, number> = {
   // Same reasoning as a receipt, more so: a KYC document is small, and the
   // shorter the window the less time a leaked ticket is worth anything.
   "vendor-document": 300,
+  // A bank document, like a receipt.
+  "payout-evidence": 300,
   healthcheck: 60,
 };
 const DOWNLOAD_URL_TTL_SECONDS = 120;
@@ -429,6 +432,27 @@ export function assertPaymentProofKey(key: string, paymentId: string): string {
 
   if (!key.startsWith(`${root}/payments/${paymentId}/`)) {
     throw new StorageKeyError("That file does not belong to this payment.");
+  }
+  return key;
+}
+
+export function payoutEvidencePath(payoutId: string, filename: string): string {
+  return payoutEvidenceKey(storageContext(), payoutId, filename);
+}
+
+/**
+ * Prove a client-supplied evidence key belongs to *this* payout.
+ *
+ * The fifth hand-rolled sibling of `assertKeyBelongsTo`, which hardcodes the product
+ * prefix. In-prefix alone proves only that a key is one of ours — not that it is this
+ * payout's, which is what matters when the key comes back from a browser.
+ */
+export function assertPayoutEvidenceKey(key: string, payoutId: string): string {
+  const root = storageContext().root;
+  assertKeyInPrefix(key, root);
+
+  if (!key.startsWith(`${root}/payouts/${payoutId}/`)) {
+    throw new StorageKeyError("That file does not belong to this payout.");
   }
   return key;
 }

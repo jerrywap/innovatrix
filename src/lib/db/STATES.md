@@ -231,3 +231,26 @@ stateDiagram-v2
     suspended --> verified
     suspended --> offboarded
 ```
+
+## payout
+
+| From | To | |
+|---|---|---|
+| `draft` | `approved` · `cancelled` |  |
+| `approved` | `sending` · `cancelled` |  |
+| `sending` | `paid` · `failed` |  |
+| `failed` | `approved` · `cancelled` |  |
+| `paid` | — | **terminal** |
+| `cancelled` | — | **terminal** |
+
+```mermaid
+stateDiagram-v2
+    draft --> approved
+    draft --> cancelled
+    approved --> sending
+    approved --> cancelled
+    sending --> paid
+    sending --> failed
+    failed --> approved
+    failed --> cancelled
+```

@@ -3,7 +3,7 @@
  *
  *   npm run vendors:probe
  *
- * Vendor tickets 01–08. The integration suite proves the same rules against an
+ * Vendor tickets 01–09. The integration suite proves the same rules against an
  * ephemeral replica set; this runs them against the database the dev server
  * actually reads, so the screens can be opened afterwards and looked at. That is
  * the gap it fills — a test can assert a status field, and only a person can tell
@@ -484,6 +484,122 @@ async function main() {
     ? pass(`reconciles with no drift over ${recon.ordersRead} order(s)`)
     : fail(`reconciliation drift ${row?.drift}, missing ${row?.missingEntries.length}`);
 
+  /* 7. payouts — vendor ticket 09 */
+
+  console.log("\npayouts");
+
+  const payoutService = await import("@/services/payouts/payout-service");
+  const statementService = await import("@/services/payouts/statement");
+  const { Payout, PayoutSkip } = await import("@/lib/db/models/ledger");
+
+  await Payout.deleteMany({ vendorId: vendor._id });
+  await PayoutSkip.deleteMany({ vendorId: vendor._id });
+
+  // Business verification is what gates a payout, and the walkthrough above only approved
+  // identity — so the first run *should* skip, and that is the check.
+  const firstRun = await payoutService.draftBatch();
+  const skipped = firstRun.skipped.find((row) => row.vendorId === id);
+  skipped?.reason === "unverified" || skipped?.reason === "no_account"
+    ? pass(`skipped before verification — ${skipped.reason}`)
+    : fail(`expected a skip with a reason, got ${JSON.stringify(skipped)}`);
+
+  await vendorService.decideVerification(
+    id,
+    { level: "business", outcome: "approved", documentHashes: [] },
+    staff(userId),
+  );
+  await vendorService.savePayoutAccount(
+    id,
+    {
+      accountName: "Brightpath Tools Ltd",
+      accountIdentifier: "12345678",
+      bankName: "Example Bank",
+      country: "GB",
+    },
+    { type: "vendor", userId, vendorId: id },
+  );
+
+  // Saving the account holds payouts by design, so business verification has to be approved
+  // *after* it for the probe to reach a draft. That ordering is the feature working.
+  await vendorService.decideVerification(
+    id,
+    { level: "business", outcome: "approved", documentHashes: [] },
+    staff(userId),
+  );
+
+  // The clearance sweep cannot be waited out, so the entry is aged directly.
+  await LedgerEntry.updateMany(
+    { vendorId: vendor._id, kind: "earning" },
+    { $set: { status: "cleared" } },
+  );
+
+  const batch = await payoutService.draftBatch();
+  const draft = batch.drafted.find((row) => row.vendorId === id);
+  draft
+    ? pass(`drafted ${draft.reference} for ${draft.amount.amount} minor units`)
+    : fail(`no payout drafted: ${JSON.stringify(batch)}`);
+
+  const rerun = await payoutService.draftBatch();
+  rerun.drafted.some((row) => row.vendorId === id)
+    ? fail("a second batch drafted a duplicate payout")
+    : pass("a re-run drafts nothing — one payout per vendor per period");
+
+  if (draft) {
+    const payoutId = draft.payoutId;
+
+    try {
+      await payoutService.send(payoutId, staff(userId));
+      fail("an unapproved payout was sent");
+    } catch (e) {
+      (e as Error).name === "StateTransitionError"
+        ? pass("a draft cannot be sent before somebody approves it")
+        : fail(`expected StateTransitionError, got ${(e as Error).name}`);
+    }
+
+    await payoutService.approve(payoutId, staff(userId));
+    const sending = await payoutService.send(payoutId, staff(userId));
+    sending.status === "sending"
+      ? pass("approved, then sending — the manual driver waits for a person")
+      : fail(`expected sending, got ${sending.status}`);
+
+    const built = await statementService.buildStatement(sending, { includeAccount: true });
+    const recon = statementService.statementReconciles(built);
+    recon.ok
+      ? pass(`statement reconciles across ${built.lines.length} line(s)`)
+      : fail(`statement drift: line ${recon.lineDrift}, total ${recon.totalDrift}`);
+
+    built.vendor.account?.masked === "••••5678"
+      ? pass("the account is masked to its last four characters")
+      : fail(`account not masked: ${JSON.stringify(built.vendor.account)}`);
+
+    const paid = await payoutService.markPaid(
+      payoutId,
+      { externalReference: "FT-PROBE-0001" },
+      staff(userId),
+    );
+    paid.status === "paid" ? pass("confirmed as paid") : fail("confirmation failed");
+
+    const settled = await LedgerEntry.countDocuments({
+      payoutId: paid._id,
+      status: "paid",
+    });
+    settled === paid.entryIds.length
+      ? pass(
+          `${settled} ledger entr${settled === 1 ? "y" : "ies"} settled in the same transaction`,
+        )
+      : fail(`${settled} of ${paid.entryIds.length} entries settled`);
+
+    const again = await payoutService.markPaid(payoutId, {}, staff(userId));
+    again.externalReference === "FT-PROBE-0001"
+      ? pass("a retried confirmation changes nothing")
+      : fail("a retried confirmation overwrote the payout");
+
+    const finalStatement = await statementService.buildStatement(again);
+    finalStatement.final
+      ? pass("the statement is final once paid")
+      : fail("a paid payout's statement is not final");
+  }
+
   console.log(
     [
       "",
@@ -497,6 +613,7 @@ async function main() {
       "  /dashboard/selling/team             — the invitation waiting to be accepted",
       "  /dashboard/selling/products         — the product, with its readiness gaps",
       "  /dashboard/selling/earnings         — the rate, the three figures, the entries",
+      "  /dashboard/selling/payouts          — the payout, with its statement",
       `  /dashboard/selling/products/${productId}/basics`,
       "",
       "And as market@innovatrix.test:",
@@ -504,6 +621,7 @@ async function main() {
       "  /admin/products                     — the Seller column, and ?vendor= to filter",
       "  /staff/vendor-submissions           — the review queue, oldest first",
       "  /admin/settings/commission          — the platform default rate",
+      "  /admin/payouts                      — the queue, drafts first",
       `  /staff/vendor-submissions/${productId}`,
       "",
       process.exitCode ? "PROBE FAILED" : "probe complete — all checks passed",

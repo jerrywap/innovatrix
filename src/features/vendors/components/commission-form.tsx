@@ -20,7 +20,7 @@ import { setPlatformCommissionAction, setVendorCommissionAction } from "../money
  * typable, and the conversion happens in the action — see `commissionRateSchema`.
  */
 
-/** The platform-wide default, on `/admin/settings/payments`. */
+/** The platform-wide default, on `/admin/settings/commission`. */
 export function PlatformCommissionForm({ percent }: { percent: number }) {
   const [state, submit] = useActionState(setPlatformCommissionAction, null);
 
