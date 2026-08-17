@@ -133,6 +133,10 @@ export function DeliverySource({
                   name="checksumSha256"
                   required
                   pattern="[A-Fa-f0-9]{64}"
+                  // The visible hint above says this too, but a `pattern` with no `title` makes
+                  // the browser's own bubble say "Please match the requested format." and nothing
+                  // more — which is what a vendor reported on the licence-key field.
+                  title="64 hexadecimal characters, as printed by shasum -a 256."
                   className="font-mono text-[12px]"
                   defaultValue={source?.checksumSha256 ?? ""}
                 />

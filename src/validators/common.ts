@@ -40,6 +40,35 @@ export const slugSchema = z
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers and hyphens");
 
 /**
+ * The same rule, as HTML input attributes — spread onto any field that stores a slug.
+ *
+ * ## Why this exists rather than four hand-written `pattern` attributes
+ *
+ * There were four, on the licence-package key, the add-on key, the product address and the
+ * taxonomy address, and **none of them had a `title`**. A `pattern` with no `title` makes the
+ * browser say "Please match the requested format." and nothing else: the field is refused, the
+ * rule is never stated, and there is no way to find out what it is. A vendor reported exactly
+ * that on the licence key.
+ *
+ * They had also drifted. `[a-z0-9]+(-[a-z0-9]+)*` accepts a single character while `slugSchema`
+ * requires two, so `"a"` passed the browser and was refused by the server — the form saying yes
+ * and the action saying no about the same value.
+ *
+ * Keeping the pair here, four lines apart, is what makes them hard to separate: changing the Zod
+ * rule without changing this is a diff that reads wrong.
+ *
+ * The `title` wording matches the Zod message deliberately, so the browser bubble and a
+ * server-side field error say the same thing rather than two versions of it.
+ */
+export const SLUG_INPUT_ATTRS = {
+  pattern: "[a-z0-9]+(-[a-z0-9]+)*",
+  minLength: 2,
+  maxLength: 80,
+  title:
+    "Lowercase letters, numbers and hyphens — at least two characters, like “single-site”.",
+} as const;
+
+/**
  * Pagination. Mirrors the repository's clamp (ticket 01) so an over-large
  * `limit` is rejected at the boundary rather than silently reduced later —
  * the caller finds out they asked for too much.

@@ -14,6 +14,7 @@ import { MoneyInput } from "./money-input";
 import { Repeater } from "./repeater";
 import { savePricingAction } from "../actions";
 import { STOREFRONT_CURRENCIES, type StorefrontCurrency } from "@/config/storefront";
+import { SLUG_INPUT_ATTRS } from "@/validators/common";
 import { ADDON_PRICING_TYPES, LICENCE_TYPES } from "@/lib/db/enums";
 import type {
   AddonView,
@@ -134,15 +135,19 @@ function LicencePackageRow({ pkg, index }: { pkg: LicencePackageView; index: num
 
         <label className="flex flex-col gap-1">
           <span className="text-[12.5px] font-medium">
-            Key <span className="text-subtle font-normal">— used by the cart</span>
+            Key <span className="text-subtle font-normal">— lowercase, used by the cart</span>
           </span>
+          {/*
+            `SLUG_INPUT_ATTRS` rather than a hand-written `pattern` — vendor ticket 04's fields
+            each had one and none had a `title`, so the browser said "Please match the requested
+            format." and never said what the format was.
+          */}
           <Input
             name={`licencePackages[${index}][key]`}
             defaultValue={pkg.key}
             placeholder="single"
-            pattern="[a-z0-9]+(-[a-z0-9]+)*"
             required
-            maxLength={80}
+            {...SLUG_INPUT_ATTRS}
             className="font-mono text-[13px]"
           />
         </label>
@@ -208,14 +213,15 @@ function AddonRow({ addon, index }: { addon: AddonView; index: number }) {
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[12.5px] font-medium">Key</span>
+          <span className="text-[12.5px] font-medium">
+            Key <span className="text-subtle font-normal">— lowercase</span>
+          </span>
           <Input
             name={`addons[${index}][key]`}
             defaultValue={addon.key}
             placeholder="installation"
-            pattern="[a-z0-9]+(-[a-z0-9]+)*"
             required
-            maxLength={80}
+            {...SLUG_INPUT_ATTRS}
             className="font-mono text-[13px]"
           />
         </label>

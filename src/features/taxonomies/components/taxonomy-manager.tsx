@@ -13,6 +13,7 @@ import { FormErrors } from "@/features/products/components/section-form";
 import { cn } from "@/lib/utils";
 import type { TaxonomyKind } from "@/lib/db/enums";
 import { createTaxonomyAction, deleteTaxonomyAction, updateTaxonomyAction } from "../actions";
+import { SLUG_INPUT_ATTRS } from "@/validators/common";
 
 /**
  * The taxonomy editor for one kind.
@@ -196,8 +197,9 @@ function TaxonomyForm({
             name="slug"
             defaultValue={row?.slug}
             placeholder="crm"
-            pattern="[a-z0-9]+(-[a-z0-9]+)*"
-            maxLength={80}
+            // Optional here — blank derives it from the name — so `minLength` only bites once
+            // something has been typed.
+            {...SLUG_INPUT_ATTRS}
           />
         </label>
       </div>
