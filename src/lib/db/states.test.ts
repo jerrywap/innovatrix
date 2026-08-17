@@ -5,6 +5,7 @@ import {
   ORDER_TRANSITIONS,
   PAYMENT_TRANSITIONS,
   PRODUCT_TRANSITIONS,
+  PRODUCT_PUBLICATION_PATH,
   PRODUCT_TRANSITION_RULES,
   QUOTE_TRANSITIONS,
   REQUEST_TRANSITIONS,
@@ -15,6 +16,7 @@ import {
   canTransition,
   isTerminal,
   nextStates,
+  productTransitionRule,
   requestTransitionRule,
 } from "./states";
 import { PERMISSIONS } from "@/lib/auth/permissions";
@@ -236,6 +238,29 @@ describe("PRODUCT_TRANSITION_RULES covers PRODUCT_TRANSITIONS exactly", () => {
     for (const [key, rule] of Object.entries(PRODUCT_TRANSITION_RULES)) {
       expect(rule.label, key).toMatch(/\S/);
     }
+  });
+
+  /**
+   * The rail on the publish panel walks `PRODUCT_PUBLICATION_PATH` and labels its buttons
+   * from the rule for `(current, next)`. Both break silently if the path drifts from the
+   * graph: a step the machine cannot take would be drawn as though it were ahead of you,
+   * and a button would fall back to printing a bare status name.
+   */
+  it("keeps PRODUCT_PUBLICATION_PATH walkable through the machine", () => {
+    for (const [index, from] of PRODUCT_PUBLICATION_PATH.entries()) {
+      const to = PRODUCT_PUBLICATION_PATH[index + 1];
+      if (!to) continue;
+
+      expect(PRODUCT_TRANSITIONS[from], `${from} -> ${to}`).toContain(to);
+      expect(productTransitionRule(from, to)?.label, `${from} -> ${to}`).toMatch(/\S/);
+    }
+  });
+
+  it("starts the path at the machine's first state and ends it at published", () => {
+    // `draft` is where a product begins and `published` is what the rail is for; a path
+    // that started anywhere else would draw a reader's position wrongly from the first step.
+    expect(PRODUCT_PUBLICATION_PATH[0]).toBe("draft");
+    expect(PRODUCT_PUBLICATION_PATH.at(-1)).toBe("published");
   });
 
   /**
