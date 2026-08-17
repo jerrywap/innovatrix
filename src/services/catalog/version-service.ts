@@ -12,6 +12,8 @@ import { emit } from "@/lib/events";
 import { productFiles } from "@/repositories/product-file.repository";
 import { productVersions } from "@/repositories/product-version.repository";
 import { statusChange, writeAuditLog, type AuditActor } from "@/services/audit";
+import type { VendorScope } from "@/lib/auth/scope";
+import { requireOwnedProduct, requireOwnedVersion } from "./ownership";
 
 /**
  * Versions — §45.
@@ -55,11 +57,16 @@ export interface CreateVersionInput {
 export async function createVersion(
   input: CreateVersionInput,
   actor: AuditActor,
+  /**
+   * Vendor ticket 06. Present ⇒ the product must belong to this vendor; absent ⇒ a
+   * staff call across every product. Ownership derives through `productId` because a
+   * version carries no owner of its own — see `ownership.ts`.
+   */
+  scope: VendorScope = {},
 ): Promise<ProductVersionDoc> {
   await connectToDatabase();
 
-  const product = await products.findById(input.productId);
-  if (!product) throw new NotFoundError("product", { id: input.productId });
+  const product = await requireOwnedProduct(input.productId, scope);
 
   if (!isSemver(input.version)) {
     throw new ValidationError("That is not a version number.", {
@@ -116,11 +123,12 @@ export async function updateVersion(
   versionId: string,
   input: Partial<Omit<CreateVersionInput, "productId" | "version">>,
   actor: AuditActor,
+  /** Vendor ticket 06 — ownership derives through the version's product. */
+  scope: VendorScope = {},
 ): Promise<ProductVersionDoc> {
   await connectToDatabase();
 
-  const version = await productVersions.findById(versionId);
-  if (!version) throw new NotFoundError("version", { id: versionId });
+  const { version } = await requireOwnedVersion(versionId, scope);
 
   const update: Record<string, unknown> = {};
   if (input.changelog !== undefined) update.changelog = input.changelog;
@@ -175,13 +183,54 @@ export async function updateVersion(
 export async function releaseVersion(
   versionId: string,
   actor: AuditActor,
+  /** Vendor ticket 06 — ownership derives through the version's product. */
+  scope: VendorScope = {},
 ): Promise<ProductVersionDoc> {
   await connectToDatabase();
 
-  const version = await productVersions.findById(versionId);
-  if (!version) throw new NotFoundError("version", { id: versionId });
+  const { version } = await requireOwnedVersion(versionId, scope);
 
   assertTransition("productVersion", PRODUCT_VERSION_TRANSITIONS, version.status, "released");
+
+  /*
+   * Vendor ticket 06: a version cannot reach `released` while its artefact is missing or
+   * unverified, whichever delivery method was used.
+   *
+   * The mirror and pull methods fetch in a job, so there is a window where the source is
+   * recorded and the bytes are not here yet. Releasing inside that window would put a
+   * download in front of entitled customers that resolves to nothing — and
+   * `ProductVersionReleased` would have already told them it was ready.
+   *
+   * Checked *before* the package count so the message names the real cause: "still
+   * fetching" and "you never gave us a file" are different problems with different
+   * answers.
+   */
+  /*
+   * `version.artefactSource && …` is **wrong here**, and it cost a test to find out.
+   *
+   * Mongoose materialises an unset *nested path* as `{}`, and the `status` default then
+   * fills in `"pending"` — so every archive-method version, which has no source at all,
+   * arrives looking like one mid-fetch and could never be released. `OrderDoc.discount`
+   * carries the same warning for the same reason.
+   *
+   * The honest condition is whether a source names somewhere to fetch **from**.
+   */
+  const source = version.artefactSource;
+  const hasRemoteSource = Boolean(source?.url || source?.repositoryUrl);
+  if (source && hasRemoteSource && source.status !== "stored") {
+    throw new ValidationError(
+      source.status === "failed"
+        ? `We could not fetch the artefact for ${version.version}: ${source.failureReason ?? "the fetch failed"}`
+        : `We are still fetching the artefact for ${version.version}. Release it once that finishes.`,
+      {
+        artefactSource: [
+          source.status === "failed"
+            ? "Fix the source or the checksum and try again."
+            : "The fetch is queued or in progress.",
+        ],
+      },
+    );
+  }
 
   const packages = await productFiles.countByKind(versionId, "application_package");
   if (packages === 0) {
@@ -242,11 +291,12 @@ export async function releaseVersion(
 export async function deprecateVersion(
   versionId: string,
   actor: AuditActor,
+  /** Vendor ticket 06 — ownership derives through the version's product. */
+  scope: VendorScope = {},
 ): Promise<ProductVersionDoc> {
   await connectToDatabase();
 
-  const version = await productVersions.findById(versionId);
-  if (!version) throw new NotFoundError("version", { id: versionId });
+  const { version } = await requireOwnedVersion(versionId, scope);
 
   assertTransition("productVersion", PRODUCT_VERSION_TRANSITIONS, version.status, "deprecated");
 
@@ -281,11 +331,15 @@ export async function deprecateVersion(
 /**
  * Delete a version. Draft only — a released version is somebody's purchase.
  */
-export async function deleteVersion(versionId: string, actor: AuditActor): Promise<void> {
+export async function deleteVersion(
+  versionId: string,
+  actor: AuditActor,
+  /** Vendor ticket 06 — ownership derives through the version's product. */
+  scope: VendorScope = {},
+): Promise<void> {
   await connectToDatabase();
 
-  const version = await productVersions.findById(versionId);
-  if (!version) throw new NotFoundError("version", { id: versionId });
+  const { version } = await requireOwnedVersion(versionId, scope);
 
   if (version.status !== "draft") {
     throw new ValidationError(

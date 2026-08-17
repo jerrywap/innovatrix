@@ -9,7 +9,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { serverEnv } from "@/config/env";
 import { DomainError, NotFoundError, ValidationError } from "@/lib/errors";
-import { bucket, s3Client, storageContext } from "./client";
+import { bucket, keyRoot, s3Client, storageContext } from "./client";
 import {
   assertKeyBelongsTo,
   assertKeyInPrefix,
@@ -500,7 +500,41 @@ export function assertProductFileKey(
   return assertKeyBelongsTo(key, storageContext().root, owner);
 }
 
-export { STORAGE_POLICY };
+/**
+ * Write bytes from **this process** into the bucket — vendor ticket 06.
+ *
+ * The one legitimate exception to "bytes never pass through the Next.js server", and it
+ * is narrow: the mirror and repository delivery methods fetch an artefact from a URL a
+ * vendor gave us and have to put it somewhere. There is no browser in that path to hand
+ * a presigned PUT to.
+ *
+ * It runs in a **job**, never a request — a 2GB artefact does not belong in a request
+ * lifecycle — and the caller has already size-capped the read. Do not reach for this
+ * from a Server Action: the presigned PUT exists precisely so a phone photo does not
+ * have to clear a body limit.
+ *
+ * Overwrites in place when the key already exists, which is how a retried mirror avoids
+ * orphaning — `s3:DeleteObject` is denied, so nothing else would clean up after it.
+ */
+export async function putObject(input: {
+  key: string;
+  body: Uint8Array;
+  contentType: string;
+}): Promise<void> {
+  assertKeyInPrefix(input.key, keyRoot());
+
+  await s3Client().send(
+    new PutObjectCommand({
+      Bucket: bucket(),
+      Key: input.key,
+      Body: input.body,
+      ContentType: input.contentType,
+      ContentLength: input.body.byteLength,
+    }),
+  );
+}
+
+export { STORAGE_POLICY, assertUploadAllowed };
 export type { StorageScope };
 export * from "./keys";
 export { StoragePolicyError, formatBytes } from "./policy";

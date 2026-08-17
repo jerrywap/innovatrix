@@ -5,7 +5,7 @@ import { Loader2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format-bytes";
 import { PRODUCT_FILE_KINDS, type ProductFileKind } from "@/lib/db/enums";
-import { confirmUploadAction, requestUploadAction } from "../actions";
+import type { VersionActionSet } from "../action-set";
 
 /**
  * Direct-to-S3 upload with a progress bar.
@@ -67,11 +67,14 @@ export function FileUploader({
   versionId,
   disabled,
   disabledReason,
+  actions,
 }: {
   productId: string;
   versionId: string;
   disabled?: boolean;
   disabledReason?: string;
+  /** Vendor ticket 06 — whose actions to call. See `VersionActionSet`. */
+  actions: VersionActionSet;
 }) {
   const [kind, setKind] = useState<ProductFileKind>("application_package");
   const [phase, setPhase] = useState<Phase>({ state: "idle" });
@@ -91,7 +94,7 @@ export function FileUploader({
         checksum = await sha256Base64(file);
       }
 
-      const ticket = await requestUploadAction({
+      const ticket = await actions.requestUpload({
         productId,
         versionId,
         kind,
@@ -119,7 +122,7 @@ export function FileUploader({
       });
 
       setPhase({ state: "recording" });
-      const recorded = await confirmUploadAction({
+      const recorded = await actions.confirmUpload({
         productId,
         versionId,
         kind,

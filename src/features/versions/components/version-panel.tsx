@@ -8,13 +8,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { formatBytes } from "@/lib/format-bytes";
 import { FormErrors } from "@/features/products/components/section-form";
 import { FileUploader } from "./file-uploader";
-import {
-  deleteVersionAction,
-  deprecateVersionAction,
-  releaseVersionAction,
-  removeFileAction,
-  staffDownloadUrlAction,
-} from "../actions";
+import type { VersionActionSet } from "../action-set";
 import type { ActionResult } from "@/lib/action-result";
 import type { VersionView } from "../view";
 
@@ -36,11 +30,23 @@ export function VersionPanel({
   productId,
   isCurrent,
   defaultOpen,
+  actions,
+  deliverySlot,
 }: {
   version: VersionView;
   productId: string;
   isCurrent: boolean;
   defaultOpen: boolean;
+  /** Vendor ticket 06 — whose actions to call. */
+  actions: VersionActionSet;
+  /**
+   * Vendor ticket 06. When set, this version's bytes are mirrored or pulled rather than
+   * uploaded, and `deliverySlot` renders the source form in place of the uploader.
+   *
+   * A slot rather than the component itself, so this file — shared with the staff
+   * surface — does not import the vendor-only form and drag it into the admin bundle.
+   */
+  deliverySlot?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const isDraft = version.status === "draft";
@@ -74,7 +80,7 @@ export function VersionPanel({
         <div className="flex gap-2">
           {isDraft && (
             <TransitionButton
-              action={releaseVersionAction}
+              action={actions.releaseVersion}
               productId={productId}
               versionId={version.id}
               label="Release"
@@ -83,7 +89,7 @@ export function VersionPanel({
           )}
           {version.status === "released" && (
             <TransitionButton
-              action={deprecateVersionAction}
+              action={actions.deprecateVersion}
               productId={productId}
               versionId={version.id}
               label="Deprecate"
@@ -92,7 +98,7 @@ export function VersionPanel({
           )}
           {isDraft && (
             <TransitionButton
-              action={deleteVersionAction}
+              action={actions.deleteVersion}
               productId={productId}
               versionId={version.id}
               label="Delete"
@@ -120,10 +126,17 @@ export function VersionPanel({
             </p>
           )}
 
-          <FileTable files={version.files} productId={productId} canRemove={isDraft} />
+          <FileTable
+            files={version.files}
+            productId={productId}
+            canRemove={isDraft}
+            actions={actions}
+          />
 
-          {isDraft ? (
-            <FileUploader productId={productId} versionId={version.id} />
+          {deliverySlot ? (
+            deliverySlot
+          ) : isDraft ? (
+            <FileUploader productId={productId} versionId={version.id} actions={actions} />
           ) : (
             <p className="text-subtle text-[12.5px]">
               {version.version} is {version.status}. Its files are what customers already
@@ -140,10 +153,12 @@ function FileTable({
   files,
   productId,
   canRemove,
+  actions,
 }: {
   files: VersionView["files"];
   productId: string;
   canRemove: boolean;
+  actions: VersionActionSet;
 }) {
   if (files.length === 0) {
     return (
@@ -167,8 +182,10 @@ function FileTable({
                 : " · checksum on first download"}
             </p>
           </div>
-          <DownloadButton fileId={file.id} />
-          {canRemove && <RemoveFileButton productId={productId} fileId={file.id} />}
+          <DownloadButton fileId={file.id} actions={actions} />
+          {canRemove && (
+            <RemoveFileButton productId={productId} fileId={file.id} actions={actions} />
+          )}
         </li>
       ))}
     </ul>
@@ -180,7 +197,7 @@ function FileTable({
  * page. A presigned URL in the HTML is a link anyone with the page source can
  * use for its whole lifetime — including a bot that scraped it.
  */
-function DownloadButton({ fileId }: { fileId: string }) {
+function DownloadButton({ fileId, actions }: { fileId: string; actions: VersionActionSet }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -194,7 +211,7 @@ function DownloadButton({ fileId }: { fileId: string }) {
         onClick={async () => {
           setPending(true);
           setError(null);
-          const result = await staffDownloadUrlAction(fileId);
+          const result = await actions.downloadUrl(fileId);
           setPending(false);
           if (result.ok) window.location.href = result.data.url;
           else setError(result.error);
@@ -213,8 +230,16 @@ function DownloadButton({ fileId }: { fileId: string }) {
   );
 }
 
-function RemoveFileButton({ productId, fileId }: { productId: string; fileId: string }) {
-  const [state, formAction] = useActionState(removeFileAction, null);
+function RemoveFileButton({
+  productId,
+  fileId,
+  actions,
+}: {
+  productId: string;
+  fileId: string;
+  actions: VersionActionSet;
+}) {
+  const [state, formAction] = useActionState(actions.removeFile, null);
 
   return (
     <form action={formAction}>

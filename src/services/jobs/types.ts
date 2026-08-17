@@ -48,6 +48,14 @@ export interface JobPayloadMap {
 
   /** Sweep: stuck webhook events and unconfirmed payments (ticket 13). */
   "reconcile-pending-payments": Record<string, never>;
+  /**
+   * Vendor ticket 06 — fetch a mirrored or pulled artefact into our own bucket.
+   *
+   * A job rather than a request: a 2GB artefact over somebody else's link does not
+   * belong in a request lifecycle. Retries with backoff and dead-letters visibly, so a
+   * release whose mirror failed never looks like a release.
+   */
+  "mirror-vendor-artefact": { versionId: string };
 }
 
 /*

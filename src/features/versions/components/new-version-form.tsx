@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FormErrors } from "@/features/products/components/section-form";
-import { createVersionAction } from "../actions";
+import type { VersionActionSet } from "../action-set";
 
 /**
  * Create a version.
@@ -25,13 +25,16 @@ import { createVersionAction } from "../actions";
 export function NewVersionForm({
   productId,
   suggested,
+  actions,
 }: {
   productId: string;
+  /** Vendor ticket 06 — whose actions to call. */
+  actions: VersionActionSet;
   /** The next patch after the newest release — a starting point, not a rule. */
   suggested: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [state, formAction] = useActionState(createVersionAction, null);
+  const [state, formAction] = useActionState(actions.createVersion, null);
   const failed = state && !state.ok ? state : null;
 
   if (!open) {

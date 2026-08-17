@@ -16,6 +16,8 @@ import {
   type UploadTicket,
 } from "@/services/storage";
 import { writeAuditLog, type AuditActor } from "@/services/audit";
+import type { VendorScope } from "@/lib/auth/scope";
+import { requireOwnedFile, requireOwnedVersion } from "./ownership";
 
 /**
  * Product files — §44, §66.
@@ -60,11 +62,21 @@ export interface RequestUploadInput {
   checksumSha256?: string;
 }
 
-export async function requestUpload(input: RequestUploadInput): Promise<UploadTicket> {
+export async function requestUpload(
+  input: RequestUploadInput,
+  /**
+   * Vendor ticket 06. Present ⇒ the product must belong to this vendor.
+   *
+   * Checked *before* a presigned PUT is issued, not only at `confirmUpload`: a ticket
+   * is a signed permission to write bytes into our bucket under a key we chose, and
+   * handing one out to somebody who does not own the product is the wrong place to be
+   * generous even though the second half would catch it.
+   */
+  scope: VendorScope = {},
+): Promise<UploadTicket> {
   await connectToDatabase();
 
-  const version = await productVersions.findById(input.versionId);
-  if (!version) throw new NotFoundError("version", { id: input.versionId });
+  const { version } = await requireOwnedVersion(input.versionId, scope);
 
   if (String(version.productId) !== input.productId) {
     throw new ValidationError("That version belongs to a different product.", {
@@ -93,11 +105,12 @@ export interface ConfirmUploadInput extends RequestUploadInput {
 export async function confirmUpload(
   input: ConfirmUploadInput,
   actor: AuditActor,
+  /** Vendor ticket 06 — ownership derives through the version's product. */
+  scope: VendorScope = {},
 ): Promise<ProductFileDoc> {
   await connectToDatabase();
 
-  const version = await productVersions.findById(input.versionId);
-  if (!version) throw new NotFoundError("version", { id: input.versionId });
+  const { version } = await requireOwnedVersion(input.versionId, scope);
   if (String(version.productId) !== input.productId) {
     throw new ValidationError("That version belongs to a different product.", {
       versionId: ["Wrong product."],
@@ -163,11 +176,15 @@ export async function confirmUpload(
  * `releaseVersion` will reject anyway; catching it here says why while the
  * administrator is still looking at the file list.
  */
-export async function removeFile(fileId: string, actor: AuditActor): Promise<void> {
+export async function removeFile(
+  fileId: string,
+  actor: AuditActor,
+  /** Vendor ticket 06 — ownership derives through the file's product. */
+  scope: VendorScope = {},
+): Promise<void> {
   await connectToDatabase();
 
-  const file = await productFiles.findById(fileId);
-  if (!file) throw new NotFoundError("file", { id: fileId });
+  const { file } = await requireOwnedFile(fileId, scope);
 
   const version = await productVersions.findById(String(file.versionId));
   if (version && version.status !== "draft") {

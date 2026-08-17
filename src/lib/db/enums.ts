@@ -167,6 +167,29 @@ export const REVIEW_REASON_CODES = values([
 ] as const);
 export type ReviewReasonCode = (typeof REVIEW_REASON_CODES)[number];
 
+/**
+ * How a vendor supplies the bytes — vendor ticket 06.
+ *
+ * All three end as a `ProductFile` in the platform's own bucket **before** a customer
+ * asks for it, so the customer cannot tell which was used and §66's "never behind an
+ * unsigned permanent URL" does not depend on somebody else's uptime.
+ *
+ * `vendor_hosted` is the one whose name misleads: it means *the vendor's build
+ * pipeline is the source*, not *the customer downloads from the vendor*. The vendor's
+ * own screen says so, because it is not what the phrase suggests.
+ */
+export const DELIVERY_METHODS = values(["archive", "vendor_hosted", "repository"] as const);
+export type DeliveryMethod = (typeof DELIVERY_METHODS)[number];
+
+/** Where a mirrored or pulled artefact is in its journey into our bucket. */
+export const ARTEFACT_SOURCE_STATUSES = values([
+  "pending",
+  "fetching",
+  "stored",
+  "failed",
+] as const);
+export type ArtefactSourceStatus = (typeof ARTEFACT_SOURCE_STATUSES)[number];
+
 export const PRODUCT_VERSION_STATUSES = values(["draft", "released", "deprecated"] as const);
 export type ProductVersionStatus = (typeof PRODUCT_VERSION_STATUSES)[number];
 

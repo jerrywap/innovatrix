@@ -11,6 +11,8 @@ import {
   PRODUCT_MEDIA_KINDS,
   PRODUCT_STATUSES,
   PRODUCT_VERSION_STATUSES,
+  ARTEFACT_SOURCE_STATUSES,
+  DELIVERY_METHODS,
   REVIEW_REASON_CODES,
   TAXONOMY_KINDS,
   TESTING_CHECKLIST_STATUSES,
@@ -22,6 +24,8 @@ import {
   type ProductMediaKind,
   type ProductStatus,
   type ProductVersionStatus,
+  type ArtefactSourceStatus,
+  type DeliveryMethod,
   type ReviewReasonCode,
   type TaxonomyKind,
   type TestingChecklistStatus,
@@ -299,6 +303,17 @@ const testingChecklistItemSchema = new Schema(
 
 /* Vendor ticket 05 — the review history and the vendor's declaration. */
 
+/** AES-256-GCM output. Shared, because two things now store one. */
+const cipherSchema = new Schema(
+  {
+    iv: { type: String, required: true },
+    tag: { type: String, required: true },
+    ciphertext: { type: String, required: true },
+    keyVersion: { type: Number, default: 1 },
+  },
+  { _id: false },
+);
+
 const productReviewNoteSchema = new Schema(
   {
     at: { type: Date, required: true },
@@ -364,6 +379,14 @@ export interface ProductDoc {
    */
   vendorSlug?: string;
   vendorName?: string;
+  /**
+   * How this vendor supplies their bytes — vendor ticket 06.
+   *
+   * The seam, declared with all three values from the start so switching does not need
+   * a migration. Absent means `archive`, which is what every first-party product uses
+   * and what a vendor gets by default.
+   */
+  deliveryMethod?: DeliveryMethod;
   /**
    * What reviewers have said about this product — vendor ticket 05.
    *
@@ -451,6 +474,7 @@ const productSchema = new Schema<ProductDoc>(
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
     vendorSlug: { type: String, lowercase: true, trim: true },
     vendorName: { type: String, trim: true },
+    deliveryMethod: { type: String, enum: DELIVERY_METHODS },
     // Mixed, because the tree's shape is defined by Zod rather than by
     // Mongoose. A Mongoose sub-schema here would be a second, weaker copy of
     // `richTextDocumentSchema` that could drift from it.
@@ -738,6 +762,31 @@ export function parseFacet(facet: string): { prefix: string; slug: string } | nu
 
 /* ────────────────────────────────────────────── ProductVersion */
 
+/**
+ * Where a mirrored or pulled artefact comes from — vendor ticket 06.
+ *
+ * On the *version*, not the product, because it is a per-release fact: 2.4.0 and 2.4.1
+ * are different tags and different URLs. A product's `deliveryMethod` says which of
+ * these fields a vendor is asked to fill in.
+ *
+ * `token` is sealed with the same AES-256-GCM path as a demo credential and is **never
+ * rendered back** — see `version-service.saveArtefactSource`.
+ */
+export interface ArtefactSource {
+  /** `vendor_hosted`: where the built package lives. */
+  url?: string;
+  /** Hex SHA-256 the vendor declares. Required for `vendor_hosted`. */
+  checksumSha256?: string;
+  /** `repository`: the clone/browse URL and the tag to pull. */
+  repositoryUrl?: string;
+  tag?: string;
+  /** A sealed access token for a private repository. Write-only. */
+  tokenCipher?: PasswordCipher;
+  status: ArtefactSourceStatus;
+  lastAttemptAt?: Date;
+  failureReason?: string;
+}
+
 export interface ProductVersionDoc {
   _id: Types.ObjectId;
   productId: Types.ObjectId;
@@ -771,6 +820,8 @@ export interface ProductVersionDoc {
     freeFromVersion?: string;
     note?: string;
   };
+  /** Vendor ticket 06. Absent for an archive upload, which needs no source. */
+  artefactSource?: ArtefactSource;
 }
 
 const productVersionSchema = new Schema<ProductVersionDoc>(
@@ -789,6 +840,26 @@ const productVersionSchema = new Schema<ProductVersionDoc>(
       includesPriorMajor: { type: Boolean, default: false },
       freeFromVersion: String,
       note: String,
+    },
+    artefactSource: {
+      url: { type: String, trim: true },
+      checksumSha256: { type: String, trim: true, lowercase: true },
+      repositoryUrl: { type: String, trim: true },
+      tag: { type: String, trim: true },
+      // Sealed, and `select: false` so a stray `find()` cannot carry ciphertext out of
+      // the service that owns it — the same treatment demo credentials get.
+      /*
+       * `select: false` on the **path**, not on each leaf.
+       *
+       * Marking the leaves individually looked equivalent and is not: the parent path
+       * still materialises, and `.select("+artefactSource.tokenCipher")` cannot re-add
+       * leaves it does not name. A sub-schema makes it one path to exclude and one to
+       * ask back for.
+       */
+      tokenCipher: { type: cipherSchema, select: false },
+      status: { type: String, enum: ARTEFACT_SOURCE_STATUSES, default: "pending" },
+      lastAttemptAt: Date,
+      failureReason: { type: String, trim: true },
     },
   },
   schemaOptions({ collection: "productVersions" }),

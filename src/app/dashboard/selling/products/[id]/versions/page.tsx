@@ -1,32 +1,57 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/page-header";
 import { requireVendorOrForbid } from "@/lib/auth/dal";
 import { loadVendorWizardProduct } from "@/features/products/wizard";
+import { stepHref } from "@/features/products/steps";
 import { StepHeading } from "@/features/products/components/step-heading";
+import { loadVersions } from "@/features/versions/view";
+import { nextPatch } from "@/features/versions/suggest";
+import { NewVersionForm } from "@/features/versions/components/new-version-form";
+import { VersionPanel } from "@/features/versions/components/version-panel";
+import { DeliveryMethodPicker } from "@/features/vendors/components/delivery-method-picker";
+import { DeliverySource } from "@/features/vendors/components/delivery-source";
+import type { VersionActionSet } from "@/features/versions/action-set";
+import {
+  confirmVendorUploadAction,
+  createVendorVersionAction,
+  deleteVendorVersionAction,
+  deprecateVendorVersionAction,
+  releaseVendorVersionAction,
+  removeVendorFileAction,
+  requestVendorUploadAction,
+  updateVendorVersionAction,
+  vendorDownloadUrlAction,
+} from "@/features/vendors/version-actions";
+
+/**
+ * This surface's actions. Every one is vendor-guarded and vendor-scoped; the
+ * components are the staff ones because the model is the same.
+ */
+const VENDOR_VERSION_ACTIONS: VersionActionSet = {
+  createVersion: createVendorVersionAction,
+  updateVersion: updateVendorVersionAction,
+  releaseVersion: releaseVendorVersionAction,
+  deprecateVersion: deprecateVendorVersionAction,
+  deleteVersion: deleteVendorVersionAction,
+  removeFile: removeVendorFileAction,
+  requestUpload: requestVendorUploadAction,
+  confirmUpload: confirmVendorUploadAction,
+  downloadUrl: vendorDownloadUrlAction,
+};
 
 export const metadata: Metadata = { title: "Versions" };
 
 /**
- * Releases and the files customers download — **not built on this surface yet**.
+ * A vendor's releases and files — vendor ticket 06, the **archive** method.
  *
- * The step exists so the rail is complete and so `stepHref(id, "versions", "vendor")`
- * resolves; what is missing is the action layer behind it.
+ * The customer's download path is unchanged and must be: `/api/downloads/[fileId]`
+ * authorises, records, and 307s to a five-minute signed URL. Every delivery method
+ * ends as a `ProductFile` in our own bucket before a customer asks, so a customer
+ * cannot tell which of the three a vendor used — and §66's guarantee never depends on
+ * somebody else's uptime.
  *
- * ## Why it is deferred rather than half-built
- *
- * Ticket 07's nine version and file actions (`createVersionAction`,
- * `requestUploadAction`, `confirmUploadAction`, `releaseVersionAction`, …) are each
- * gated on a staff permission and each take a bare `versionId` or `fileId` with no
- * ownership predicate — ownership derives through `productId`, so every one needs a
- * scoped lookup adding before a vendor can be let near it. That is the same work
- * **vendor ticket 06** has to do anyway: it owns delivery methods, decides that all
- * three end as a `ProductFile` in our own bucket, and sequences archive-upload first.
- *
- * Doing it here would mean doing it twice, or doing it once and having vendor ticket
- * 06 find it already half-done in a shape it did not choose. So the honest position
- * is: a vendor can author everything about a product except its releases, and cannot
- * submit until a release exists — `computeReadiness()` reports `no_released_version`
- * and `no_package_file`, so the gate says so rather than the screen going quiet.
+ * A released version is frozen. "I bought 2.4.0" has to keep meaning something, so a
+ * correction ships as 2.4.1 — the upload and delete controls disappear once released
+ * and the service refuses either way.
  */
 export default async function Page({
   params,
@@ -35,21 +60,62 @@ export default async function Page({
 
   const { id } = await params;
   const { product } = await loadVendorWizardProduct(id, vendorId);
+  const versions = await loadVersions(id);
+
+  // Absent means `archive`, which is what a vendor gets by default and what every
+  // first-party product uses.
+  const method = product.deliveryMethod ?? "archive";
 
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="versions" />
 
-      <div className="border-border bg-surface-muted/40 rounded-xl border p-5">
-        <PageHeader
-          title="Releases are not open to vendors yet"
-          description="You can fill in everything else in the meantime — it is all saved."
-        />
-        <p className="text-muted-foreground mt-3 text-[13.5px] leading-relaxed">
-          Uploading a release and its files is the next piece of work on this workspace. Until
-          it lands, ask us to attach your package and we will add it to{" "}
-          <span className="font-medium">{product.name}</span> for you.
+      <DeliveryMethodPicker productId={product.id} method={method} />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-muted-foreground text-[13px]">
+          {versions.length === 0
+            ? "A product needs one released version with an application package before it can be submitted."
+            : `${versions.length} version${versions.length === 1 ? "" : "s"}.`}
         </p>
+        <NewVersionForm
+          actions={VENDOR_VERSION_ACTIONS}
+          productId={product.id}
+          suggested={nextPatch(versions)}
+        />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {versions.map((version, index) => (
+          <VersionPanel
+            key={version.id}
+            version={version}
+            productId={product.id}
+            isCurrent={product.currentVersionId === version.id}
+            defaultOpen={index === 0}
+            actions={VENDOR_VERSION_ACTIONS}
+            deliverySlot={
+              method === "archive" ? undefined : (
+                <DeliverySource
+                  productId={product.id}
+                  versionId={version.id}
+                  method={method}
+                  {...(version.artefactSource ? { source: version.artefactSource } : {})}
+                  editable={version.status === "draft"}
+                />
+              )
+            }
+          />
+        ))}
+      </div>
+
+      <div className="border-border flex justify-end border-t pt-4">
+        <a
+          href={stepHref(product.id, "demo", "vendor")}
+          className="text-[13px] underline underline-offset-4"
+        >
+          Continue to demo configuration →
+        </a>
       </div>
     </div>
   );

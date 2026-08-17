@@ -2,6 +2,7 @@ import "server-only";
 import type { ProductDoc } from "@/lib/db/models/catalog";
 import type {
   AddonPricingType,
+  DeliveryMethod,
   DemoExposure,
   LicenceType,
   ProductMediaKind,
@@ -89,6 +90,8 @@ export interface AdminProductView {
   summary: string;
   description?: RichTextDocument;
   status: ProductStatus;
+  /** Vendor ticket 06. Absent ⇒ `archive`, the direct-upload path. */
+  deliveryMethod?: DeliveryMethod;
   categoryIds: string[];
   industryIds: string[];
   technologyIds: string[];
@@ -201,6 +204,7 @@ export function toAdminProductView(product: ProductDoc): AdminProductView {
     summary: product.summary,
     ...(product.description ? { description: product.description } : {}),
     status: product.status,
+    ...(product.deliveryMethod ? { deliveryMethod: product.deliveryMethod } : {}),
     categoryIds: product.categoryIds.map(String),
     industryIds: product.industryIds.map(String),
     technologyIds: product.technologyIds.map(String),
