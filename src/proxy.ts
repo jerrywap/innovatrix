@@ -3,10 +3,7 @@ import { getSessionCookie } from "better-auth/cookies";
 import { nanoid } from "nanoid";
 import { RECENTLY_VIEWED_COOKIE } from "@/config/storefront";
 import { REQUEST_ID_HEADER } from "@/config/observability";
-import {
-  CONVERSATION_COOKIE,
-  CONVERSATION_COOKIE_MAX_AGE,
-} from "@/services/ai/conversation-cookie";
+import { CONVERSATION_COOKIE, conversationCookie } from "@/services/ai/conversation-cookie";
 import {
   pushRecentlyViewed,
   recentlyViewedCookieOptions,
@@ -131,7 +128,7 @@ export function proxy(request: NextRequest): NextResponse {
   if (
     !hasSessionCookie &&
     ASSISTANT_PATH.test(pathname) &&
-    isRealVisit(request) &&
+    isAssistantVisit(request) &&
     !request.cookies.get(CONVERSATION_COOKIE)
   ) {
     return withConversationKey(request, id);
@@ -191,6 +188,52 @@ function isRealVisit(request: NextRequest): boolean {
 }
 
 /**
+ * A visit that should get an anonymous conversation key.
+ *
+ * Deliberately *not* `isRealVisit`. That function answers "did somebody
+ * deliberately open this page", and it answers it by requiring
+ * `sec-fetch-dest: document` — which excludes client-side navigation on
+ * purpose, because a recently-viewed rail built from hovers would be wrong.
+ *
+ * Applied here that trade was a bug, and an expensive one. **Every in-app route
+ * to the assistant is a `<Link>`** — the header's "Get started", the footer, the
+ * landing hero — and a `<Link>` sends `sec-fetch-dest: empty`. So a first-time
+ * signed-out visitor got no key, `startOrResume` created a conversation owned by
+ * nobody, and `assertCanRead` then refused it *to its own author*: the first
+ * message came back "No such conversation."
+ *
+ * It looked fine to everyone who had ever loaded the page directly or pressed
+ * refresh, because the cookie lasts 30 days and one document load fixes a
+ * browser permanently. The database showed 9 such orphans against 21
+ * conversations, every one with zero messages.
+ *
+ * So: mint for anything that looks like a person arriving.
+ *
+ * **A Next prefetch is not excluded, because it cannot be.** `next-router-prefetch`
+ * is stripped before the proxy sees it — the same stripping the `isRealVisit`
+ * docblock above describes, and I confirmed it by sending the header and
+ * watching the cookie get minted anyway.
+ *
+ * That turns out not to matter here, and the difference from recently-viewed is
+ * the reason. A speculative *entry* in a list is wrong — it claims the visitor
+ * read something they only hovered. A speculative *key* claims nothing: it is an
+ * opaque owner id, `startOrResume` resumes on it rather than inserting, and so a
+ * prefetch plus the click that follows it produce one conversation, not two.
+ * Verified: three requests sharing a key, one row.
+ */
+function isAssistantVisit(request: NextRequest): boolean {
+  // Hand-written `<link rel="prefetch">`; Next does not send this one.
+  if (request.headers.get("purpose") === "prefetch") return false;
+
+  // A crawler will never hold a conversation, and it discards cookies between
+  // fetches — so every crawled page would be a fresh key and a fresh row,
+  // forever. Both assistant pages render a conversation-less variant instead.
+  if (/bot|crawler|spider|slurp/i.test(request.headers.get("user-agent") ?? "")) return false;
+
+  return true;
+}
+
+/**
  * Mint the key on the response **and on the forwarded request**.
  *
  * The second half is the part that is easy to miss. `response.cookies.set`
@@ -214,15 +257,14 @@ function withConversationKey(request: NextRequest, id: string): NextResponse {
   const response = NextResponse.next({ request: { headers } });
   response.headers.set(REQUEST_ID_HEADER, id);
 
-  response.cookies.set({
-    name: CONVERSATION_COOKIE,
-    value: key,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: request.nextUrl.protocol === "https:",
-    path: "/",
-    maxAge: CONVERSATION_COOKIE_MAX_AGE,
-  });
+  // `x-forwarded-proto` first: behind a TLS terminator the internal hop is
+  // plain HTTP, so `nextUrl.protocol` alone would drop `Secure` from a cookie
+  // on a site the browser reached over HTTPS.
+  const secure =
+    (request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "")) ===
+    "https";
+
+  response.cookies.set(conversationCookie(key, secure));
 
   return response;
 }

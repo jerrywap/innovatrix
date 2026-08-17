@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/models/requests";
 import { Product } from "@/lib/db/models/catalog";
 import { User } from "@/lib/db/models/identity";
+import { formatDateTime } from "@/lib/dates";
 
 /**
  * Reading a request — §70 (timeline), §101 (never lose context).
@@ -31,6 +32,7 @@ import { User } from "@/lib/db/models/identity";
 export interface RequestTimelineEntry {
   id: string;
   message: string;
+  /** ISO 8601. The component decides how it reads; this decides when it was. */
   at: string;
   actorName?: string;
   internal: boolean;
@@ -114,8 +116,23 @@ const STATUS_COPY: Record<RequestStatus, { what: string; next: string }> = {
     next: "We'll get the work scheduled and be in touch.",
   },
   converted: {
+    // Was "Work has started", which it is not — this state means the money
+    // arrived and the job is queued. Saying work had started while it sat in a
+    // handover queue is how a customer concludes nobody is doing anything.
+    what: "Payment received — this is with our team.",
+    next: "We'll confirm when someone picks it up.",
+  },
+  in_progress: {
     what: "Work has started.",
-    next: "You'll hear from whoever is building it.",
+    next: "We'll post updates here as it moves.",
+  },
+  delivered: {
+    what: "It's ready for you to look at.",
+    next: "Have a look and tell us if anything isn't right.",
+  },
+  completed: {
+    what: "All done.",
+    next: "Get in touch any time if you need changes or help.",
   },
   rejected: {
     what: "We couldn't take this one on.",
@@ -166,7 +183,7 @@ export async function listRequestsForOrganization(
     title: row.title,
     status: row.status,
     ...(row.waitingOn ? { waitingOn: row.waitingOn } : {}),
-    createdAt: isoDay((row as unknown as { createdAt: Date }).createdAt),
+    createdAt: formatDateTime((row as unknown as { createdAt: Date }).createdAt),
     ...(row.baseProductId && productNames.has(String(row.baseProductId))
       ? { productName: productNames.get(String(row.baseProductId))!.name }
       : {}),
@@ -255,7 +272,7 @@ export async function loadRequest(
     title: request.title,
     status: request.status,
     statusExplanation: STATUS_COPY[request.status],
-    ...(request.submittedAt ? { submittedAt: isoDay(request.submittedAt) } : {}),
+    ...(request.submittedAt ? { submittedAt: formatDateTime(request.submittedAt) } : {}),
     ...(request.waitingOn ? { waitingOn: request.waitingOn } : {}),
 
     customerRequirements: request.customerRequirements,
@@ -271,7 +288,7 @@ export async function loadRequest(
       filename: attachment.filename,
       ...(attachment.contentType ? { contentType: attachment.contentType } : {}),
       ...(attachment.sizeBytes ? { sizeBytes: attachment.sizeBytes } : {}),
-      uploadedAt: isoDay(attachment.uploadedAt),
+      uploadedAt: formatDateTime(attachment.uploadedAt),
     })),
 
     ...(product
@@ -290,7 +307,10 @@ export async function loadRequest(
     timeline: events.map((event) => ({
       id: String(event._id),
       message: event.message,
-      at: event.createdAt ? isoDay(event.createdAt) : "",
+      // ISO, not a rendered string: `<Timeline>` sorts on it and wraps it in
+      // `<time dateTime>`. Formatting here is what threw the time away before —
+      // the view layer decided how it looked and the component never saw a date.
+      at: event.createdAt ? new Date(event.createdAt).toISOString() : "",
       ...(event.actorName ? { actorName: event.actorName } : {}),
       internal: event.visibility !== "customer",
     })),
@@ -313,8 +333,4 @@ export async function loadRequest(
         }
       : {}),
   };
-}
-
-function isoDay(value: Date): string {
-  return new Date(value).toISOString().slice(0, 10);
 }

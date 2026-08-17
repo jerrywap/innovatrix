@@ -8,6 +8,7 @@ import { Invoice, Quote } from "@/lib/db/models/billing";
 import { CustomerRequest } from "@/lib/db/models/requests";
 import { Organization, OrganizationMember, User } from "@/lib/db/models/identity";
 import { Product } from "@/lib/db/models/catalog";
+import { formatDateTime, formatDay } from "@/lib/dates";
 
 /**
  * Customer 360 — §33.
@@ -149,7 +150,7 @@ export async function loadCustomer360(organizationId: string): Promise<Customer3
       id: String(organization._id),
       name: organization.name,
       slug: organization.slug,
-      since: organization.createdAt ? isoDay(organization.createdAt) : "—",
+      since: organization.createdAt ? formatDay(organization.createdAt) : "—",
     },
     ...(contact
       ? { primaryContact: { name: contact.name ?? contact.email, email: contact.email } }
@@ -171,23 +172,19 @@ export async function loadCustomer360(organizationId: string): Promise<Customer3
       reference: request.reference,
       title: request.title,
       status: request.status,
-      at: isoDay(request.createdAt),
+      at: formatDateTime(request.createdAt),
     })),
     orders: orders.map((order) => ({
       reference: order.reference,
       status: order.status,
       ...(order.total ? { total: order.total } : {}),
-      at: isoDay(order.createdAt),
+      at: formatDateTime(order.createdAt),
     })),
     timeline: timeline.map((event) => ({
       id: String(event._id),
       message: event.message,
-      at: event.createdAt ? isoDay(event.createdAt) : "",
+      at: event.createdAt ? formatDateTime(event.createdAt) : "",
       internal: event.visibility !== "customer",
     })),
   };
-}
-
-function isoDay(value: Date): string {
-  return new Date(value).toISOString().slice(0, 10);
 }

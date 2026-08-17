@@ -10,6 +10,7 @@ import { loadRequest } from "@/features/requests/request-view";
 import { Attachments } from "@/features/requests/components/attachments";
 import { Thread } from "@/features/messaging/components/thread";
 import { customerThread } from "@/services/messaging/messaging-service";
+import { Timeline } from "@/components/timeline";
 
 export const metadata: Metadata = { title: "Request" };
 
@@ -132,17 +133,22 @@ export default async function Page({ params }: PageProps<"/dashboard/requests/[r
 
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-[17px] tracking-[-0.02em]">What&rsquo;s happened</h2>
-        <ul className="border-border divide-border divide-y rounded-xl border">
-          {request.timeline.map((entry) => (
-            <li
-              key={entry.id}
-              className="flex items-baseline justify-between gap-3 px-4 py-2.5"
-            >
-              <span className="text-[13px]">{entry.message}</span>
-              <span className="text-subtle shrink-0 font-mono text-[11px]">{entry.at}</span>
-            </li>
-          ))}
-        </ul>
+        {/*
+          The shared `<Timeline>` rather than a hand-rolled list. It was written
+          in ticket 04, renders hour and minute, and wraps each entry in
+          `<time dateTime>` — and was imported by nothing, while both request
+          pages rolled their own and showed a bare day. §70's example is three
+          events on one afternoon; as days they were three identical labels.
+        */}
+        <Timeline
+          className="border-border bg-surface rounded-xl border p-5"
+          entries={request.timeline.map((entry) => ({
+            id: entry.id,
+            title: entry.message,
+            at: new Date(entry.at),
+            ...(entry.actorName ? { actor: entry.actorName } : {}),
+          }))}
+        />
       </section>
 
       <Thread
@@ -157,9 +163,6 @@ export default async function Page({ params }: PageProps<"/dashboard/requests/[r
         })}
         audience="customer"
       />
-
-      {/* Quotes are ticket 22. Said plainly rather than left as an absence. */}
-      <p className="text-subtle text-[12.5px]">Viewing quotes here is coming shortly.</p>
     </div>
   );
 }

@@ -818,6 +818,50 @@ async function main() {
   }
   console.log(`discount codes: ${discounts.length}`);
 
+  /* ── payment settings (ticket 12, smoke ticket 05) ──────── */
+
+  /*
+   * Seeded so a fresh database has a coherent payments screen rather than one
+   * where every provider is disabled and every currency uncovered. Ticket 29's
+   * §A1 says "check out, paying by card" as though that were possible out of
+   * the box; without this, the tester has to configure a provider first.
+   *
+   * `$setOnInsert` throughout: this must never overwrite what a real
+   * environment has been configured with, and `supportedCurrencies` in
+   * particular is the one field that describes *this merchant's* account
+   * rather than the driver's capabilities.
+   *
+   * Nothing is enabled. Enabling a provider whose key is absent produces the
+   * "enabled but not configured" warning on the screen, which would be a seed
+   * shipping a fault.
+   */
+  await M.PaymentSettings.findOneAndUpdate(
+    { singleton: "global" },
+    {
+      $setOnInsert: {
+        singleton: "global",
+        providers: [
+          { key: "stripe", enabled: false, mode: "test", secretEnvVar: "STRIPE_SECRET_KEY" },
+          {
+            key: "paystack",
+            enabled: false,
+            mode: "test",
+            secretEnvVar: "PAYSTACK_SECRET_KEY",
+          },
+          { key: "paypal", enabled: false, mode: "test", secretEnvVar: "PAYPAL_CLIENT_SECRET" },
+        ],
+        currencyRouting: [],
+        offlineEnabled: true,
+        offlineInstructions:
+          "Pay by bank transfer to Innovatrix Ltd, sort code 00-00-00, account 00000000. " +
+          "Quote your order reference so we can match the payment. Nothing is released " +
+          "until the transfer arrives.",
+      },
+    },
+    { upsert: true },
+  );
+  console.log("payment settings: seeded (all providers off, bank transfer on)");
+
   // marketplace query collection-scanning with no visible symptom.
   console.log("\nsyncing indexes…");
   await syncAllIndexes();

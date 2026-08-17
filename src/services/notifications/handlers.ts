@@ -33,6 +33,7 @@ const GENERIC: DomainEventName[] = [
   "InvoiceDueSoon",
   "InvoiceOverdue",
   "WorkReadyToStart",
+  "RequestProgressPosted",
 ];
 
 export function registerNotificationHandlers(): void {

@@ -29,6 +29,26 @@ retention and access control it does not control.
 | **Vendor-hosted** | A URL and a SHA-256 | At release, mirrored into the bucket | Unchanged |
 | **Repository** | A repo URL and a tag | At release, tarball pulled and stored | Unchanged |
 
+### Order of work: archive first
+
+All three methods are in scope. They do not have to land together, and there is a
+strong reason for them not to: **archive already works** — the presigned PUT and
+`verifyUpload()` shipped with ticket 07 — so `deliveryMethod: "archive"` is done
+the moment vendor ticket 04 scopes it by ownership, and a vendor can be selling
+while the other two are still being built.
+
+The other two share a substantial piece of machinery that archive needs none of:
+an outbound fetcher hardened against SSRF, a job with backoff and visible
+dead-lettering, a size cap enforced mid-stream, and digest verification. Building
+that under the pressure of "no vendor can list anything yet" is how it gets
+shortcuts in it.
+
+So `deliveryMethod` is declared with all three values from the start — it is the
+seam, and a product that switches between them must not need a migration — and
+the mirror and pull paths are built second. What must not happen is a
+`deliveryMethod` a vendor can select before the path behind it works; an
+unimplemented option in a dropdown is a support thread.
+
 ### Archive — already built
 
 The existing path: presigned PUT to
@@ -102,4 +122,5 @@ engine; the seam is `scanStatus` and the checks here are structural.
 - [ ] A repository token is sealed at rest and never rendered back to the vendor.
 - [ ] A version cannot reach `released` while its artefact is missing or unverified.
 - [ ] `ProductVersionReleased` fires only after the artefact is in place, and entitled owners are notified once.
-- [ ] Switching a product's delivery method leaves every previously released version downloadable.
+- [ ] Switching a product's delivery method leaves every previously released version downloadable, and needs no migration.
+- [ ] A delivery method whose path is not yet built is not selectable by a vendor.

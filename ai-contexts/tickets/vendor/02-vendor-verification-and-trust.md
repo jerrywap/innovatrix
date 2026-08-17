@@ -26,7 +26,7 @@ ledger and are simply not payable. That ordering is deliberate — it removes th
 slowest step from the path to a first listing without ever letting money leave
 to an unverified account.
 
-### Documents (`/vendor/verification`)
+### Documents (`/dashboard/selling/verification`)
 
 A new **`vendor-document` storage scope** in `STORAGE_POLICY`: 10MB, PDF/JPEG/
 PNG only, with the existing magic-byte sniff via `verifyUpload()`, which the

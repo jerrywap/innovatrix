@@ -5,6 +5,7 @@ import { toObjectId } from "@/lib/db/base";
 import { ActivityEvent } from "@/lib/db/models/communication";
 import { Entitlement, Order } from "@/lib/db/models/commerce";
 import { Invoice, Quote } from "@/lib/db/models/billing";
+import { formatDateTime, formatDay } from "@/lib/dates";
 
 /**
  * What the dashboard needs — §27, §102.
@@ -149,7 +150,7 @@ export const attentionItems = cache(
         title: overdue
           ? `Invoice ${invoice.reference} is overdue`
           : `Invoice ${invoice.reference} is due`,
-        ...(invoice.dueAt ? { detail: `Due ${isoDay(invoice.dueAt)}` } : {}),
+        ...(invoice.dueAt ? { detail: `Due ${formatDay(invoice.dueAt)}` } : {}),
         href: `/dashboard/invoices`,
         urgent: overdue,
         ...(invoice.total ? { amount: invoice.total } : {}),
@@ -169,8 +170,8 @@ export const attentionItems = cache(
         ...(quote.expiresAt
           ? {
               detail: soon
-                ? `Expires ${isoDay(quote.expiresAt)}`
-                : `Valid until ${isoDay(quote.expiresAt)}`,
+                ? `Expires ${formatDay(quote.expiresAt)}`
+                : `Valid until ${formatDay(quote.expiresAt)}`,
             }
           : {}),
         href: `/dashboard/quotes`,
@@ -222,11 +223,7 @@ export const recentActivity = cache(
       type: event.type,
       // Absolute, per the house rule — relative time differs between server
       // and client and flickers at hydration.
-      at: event.createdAt ? isoDay(event.createdAt) : "",
+      at: event.createdAt ? formatDateTime(event.createdAt) : "",
     }));
   },
 );
-
-function isoDay(value: Date): string {
-  return new Date(value).toISOString().slice(0, 10);
-}

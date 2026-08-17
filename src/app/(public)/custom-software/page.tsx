@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { getSession } from "@/lib/auth/dal";
 import { Assistant } from "@/features/requirements/components/assistant";
 import { Recommendations } from "@/features/requirements/components/recommendations";
+import { openersFor } from "@/features/requirements/openers";
 import { aiConfigured } from "@/services/ai/client";
 import { readAnonymousKey, startOrResume } from "@/services/ai/conversation-service";
 import { recommendProducts } from "@/services/ai/recommend";
@@ -39,12 +40,29 @@ export default async function Page() {
   // Component cannot set a cookie, and the first version of this tried to.
   const anonymousKey = session?.user.id ? undefined : await readAnonymousKey();
 
-  const conversation = await startOrResume({
-    contextType: "custom_build",
-    ...(session?.user.id ? { userId: session.user.id } : {}),
-    ...(session?.activeOrganizationId ? { organizationId: session.activeOrganizationId } : {}),
-    ...(anonymousKey ? { anonymousKey } : {}),
-  });
+  /*
+   * No owner means no conversation — and that is a page, not an error.
+   *
+   * `proxy.ts` mints a key for every visitor who could hold a conversation, so
+   * in practice this branch is a crawler: the one caller deliberately excluded,
+   * because a row per crawled page is a row per crawled page forever.
+   *
+   * It must still render. This is an indexable marketing page (§93), and
+   * `startOrResume` now refuses an owner-less conversation rather than writing
+   * one nobody can read — so calling it unconditionally would 500 Googlebot.
+   */
+  const owner = Boolean(session?.user.id || anonymousKey);
+
+  const conversation = owner
+    ? await startOrResume({
+        contextType: "custom_build",
+        ...(session?.user.id ? { userId: session.user.id } : {}),
+        ...(session?.activeOrganizationId
+          ? { organizationId: session.activeOrganizationId }
+          : {}),
+        ...(anonymousKey ? { anonymousKey } : {}),
+      })
+    : null;
 
   const config = await resolveAiConfig();
   const available = aiConfigured() && config.enabled;
@@ -55,6 +73,7 @@ export default async function Page() {
    * chosen is the nagging §24 explicitly rules out.
    */
   const shouldRecommend =
+    conversation !== null &&
     !conversation.recommendationChoice &&
     conversation.messages.filter((message) => message.role === "user").length >= 2;
 
@@ -67,7 +86,7 @@ export default async function Page() {
         description="Tell us what you're trying to do — in your words, not ours. We'll work out what it needs to be."
       />
 
-      {conversation.messages.length === 0 && (
+      {(conversation === null || conversation.messages.length === 0) && (
         <ol className="grid gap-3 sm:grid-cols-3">
           <Step icon={MessagesSquare} n="1" title="You describe the problem">
             A few questions, one at a time. No forms and no jargon.
@@ -88,32 +107,44 @@ export default async function Page() {
         </p>
       )}
 
-      {recommendations.length > 0 && (
-        <Recommendations conversationId={String(conversation._id)} products={recommendations} />
-      )}
+      {conversation === null ? (
+        // A plain `<a>`, not a `<Link>`: this branch exists for clients the
+        // proxy will not mint a key for, and a full navigation is what gets
+        // them one.
+        <p className="border-border bg-surface rounded-xl border px-4 py-3.5 text-[13.5px]">
+          <a href="/custom-software" className="underline underline-offset-4">
+            Start a conversation
+          </a>{" "}
+          and tell us what you need — it takes a couple of minutes.
+        </p>
+      ) : (
+        <>
+          {recommendations.length > 0 && (
+            <Recommendations
+              conversationId={String(conversation._id)}
+              products={recommendations}
+            />
+          )}
 
-      <Assistant
-        conversationId={String(conversation._id)}
-        initialMessages={conversation.messages
-          .filter((message) => message.role !== "system")
-          .map((message) => ({
-            role: message.role as "user" | "assistant",
-            content: message.content,
-          }))}
-        signedIn={Boolean(session?.user.id)}
-        signInHref={`/login?next=${encodeURIComponent("/custom-software")}`}
-        startOverHref="/custom-software"
-        suggestions={
-          conversation.messages.length === 0
-            ? [
-                "I need to manage staff and shifts",
-                "I need to take bookings",
-                "I need to keep track of clients",
-                "Something else",
-              ]
-            : undefined
-        }
-      />
+          <Assistant
+            conversationId={String(conversation._id)}
+            initialMessages={conversation.messages
+              .filter((message) => message.role !== "system")
+              .map((message) => ({
+                role: message.role as "user" | "assistant",
+                content: message.content,
+              }))}
+            signedIn={Boolean(session?.user.id)}
+            signInHref={`/login?next=${encodeURIComponent("/custom-software")}`}
+            startOverHref="/custom-software"
+            // Sampled here, in the Server Component, so the draw is serialised
+            // into the RSC payload and the client renders the same four. Drawn
+            // inside the `"use client"` island instead, server and client would
+            // disagree at hydration.
+            suggestions={conversation.messages.length === 0 ? openersFor(3) : undefined}
+          />
+        </>
+      )}
     </div>
   );
 }

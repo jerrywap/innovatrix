@@ -5,6 +5,7 @@ import type { SubjectType } from "@/lib/db/enums";
 import { FollowUp, type FollowUpDoc } from "@/lib/db/models/requests";
 import { CustomerRequest } from "@/lib/db/models/requests";
 import { Organization, User } from "@/lib/db/models/identity";
+import { formatDay } from "@/lib/dates";
 
 /**
  * Follow-ups — §39.
@@ -90,7 +91,7 @@ export async function listFollowUps(
   return rows.map((row) => ({
     id: String(row._id),
     note: row.note,
-    dueAt: new Date(row.dueAt).toISOString().slice(0, 10),
+    dueAt: formatDay(row.dueAt),
     status: row.status,
     overdue: row.status === "open" && new Date(row.dueAt).getTime() < now,
     ownerName: ownerName.get(String(row.ownerUserId)) ?? "Someone",

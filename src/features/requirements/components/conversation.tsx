@@ -34,6 +34,7 @@ export function Conversation({
   suggestions,
   disabled,
   disabledReason,
+  onFallback,
 }: {
   conversationId: string;
   initialMessages: DisplayMessage[];
@@ -43,6 +44,16 @@ export function Conversation({
   suggestions?: string[];
   disabled?: boolean;
   disabledReason?: string;
+  /**
+   * §104's escape hatch, offered on an error.
+   *
+   * A callback rather than the `#manual-form` anchor this used to be: that
+   * anchor pointed at an element which only exists after the customer has sent
+   * a message *and* clicked "Write it out myself", so on the error that most
+   * needed it — a failure on the very first message — it pointed at nothing and
+   * clicking it did nothing at all.
+   */
+  onFallback?: () => void;
 }) {
   const [messages, setMessages] = useState<DisplayMessage[]>(initialMessages);
   const [streaming, setStreaming] = useState<string | null>(null);
@@ -142,10 +153,18 @@ export function Conversation({
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
           <span>
             {error}{" "}
-            <a href="#manual-form" className="underline underline-offset-4">
-              Fill in a form instead
-            </a>
-            .
+            {onFallback && (
+              <>
+                <button
+                  type="button"
+                  onClick={onFallback}
+                  className="underline underline-offset-4"
+                >
+                  Fill in a form instead
+                </button>
+                .
+              </>
+            )}
           </span>
         </p>
       )}

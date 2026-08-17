@@ -1,20 +1,33 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import type { Route } from "next";
 
 /**
  * The search input — §74.
  *
- * ## The only client component on the marketplace
+ * ## Two modes, because two pages want opposite things
  *
- * Everything else is a link, because a link needs no JavaScript. Search is
- * different: typing is continuous and a form submit per keystroke is not a
- * design. So this is the one boundary, and it is small.
+ * - **`filter`** (the marketplace) narrows the page you are already on. Every
+ *   pause in typing replaces the URL, and results re-render underneath.
+ * - **`navigate`** (the landing hero) takes you somewhere else. It fires on
+ *   submit only and pushes, so Back returns to where you started.
  *
- * ## Debounced, and the debounce is the point
+ * The distinction is not cosmetic. A debounced navigate would carry the visitor
+ * off the home page mid-word.
+ *
+ * ## The target is `basePath`, never `usePathname()`
+ *
+ * It used to be the latter, which was a latent bug: `basePath` drove only the
+ * no-JS `<form action>`, so once hydrated the component always filtered the
+ * *current* URL. Harmless while the single caller passed its own pathname, and
+ * wrong the moment a second caller wanted to search from somewhere else — the
+ * hero would have pushed `/?q=…`, a home page with a query string and no
+ * results. One prop now decides both halves, so they cannot disagree.
+ *
+ * ## Debounced in `filter` mode, and the debounce is the point
  *
  * Free-text queries are **not cached** — `q` is attacker-controlled, so caching
  * on it makes the key space unbounded. That means every keystroke that reaches
@@ -27,7 +40,19 @@ import type { Route } from "next";
  * off — pressing Enter still searches. The router push is an enhancement on top
  * of something that already works.
  */
-export function SearchBox({ basePath }: { basePath: string }) {
+export interface SearchBoxProps {
+  /** Where a search goes. Both the `<form action>` and the router target. */
+  basePath: string;
+  /** `filter` narrows the current page; `navigate` goes to `basePath`. */
+  mode?: "filter" | "navigate";
+  /** Unique per instance — two boxes on one page must not share a label. */
+  inputId?: string;
+  placeholder?: string;
+  /** The accessible name, when "Search the marketplace" is not what this does. */
+  label?: string;
+}
+
+export function SearchBox(props: SearchBoxProps) {
   const searchParams = useSearchParams();
   // Remount when the URL's `q` changes, which resets the uncontrolled input to
   // whatever the URL now says. The obvious alternative — a `useEffect` that
@@ -35,12 +60,17 @@ export function SearchBox({ basePath }: { basePath: string }) {
   // effect runs after paint, sets state, and forces a second render of a
   // component that is already correct. React's `set-state-in-effect` rule flags
   // it, and it is right to.
-  return <SearchField key={searchParams.get("q") ?? ""} basePath={basePath} />;
+  return <SearchField key={searchParams.get("q") ?? ""} {...props} />;
 }
 
-function SearchField({ basePath }: { basePath: string }) {
+function SearchField({
+  basePath,
+  mode = "filter",
+  inputId = "marketplace-search",
+  placeholder = "Search by name, what it does, or the stack…",
+  label = "Search the marketplace",
+}: SearchBoxProps) {
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
 
@@ -48,25 +78,28 @@ function SearchField({ basePath }: { basePath: string }) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const push = (next: string) => {
-    const params = new URLSearchParams(searchParams.toString());
+    // In `navigate` mode the destination is a different page, so the current
+    // page's filters are not ours to carry over.
+    const params = new URLSearchParams(mode === "filter" ? searchParams.toString() : "");
     if (next.trim()) params.set("q", next.trim());
     else params.delete("q");
     // A new query is a new result set, so page 1.
     params.delete("page");
 
     const query = params.toString();
+    const href = (query ? `${basePath}?${query}` : basePath) as Route;
+
     startTransition(() => {
       // `typedRoutes` cannot know a runtime-built query string is valid, and
-      // the path half came from `usePathname` so it is a real route by
-      // construction.
-      router.replace((query ? `${pathname}?${query}` : pathname) as Route, {
-        scroll: false,
-      });
+      // `basePath` is supplied by the caller as a real route.
+      if (mode === "navigate") router.push(href);
+      else router.replace(href, { scroll: false });
     });
   };
 
   const onChange = (next: string) => {
     setValue(next);
+    if (mode !== "filter") return;
     clearTimeout(timer.current);
     timer.current = setTimeout(() => push(next), 350);
   };
@@ -85,8 +118,8 @@ function SearchField({ basePath }: { basePath: string }) {
       }}
       className="relative"
     >
-      <label htmlFor="marketplace-search" className="sr-only">
-        Search the marketplace
+      <label htmlFor={inputId} className="sr-only">
+        {label}
       </label>
 
       <Search
@@ -95,12 +128,12 @@ function SearchField({ basePath }: { basePath: string }) {
       />
 
       <input
-        id="marketplace-search"
+        id={inputId}
         name="q"
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Search by name, what it does, or the stack…"
+        placeholder={placeholder}
         maxLength={120}
         autoComplete="off"
         className="border-border bg-surface focus-visible:ring-ring h-11 w-full rounded-xl border pr-10 pl-9 text-[14px] focus-visible:ring-2 focus-visible:outline-none"
@@ -118,7 +151,7 @@ function SearchField({ basePath }: { basePath: string }) {
             onClick={() => {
               setValue("");
               clearTimeout(timer.current);
-              push("");
+              if (mode === "filter") push("");
             }}
             className="text-subtle hover:text-foreground absolute top-1/2 right-2.5 -translate-y-1/2 p-1"
           >

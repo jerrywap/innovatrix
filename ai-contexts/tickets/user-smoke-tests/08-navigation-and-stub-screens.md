@@ -3,6 +3,40 @@
 **Source:** ticket 30, lines 18, 21, 22 · **Severity:** minor
 **Depends on:** — · **Blocks:** — · **Size:** M
 **Spec:** §28 (dashboard navigation), §38 (unified communication), §76 (organizations)
+**Status:** **done, 2026-08-17.**
+
+## What shipped
+
+**Cross-portal links.** `staffNavFor()` appends an *Elsewhere → Admin* section when the
+reader holds any `ADMIN_PERMISSIONS` — the same predicate `app/admin/layout.tsx` uses as
+its gate, so the link appears exactly when the destination would admit them. `adminShellNavFor()`
+adds the way back.
+
+They are appended by those functions rather than declared in the tables, and that is not
+tidiness: `ADMIN_PERMISSIONS` is *derived* from `ADMIN_NAV`, so a link gated on that set and
+declared inside the set's own source is a circular definition. The first attempt did exactly
+that and also made `adminNavFor()` non-empty for everybody — which the layout reads as "may
+enter admin". `navigation.test.ts` caught it.
+
+Also fixed: `/staff`'s account dropdown offered "Staff console", a link to the page you were
+already on.
+
+**A real messages inbox.** `listConversations` (customer, org-scoped) and
+`listConversationsForStaff` (across organisations, behind `message.view_all`) — two named
+exports rather than an optional `organizationId`, for the same reason as the order loader.
+Both pages were hardcoded empty states running no query at all.
+
+The §37 boundary gets the same treatment as the thread view: excerpt and unread count both
+come from the audience-filtered query, so an internal note can neither become a customer's
+"last message" nor bump their unread badge. A conversation whose only messages are internal
+does not appear at all — an empty row would itself disclose that one exists.
+
+`loading-boundaries.test.ts` caught the staff guard sitting inside the `<Suspense>`, where
+`forbidden()` would have rendered under a 200. Hoisted into the page body.
+
+**`/dashboard/organization` removed from navigation**, route kept. It renders a hardcoded
+"nothing to manage yet" with no query behind it. The test that asserted it was visible to
+owners and admins now asserts the opposite, and says why.
 
 ## Why
 

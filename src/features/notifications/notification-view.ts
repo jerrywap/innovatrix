@@ -3,6 +3,7 @@ import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import type { NotificationCategory } from "@/lib/db/enums";
 import { Notification, type NotificationDoc } from "@/lib/db/models/communication";
+import { formatDateTime } from "@/lib/dates";
 
 /**
  * Reading the notification centre — §69.
@@ -63,7 +64,7 @@ export async function listNotifications(input: {
       ...(row.body ? { body: row.body } : {}),
       ...(row.href ? { href: row.href } : {}),
       category: row.category,
-      at: row.createdAt.toISOString().slice(0, 10),
+      at: formatDateTime(row.createdAt),
       read: Boolean(row.readAt),
     })),
   };

@@ -263,17 +263,53 @@ describe("who may move a request", () => {
     );
   });
 
-  it("lets a customer cancel from every non-terminal state they own", () => {
-    const cancellable = Object.entries(REQUEST_TRANSITIONS)
+  it("lets a customer cancel right up to the point money and work are committed", () => {
+    /*
+     * The line is `approved`. Before it, cancelling costs nobody anything and
+     * the customer should not have to ask. After it — `converted` means the
+     * deposit cleared, `in_progress` means somebody is building — cancelling is
+     * a refund and a part-finished job, which is a conversation, not a button.
+     *
+     * This used to assert that *every* state with a `cancelled` edge was
+     * customer-cancellable, which was true only because the delivery states did
+     * not exist yet.
+     */
+    const cancellableByCustomer = Object.entries(REQUEST_TRANSITIONS)
       .filter(([, targets]) => (targets as readonly string[]).includes("cancelled"))
-      .map(([from]) => from);
+      .map(([from]) => from)
+      .filter((from) => from !== "converted" && from !== "in_progress");
 
-    for (const from of cancellable) {
+    for (const from of cancellableByCustomer) {
       expect(
         requestTransitionRule(from as never, "cancelled")?.customerMay,
         `${from}->cancelled`,
       ).toBe(true);
     }
+
+    // And the two that are staff-only are staff-only, rather than simply absent.
+    for (const from of ["converted", "in_progress"] as const) {
+      const rule = requestTransitionRule(from, "cancelled");
+      expect(rule, `${from}->cancelled must exist`).toBeDefined();
+      expect(rule?.customerMay, `${from}->cancelled`).toBe(false);
+    }
+  });
+
+  it("carries the request past payment, which it used not to", () => {
+    // `converted` was terminal, and it is reached automatically when the
+    // deposit is paid — so the customer's last update was "payment received"
+    // and nothing could follow it. Ever.
+    expect(REQUEST_TRANSITIONS.converted.length).toBeGreaterThan(0);
+    expect(REQUEST_TRANSITIONS.converted).toContain("in_progress");
+    expect(REQUEST_TRANSITIONS.in_progress).toContain("delivered");
+    expect(REQUEST_TRANSITIONS.delivered).toContain("completed");
+
+    // Delivery is not acceptance: the customer can send it back.
+    expect(REQUEST_TRANSITIONS.delivered).toContain("in_progress");
+    expect(requestTransitionRule("delivered", "in_progress")?.customerMay).toBe(true);
+    expect(requestTransitionRule("delivered", "completed")?.customerMay).toBe(true);
+
+    // `completed` is the real terminal state now.
+    expect(REQUEST_TRANSITIONS.completed).toHaveLength(0);
   });
 
   it("returns undefined for an edge that is not in the machine", () => {

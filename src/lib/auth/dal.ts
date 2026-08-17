@@ -1,7 +1,8 @@
 import "server-only";
 import { cache } from "react";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { forbidden, redirect } from "next/navigation";
+import type { Route } from "next";
 import { serverEnv } from "@/config/env";
 import { ForbiddenError, NotFoundError } from "@/lib/errors";
 import { connectToDatabase } from "@/lib/db/client";
@@ -13,6 +14,7 @@ import {
 } from "@/lib/db/models/identity";
 import type { OrganizationRole, StaffRole } from "@/lib/db/enums";
 import { getAuth } from "./auth";
+import { hasSessionCookie } from "./session-cookies";
 import {
   hasAllPermissions,
   hasAnyPermission,
@@ -102,10 +104,36 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
   };
 });
 
+/**
+ * Where to send somebody who has no valid session.
+ *
+ * ## Not always `/login`
+ *
+ * If a session **cookie is present** and the session behind it is not valid,
+ * sending them to `/login` produces an infinite redirect: `proxy.ts` guards the
+ * protected areas by cookie *presence* — deliberately, so it never touches the
+ * database — and so it bounces `/login` straight back to `/dashboard`, where
+ * this function runs again. The browser stops with `ERR_TOO_MANY_REDIRECTS`.
+ *
+ * So a stale cookie goes to the route that can actually delete it. A visitor
+ * with no cookie at all has nothing to clear and goes to `/login` directly.
+ *
+ * Returns the path rather than redirecting, so the call site keeps
+ * `redirect(...)` as its last statement — TypeScript narrows on `never` from a
+ * direct call and not through an awaited one, and losing that narrowing means
+ * every caller below needs a null check for a branch that cannot be reached.
+ */
+export async function loginDestination(): Promise<Route> {
+  // A cookie is here but `getSession()` found nothing behind it ⇒ stale, and
+  // it has to be deleted or the proxy will keep asserting the user is signed in.
+  const stale = hasSessionCookie(await cookies());
+  return (stale ? "/api/auth/stale-session" : "/login") as Route;
+}
+
 /** Signed in, or redirected to login with a return path. */
 export const requireUser = cache(async (): Promise<SessionUser> => {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect(await loginDestination());
   return session.user;
 });
 
@@ -146,7 +174,7 @@ export interface OrgContext {
  */
 export const requireOrg = cache(async (): Promise<OrgContext> => {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect(await loginDestination());
 
   if (!session.activeOrganizationId) {
     // A signed-in user with no organization is a broken signup, not a normal
@@ -231,7 +259,7 @@ export const requireOrgOrNull = cache(async (): Promise<OrgContext | null> => {
  */
 export async function assertOrgAccess(claimedOrganizationId: string): Promise<void> {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect(await loginDestination());
 
   await connectToDatabase();
 
@@ -307,7 +335,7 @@ export interface StaffContext {
  */
 export const requireStaff = cache(async (): Promise<StaffContext> => {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect(await loginDestination());
 
   if (!session.user.isStaff) {
     throw new ForbiddenError("This area is for Innovatrix staff.");
@@ -389,7 +417,7 @@ export async function requireAnyPermission(
  */
 export const requireStaffOrRedirect = cache(async (): Promise<StaffContext> => {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect(await loginDestination());
   if (!session.user.isStaff) redirect("/dashboard?denied=staff");
 
   await connectToDatabase();

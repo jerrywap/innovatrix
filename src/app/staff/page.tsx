@@ -5,6 +5,8 @@ import type { Route } from "next";
 import { AlarmClock, FileText } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MoneyDisplay } from "@/components/money-display";
+import { asMoney, staffHeadline } from "@/features/reporting/headline";
 import { requireStaffOrRedirect } from "@/lib/auth/dal";
 import { QUEUES, staffCounts } from "@/features/staff/queues";
 
@@ -24,6 +26,14 @@ export default function Page() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader title="Today" description="What's waiting, oldest first." />
+      {/*
+        §31's headline row, above the queues rather than instead of them. The
+        queue board is the action-oriented screen §102 asks for; this answers
+        the question it does not — how much is sitting with *us*.
+      */}
+      <Suspense fallback={<Skeleton className="h-24 w-full rounded-xl" />}>
+        <Headline />
+      </Suspense>
       <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
         <Counters />
       </Suspense>
@@ -146,5 +156,58 @@ function PlainCard({
       </span>
       <span className="font-display text-[20px] leading-none tracking-[-0.03em]">{count}</span>
     </Link>
+  );
+}
+
+/**
+ * §31 — whose move is it.
+ *
+ * "Waiting on us" against "waiting on the customer" is the distinction that
+ * tells a busy week from a stuck one, and it is the first thing §31's example
+ * dashboard puts on the screen. Outstanding invoice value is per currency for
+ * the same reason revenue is on the admin side: there is no rate to add them at.
+ */
+async function Headline() {
+  const figures = await staffHeadline();
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Tile label="Waiting on us" value={String(figures.waitingOnUs)} />
+      <Tile label="Waiting on the customer" value={String(figures.waitingOnCustomer)} />
+      <Tile label="Quotes out" value={String(figures.quotesIssued)} />
+      <Tile
+        label="Invoices outstanding"
+        value={String(figures.invoicesOutstanding)}
+        detail={
+          figures.outstandingValue.length > 0 ? (
+            <span className="flex flex-wrap gap-x-2">
+              {figures.outstandingValue.map((row) => (
+                <MoneyDisplay key={row.currency} value={asMoney(row)} />
+              ))}
+            </span>
+          ) : undefined
+        }
+      />
+    </div>
+  );
+}
+
+function Tile({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: React.ReactNode;
+}) {
+  return (
+    <div className="border-border bg-surface flex flex-col gap-1 rounded-xl border p-4">
+      <span className="text-subtle font-mono text-[9.5px] tracking-[0.16em] uppercase">
+        {label}
+      </span>
+      <span className="text-[18px] font-medium">{value}</span>
+      {detail && <span className="text-subtle text-[12.5px]">{detail}</span>}
+    </div>
   );
 }

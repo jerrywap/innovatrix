@@ -34,6 +34,15 @@ export function Assistant({
 }) {
   const [messages, setMessages] = useState<DisplayMessage[]>(initialMessages);
   const [restarting, setRestarting] = useState(false);
+  /**
+   * The customer asked for the form after the assistant failed them.
+   *
+   * Kept here rather than in `Conversation` because the panel it opens is this
+   * component's child, and because it has to override `worthReviewing` — the
+   * whole point is that the conversation did *not* get far enough to be worth
+   * reviewing.
+   */
+  const [manualFallback, setManualFallback] = useState(false);
 
   if (submitted) {
     return (
@@ -64,14 +73,16 @@ export function Assistant({
         conversationId={conversationId}
         initialMessages={initialMessages}
         onTranscriptChange={setMessages}
+        onFallback={() => setManualFallback(true)}
         {...(suggestions ? { suggestions } : {})}
       />
 
-      {worthReviewing && (
+      {(worthReviewing || manualFallback) && (
         <ReviewPanel
           conversationId={conversationId}
           signedIn={signedIn}
           signInHref={signInHref}
+          startOpen={manualFallback}
         />
       )}
 

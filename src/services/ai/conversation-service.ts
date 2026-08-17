@@ -10,8 +10,8 @@ import {
   type AiConversationDoc,
   type AiMessage,
 } from "@/lib/db/models/requests";
-import { ForbiddenError, NotFoundError } from "@/lib/errors";
-import { CONVERSATION_COOKIE, CONVERSATION_COOKIE_MAX_AGE } from "./conversation-cookie";
+import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
+import { CONVERSATION_COOKIE, conversationCookie } from "./conversation-cookie";
 import { PROMPT_VERSION } from "./prompts";
 
 /**
@@ -51,15 +51,7 @@ export async function ensureAnonymousKey(): Promise<string> {
   if (existing) return existing;
 
   const key = nanoid(21);
-  jar.set({
-    name: CONVERSATION_COOKIE,
-    value: key,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: usesSecureCookies(),
-    path: "/",
-    maxAge: CONVERSATION_COOKIE_MAX_AGE,
-  });
+  jar.set(conversationCookie(key, usesSecureCookies()));
   return key;
 }
 
@@ -150,18 +142,40 @@ export async function startOrResume(input: StartInput): Promise<AiConversationDo
       ? { anonymousKey: input.anonymousKey }
       : null;
 
-  if (owner) {
-    const existing = await AiConversation.findOne({
-      ...owner,
-      contextType: input.contextType,
-      status: "active",
-      ...(input.productId ? { productId: toObjectId(input.productId) } : { productId: null }),
-    })
-      .sort({ updatedAt: -1 })
-      .lean<AiConversationDoc>();
-
-    if (existing) return existing;
+  /*
+   * An owner-less conversation is unreadable by the person who just created it.
+   *
+   * `assertCanRead` tests organisation, then `anonymousKey`, then `userId`, and
+   * throws when all three are absent — so a document written without any of them
+   * can never be read again by anybody but staff, and its author gets
+   * "No such conversation." on their first message.
+   *
+   * This used to happen silently on **every render** of the assistant reached by
+   * a client-side link: no cookie, `owner === null`, resume skipped, orphan
+   * created. Nine of them, all with zero messages, before anyone noticed.
+   *
+   * `proxy.ts` mints the key so this should now be unreachable. It throws rather
+   * than trusting that: the caller has lost the only credential the conversation
+   * would have had, and the honest failure is loud and immediate rather than a
+   * row nobody can read.
+   */
+  if (!owner) {
+    throw new ValidationError(
+      "A conversation needs an owner — no session and no anonymous key was supplied.",
+      { owner: ["Missing both userId and anonymousKey."] },
+    );
   }
+
+  const existing = await AiConversation.findOne({
+    ...owner,
+    contextType: input.contextType,
+    status: "active",
+    ...(input.productId ? { productId: toObjectId(input.productId) } : { productId: null }),
+  })
+    .sort({ updatedAt: -1 })
+    .lean<AiConversationDoc>();
+
+  if (existing) return existing;
 
   const created = await AiConversation.create({
     contextType: input.contextType,

@@ -115,6 +115,11 @@ const STATUS_TONES: Record<string, StatusTone> = {
   quoted: "attention",
   approved: "positive",
   converted: "positive",
+  // Work under way reads as progress; delivered is the customer's move, so it
+  // takes the same tone as anything else waiting on them.
+  in_progress: "progress",
+  delivered: "attention",
+  completed: "positive",
 
   /* follow-ups */
   open: "attention",

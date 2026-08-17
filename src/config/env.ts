@@ -160,6 +160,38 @@ const serverSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.email().default("no-reply@innovatrix.com"),
 
+  /*
+   * SMTP — the first transport that actually delivers.
+   *
+   * All four go through `optionalShaped`: `.env.example` ships them blank, and a
+   * blank is present-but-empty, which a bare `.optional()` would reject at boot.
+   *
+   * There is no `SMTP_SECURE`. Port 465 is implicit TLS and 587 is STARTTLS, so
+   * the port already carries the answer — a separate flag is one more thing that
+   * can disagree with it, and when it does the failure is an unencrypted login.
+   */
+  /*
+   * Which transport actually sends — `log` or `smtp`.
+   *
+   * Exists because the seeded accounts are all on `.test`, an IANA-reserved TLD
+   * that is guaranteed never to resolve. With SMTP configured, a password reset
+   * for `super@innovatrix.test` is handed to a real mail server, bounces, and
+   * the link the developer needed is nowhere: `sendAuthEmail` swallows the
+   * failure outside development, and the queue simply retries five times.
+   *
+   * `log` writes to `.dev-emails/` and prints the link in the terminal, which is
+   * what you want on a laptop even when SMTP credentials are to hand.
+   *
+   * Unset keeps the previous behaviour — SMTP if it is configured, otherwise
+   * log — so an existing `.env.local` does not change meaning.
+   */
+  EMAIL_TRANSPORT: optionalShaped(z.enum(["log", "smtp"])),
+
+  SMTP_HOST: optionalShaped(z.string().min(1)),
+  SMTP_PORT: optionalShaped(z.coerce.number().int().min(1).max(65535)),
+  SMTP_USERNAME: optionalShaped(z.string().min(1)),
+  SMTP_PASSWORD: optionalShaped(z.string().min(1)),
+
   /* ── Scheduled work (tickets 13, 25) ──────────────────
      Authenticates `/api/cron/*`. The caller is a scheduler, not a person, so
      it is a shared secret rather than a session. Optional so local development
@@ -212,6 +244,24 @@ function loadServerEnv(): ServerEnv {
   ) {
     throw new Error(
       "AUTH_GOOGLE_ENABLED is true but AUTH_GOOGLE_CLIENT_ID / AUTH_GOOGLE_CLIENT_SECRET are missing.",
+    );
+  }
+  /*
+   * A half-configured mailer is worse than none: `resolveTransport()` would
+   * pick SMTP because the host is set, and every send would then fail
+   * authentication — silently for auth email, which swallows, and as five
+   * retries and a dead-letter for everything on the queue.
+   */
+  if (env.EMAIL_TRANSPORT === "smtp" && !env.SMTP_HOST) {
+    throw new Error(
+      'EMAIL_TRANSPORT is "smtp" but SMTP_HOST is not set. ' +
+        "Set the SMTP_* variables, or use EMAIL_TRANSPORT=log to write to .dev-emails/.",
+    );
+  }
+  if (env.SMTP_HOST && (!env.SMTP_USERNAME || !env.SMTP_PASSWORD)) {
+    throw new Error(
+      "SMTP_HOST is set without SMTP_USERNAME / SMTP_PASSWORD. " +
+        "Set all three, or leave SMTP_HOST blank to keep writing to .dev-emails/.",
     );
   }
   if (env.STRIPE_SECRET_KEY && !env.STRIPE_WEBHOOK_SECRET) {

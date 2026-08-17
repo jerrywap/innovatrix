@@ -4,6 +4,7 @@ import { connectToDatabase } from "@/lib/db/client";
 import type { OrderStatus } from "@/lib/db/enums";
 import { Order, Payment, type OrderDoc, type PaymentDoc } from "@/lib/db/models/commerce";
 import { Organization, User } from "@/lib/db/models/identity";
+import { formatDateTime } from "@/lib/dates";
 
 /**
  * Orders, for the admin side — ticket 11 plus offline payment.
@@ -63,7 +64,7 @@ export async function listAdminOrders(
     status: row.status,
     paymentMethod: row.paymentMethod ?? "online",
     total: row.total,
-    createdAt: new Date(row.createdAt).toISOString().slice(0, 10),
+    createdAt: formatDateTime(row.createdAt),
     ageDays: Math.floor((now - new Date(row.createdAt).getTime()) / 86_400_000),
   }));
 
@@ -145,8 +146,8 @@ export async function loadAdminOrder(reference: string): Promise<AdminOrderDetai
     subtotal: order.subtotal,
     total: order.total,
     billing: order.billingSnapshot,
-    createdAt: new Date(order.createdAt).toISOString().slice(0, 10),
-    ...(order.paidAt ? { paidAt: new Date(order.paidAt).toISOString().slice(0, 10) } : {}),
+    createdAt: formatDateTime(order.createdAt),
+    ...(order.paidAt ? { paidAt: formatDateTime(order.paidAt) } : {}),
     payments: payments.map((payment) => ({
       id: String(payment._id),
       reference: payment.reference,
@@ -161,7 +162,7 @@ export async function loadAdminOrder(reference: string): Promise<AdminOrderDetai
       // stay server-side.
       hasEvidence: Boolean(payment.evidence?.storageKey),
       ...(payment.evidence?.filename ? { evidenceFilename: payment.evidence.filename } : {}),
-      at: new Date(payment.createdAt).toISOString().slice(0, 10),
+      at: formatDateTime(payment.createdAt),
     })),
   };
 }

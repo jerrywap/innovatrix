@@ -35,7 +35,9 @@ export default async function StaffLayout({ children }: { children: React.ReactN
             {roles.map((role) => role.replace(/_/g, " ")).join(" · ")}
           </span>
           <NotificationBell userId={user.id} href="/staff/notifications" />
-          <AccountMenu name={user.name} email={user.email} isStaff />
+          {/* No `isStaff`: the dropdown's "Staff console" link would point at
+              the page you are already on. Crossing to /admin is in the sidebar. */}
+          <AccountMenu name={user.name} email={user.email} isStaff={false} />
         </>
       }
     >

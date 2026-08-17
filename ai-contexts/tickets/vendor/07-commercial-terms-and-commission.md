@@ -14,11 +14,21 @@ same kind of fact and needs the same treatment.
 
 ### Resolution order
 
-Three levels, most specific wins:
+Two levels, most specific wins:
 
 ```
-platform default  →  vendor override  →  product override
+platform default  →  vendor override
 ```
+
+A **per-product** third level was specified and is dropped. It is the level with
+the least demand and the most explaining attached: a vendor asking why two of
+their own products earn different percentages is a conversation nobody wants, and
+the answer would live in a field on a product the vendor may edit every other
+part of. One rate per vendor is a sentence a vendor can repeat back.
+
+The resolution order is written as a chain precisely so a third level is additive
+— `resolveCommission()` gains a lookup and nothing else changes, and decision
+**V1** may yet ask for one that varies by product *type* rather than by product.
 
 Stored in basis points, never as a float. `money.ts` already exports
 `percentage(m, basisPoints)`, so 3000 means 30% and the arithmetic is integer
@@ -26,9 +36,9 @@ throughout. A percentage held as `0.3` is the same mistake as a price held as a
 float, and §84 has already settled that argument for money.
 
 The platform default lives in `/admin/settings` beside the tax and payment
-configuration. A vendor override is set on the vendor by staff; a product
-override on the product by staff. **A vendor cannot change their own rate**,
-which is worth stating because every other field on their product is theirs.
+configuration. A vendor override is set on the vendor by staff. **A vendor cannot
+change their own rate**, which is worth stating because every other field on
+their product is theirs.
 
 ### The rate is snapshotted onto the order line
 
@@ -92,13 +102,14 @@ and in their settings. A revenue share nobody can read is one every vendor
 emails support about.
 
 ## Out of scope
-Tiered rates that vary with volume, promotional rates, and vendor-funded
-discounts. Each changes the arithmetic here and none is asked for; the
-resolution order leaves room for a fourth level if one is ever wanted.
+Per-product rates (above). Tiered rates that vary with volume, promotional rates,
+and vendor-funded discounts. Each changes the arithmetic here and none is asked
+for; the resolution order leaves room for a third level if one is ever wanted.
 
 ## Acceptance criteria
 - [ ] Rates are stored and computed in basis points; no float appears in the split anywhere.
-- [ ] Resolution is platform → vendor → product, most specific winning, and the effective rate is derivable from one function.
+- [ ] Resolution is platform → vendor, most specific winning, and the effective rate is derivable from one function.
+- [ ] Adding a third resolution level would touch `resolveCommission()` and nothing else.
 - [ ] A vendor cannot change any rate, in the action and not only in the UI.
 - [ ] The resolved rate and vendor id are written onto the order line at checkout.
 - [ ] Changing a rate does not alter the split on any order placed before the change.

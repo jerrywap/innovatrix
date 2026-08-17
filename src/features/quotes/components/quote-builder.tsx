@@ -6,6 +6,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { saveQuoteDraftAction } from "../actions";
+import { toDateInputValue } from "@/lib/dates";
 
 const KINDS = [
   ["development", "Development"],
@@ -62,7 +63,7 @@ export function QuoteBuilder({
    * between the server render and hydration.
    */
   const [defaultExpiry] = useState(() =>
-    new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10),
+    toDateInputValue(new Date(Date.now() + 30 * 86_400_000)),
   );
 
   return (

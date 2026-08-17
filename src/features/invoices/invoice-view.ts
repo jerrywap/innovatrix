@@ -9,6 +9,7 @@ import { Payment, type PaymentDoc } from "@/lib/db/models/commerce";
 import { CustomerRequest } from "@/lib/db/models/requests";
 import { outstanding } from "@/services/invoices/invoice-service";
 import { orgFilter } from "@/lib/auth/scope";
+import { formatDateTime, formatDay } from "@/lib/dates";
 
 /**
  * Reading an invoice — §63.
@@ -190,9 +191,9 @@ export async function loadInvoice(
     amountPaid: invoice.amountPaid.amount,
     outstanding: due,
     payable: PAYABLE.includes(invoice.status) && due > 0,
-    ...(invoice.issuedAt ? { issuedAt: isoDay(invoice.issuedAt) } : {}),
-    ...(invoice.dueAt ? { dueAt: isoDay(invoice.dueAt) } : {}),
-    ...(invoice.paidAt ? { paidAt: isoDay(invoice.paidAt) } : {}),
+    ...(invoice.issuedAt ? { issuedAt: formatDay(invoice.issuedAt) } : {}),
+    ...(invoice.dueAt ? { dueAt: formatDay(invoice.dueAt) } : {}),
+    ...(invoice.paidAt ? { paidAt: formatDateTime(invoice.paidAt) } : {}),
     overdue,
     organizationId: String(invoice.organizationId),
     organizationName: organization?.name ?? "Unknown",
@@ -221,7 +222,7 @@ export async function loadInvoice(
       amount: row.amount.amount,
       currency: row.amount.currency,
       status: row.status,
-      ...(row.paidAt ? { paidAt: isoDay(row.paidAt) } : {}),
+      ...(row.paidAt ? { paidAt: formatDateTime(row.paidAt) } : {}),
       // A boolean, not a key. The key is only ever handed out by the
       // permission-checked evidence route.
       hasEvidence: Boolean(row.evidence?.storageKey),
@@ -334,13 +335,9 @@ async function summarise(rows: InvoiceDoc[]): Promise<ListedInvoice[]> {
       total: row.total.amount,
       outstanding: due,
       currency: row.currency,
-      ...(row.dueAt ? { dueAt: isoDay(row.dueAt) } : {}),
+      ...(row.dueAt ? { dueAt: formatDay(row.dueAt) } : {}),
       overdue,
       payable: PAYABLE.includes(row.status) && due > 0,
     };
   });
-}
-
-function isoDay(value: Date): string {
-  return new Date(value).toISOString().slice(0, 10);
 }

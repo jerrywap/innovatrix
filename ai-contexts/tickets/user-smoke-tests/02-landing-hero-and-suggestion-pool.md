@@ -3,6 +3,54 @@
 **Source:** ticket 30, lines 8 and 16 · **Severity:** minor
 **Depends on:** — · **Blocks:** — · **Size:** S
 **Spec:** §74 (search & discovery), §17 (AI assistant principles), §100 (progressive complexity)
+**Status:** **done, 2026-08-17.**
+
+## What shipped
+
+**A — the hero control.** `SearchBox` gained `mode: "filter" | "navigate"` plus `inputId`,
+`placeholder` and `label`, and the hero uses it in `navigate` mode: submit-only, `push` not
+`replace`, so Back works and nobody is carried off the home page mid-word. The five chips are
+now real links to `/marketplace?q=…`.
+
+While extending it, a latent bug: the router target was `usePathname()`, so `basePath` only
+ever drove the no-JS `<form action>`. Harmless with one caller passing its own pathname, and
+wrong the instant a second caller existed — the hero would have pushed `/?q=…`. One prop now
+decides both halves.
+
+**B — the numbers.** `getPublishedProductCount()` added to the marketplace service; a query
+with no `q` already routes through `cachedSearch`, so it is cached like every other catalogue
+read. Rendered by a small async component behind `<Suspense>` so `Home()` stays synchronous
+and the route keeps the prerender `(public)/layout.tsx` works to protect.
+
+The page now says **1,004 products across 9 industries**, both derived. "Median quote in 4.2
+days" is **deleted** — nothing measures it. The `Marketplace` section's four hardcoded
+products became `getRail("featured", …)` + the existing `ProductCardTile`, so it cannot drift
+from `/marketplace` again.
+
+`HeroSurface` stays an illustration but stops asserting things: generic row names instead of
+three real products with invented prices, "Search & filter" instead of "148 results", "Your
+request" instead of `CUS-2026-0084`, and the fabricated `· v2.4.1` gone.
+
+**C — the openers.** `src/features/requirements/openers.ts`: 100 lines across the §7
+industries, written in the customer's words, plus `openersFor()` which draws without
+replacement and always appends "Something else" last. Sampled in the Server Component so the
+draw is hydration-stable. Ten tests, including one asserting no jargon and one asserting no
+duplicates — the chips key on the string, so a repeat would be a React key collision.
+
+### Verified live
+
+- `id="hero-search"` renders; `<form action="/marketplace" method="get">` is in the HTML, so
+  Enter searches **without JavaScript**.
+- All five chips resolve to real `/marketplace?q=…` links.
+- The count line renders `1,004 products across 9 industries`; featured tiles link to real
+  slugs (`roster`, `tenancy`, `freightline`, …).
+- Three loads of `/custom-software` produced three different opener sets.
+- No hardcoded `148` remains in page content. (A `grep` hit for "148" persists in the RSC
+  payload — it is an internal reference id, `"$148"`, not copy.)
+
+**Deferred to the end-of-batch check:** confirming `next build` still reports `/` as static.
+The structure is right — `Home()` is synchronous and every read is suspended — but the build
+is expensive and is being run once for the whole set.
 
 ## Why
 

@@ -29,6 +29,8 @@ export function BillingForm({
   defaults,
   idempotencyKey,
   offlineAvailable,
+  cardAvailable,
+  currency,
 }: {
   defaults: {
     organizationName?: string;
@@ -43,11 +45,19 @@ export function BillingForm({
     taxId?: string;
   };
   idempotencyKey: string;
-  /** False ⇒ the choice is not rendered and the order is online, as before. */
+  /** False ⇒ bank transfer is not offered. */
   offlineAvailable: boolean;
+  /** False ⇒ no provider can take this cart's currency by card. */
+  cardAvailable: boolean;
+  /** The cart's currency, so the refusal can name it. */
+  currency: string;
 }) {
   const [state, formAction] = useActionState(placeOrderAction, null);
-  const [method, setMethod] = useState<"online" | "offline">("online");
+  // Default to whatever can actually be paid. Starting on "online" when no
+  // provider takes the currency would submit a method the server must refuse.
+  const [method, setMethod] = useState<"online" | "offline">(
+    cardAvailable ? "online" : "offline",
+  );
   const failed = state && !state.ok ? state : null;
 
   return (
@@ -168,23 +178,43 @@ export function BillingForm({
         </div>
       </FieldGroup>
 
-      {offlineAvailable && (
+      {/*
+        Said here, before the form is filled in, rather than after it is
+        submitted. Card availability depends on the cart's currency and on which
+        currencies the merchant's own accounts are provisioned for; a customer
+        who finds that out only when they press "place order" has typed an
+        address for nothing.
+      */}
+      {!cardAvailable && (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-[13px]">
+          We can&rsquo;t take a card payment in {currency} at the moment.{" "}
+          {offlineAvailable
+            ? "You can still order and pay by bank transfer below."
+            : "Switch the currency in your basket, or get in touch and we'll sort it out."}
+        </p>
+      )}
+
+      {(offlineAvailable || !cardAvailable) && (
         <FieldGroup title="How you'd like to pay">
           <div className="flex flex-col gap-2">
-            <PayOption
-              value="online"
-              checked={method === "online"}
-              onChange={setMethod}
-              title="Pay now by card"
-              detail="You're taken to our payment provider. Your software is available straight away."
-            />
-            <PayOption
-              value="offline"
-              checked={method === "offline"}
-              onChange={setMethod}
-              title="Pay by bank transfer"
-              detail="We'll place the order and send you the details. Your software is released once we've received the payment — not before."
-            />
+            {cardAvailable && (
+              <PayOption
+                value="online"
+                checked={method === "online"}
+                onChange={setMethod}
+                title="Pay now by card"
+                detail="You're taken to our payment provider. Your software is available straight away."
+              />
+            )}
+            {offlineAvailable && (
+              <PayOption
+                value="offline"
+                checked={method === "offline"}
+                onChange={setMethod}
+                title="Pay by bank transfer"
+                detail="We'll place the order and send you the details. Your software is released once we've received the payment — not before."
+              />
+            )}
           </div>
         </FieldGroup>
       )}

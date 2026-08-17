@@ -5,6 +5,7 @@ import type { ProductFileKind, ProductVersionStatus } from "@/lib/db/enums";
 import { connectToDatabase } from "@/lib/db/client";
 import { productFiles } from "@/repositories/product-file.repository";
 import { listVersions } from "@/services/catalog/version-service";
+import { formatDay, toDateInputValue } from "@/lib/dates";
 
 /**
  * The version list, as the admin screen needs it.
@@ -83,8 +84,8 @@ function toVersionView(version: ProductVersionDoc, files: ProductFileDoc[]): Ver
     ...(version.minimumRequirements
       ? { minimumRequirements: version.minimumRequirements }
       : {}),
-    ...(version.releasedAt ? { releasedAt: formatDate(version.releasedAt) } : {}),
-    ...(version.releaseDate ? { releaseDate: isoDate(version.releaseDate) } : {}),
+    ...(version.releasedAt ? { releasedAt: formatDay(version.releasedAt) } : {}),
+    ...(version.releaseDate ? { releaseDate: toDateInputValue(version.releaseDate) } : {}),
     ...(version.updateEligibility
       ? {
           updateEligibility: {
@@ -106,18 +107,4 @@ function toVersionView(version: ProductVersionDoc, files: ProductFileDoc[]): Ver
       ...(file.checksumSha256 ? { checksumSha256: file.checksumSha256 } : {}),
     })),
   };
-}
-
-/** Absolute, en-GB. Relative time differs between server and client. */
-function formatDate(value: Date): string {
-  return new Date(value).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-/** For a `<input type="date">`, which wants `yyyy-mm-dd` and nothing else. */
-function isoDate(value: Date): string {
-  return new Date(value).toISOString().slice(0, 10);
 }

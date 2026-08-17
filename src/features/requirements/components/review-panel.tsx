@@ -39,20 +39,31 @@ export function ReviewPanel({
   signedIn,
   signInHref,
   initialTitle,
+  startOpen = false,
 }: {
   conversationId: string;
   signedIn: boolean;
   signInHref: string;
   initialTitle?: string;
+  /**
+   * Open straight into the editor, skipping the "Ready to send it to us?" card.
+   *
+   * Set when the assistant itself has failed, which is the one case where
+   * offering to summarise a conversation would be absurd — there isn't one.
+   * §104's degradation path has to land on something the customer can type in.
+   */
+  startOpen?: boolean;
 }) {
-  const [lines, setLines] = useState<SummaryLine[]>([]);
+  // Lazy: `blank()` bumps a module-level counter, and a bare call here would
+  // run it on every render rather than only on mount.
+  const [lines, setLines] = useState<SummaryLine[]>(() => (startOpen ? [blank()] : []));
   const [title, setTitle] = useState(initialTitle ?? "");
   const [timeline, setTimeline] = useState("");
   const [notes, setNotes] = useState("");
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(startOpen);
 
   const [state, submit] = useActionState(submitRequirementsAction, null);
 

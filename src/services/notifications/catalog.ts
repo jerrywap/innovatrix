@@ -243,6 +243,22 @@ export const CATALOG: Catalog = {
     },
   ],
 
+  /*
+   * The point of the whole progress-update mechanism. An update the customer is
+   * not told about is a note in a file — they would have to keep reopening the
+   * request on the chance something had changed, which is exactly the silence
+   * this set out to fix.
+   */
+  RequestProgressPosted: [
+    {
+      audience: { kind: "organization" },
+      category: "requests",
+      title: (p) => `Update on ${p.reference}`,
+      body: (p) => p.message,
+      href: (p) => `/dashboard/requests/${p.reference}`,
+    },
+  ],
+
   MessagePosted: [
     {
       audience: { kind: "message_counterpart" },

@@ -96,6 +96,7 @@ const ANONYMOUS_BY_DESIGN: Record<string, string> = {
   // Pre-auth by definition — these are how a session comes to exist.
   "auth/actions.ts:registerAction": "creates the account",
   "auth/actions.ts:signInAction": "creates the session",
+  "auth/actions.ts:signInWithGoogleAction": "starts the session, at Google",
   "auth/actions.ts:forgotPasswordAction": "the caller has lost their password",
   "auth/actions.ts:resetPasswordAction": "authenticated by the emailed token",
   "auth/actions.ts:acceptInviteAction": "authenticated by the invitation token",
@@ -135,6 +136,14 @@ const NON_SESSION_ROUTES: Record<string, string> = {
    * test: an exemption is a decision somebody wrote down, not a gap.
    */
   "health/route.ts": "an uptime monitor has no session; the body reveals nothing",
+  /*
+   * It cannot authenticate: it exists precisely for the caller whose session is
+   * *invalid*. Requiring one would make it unreachable by the only people who
+   * need it, and it grants nothing — it deletes cookies and redirects to
+   * `/login`. The worst an attacker achieves is signing themselves out.
+   */
+  "auth/stale-session/route.ts":
+    "the caller's session is already rejected; it only clears cookies",
 };
 
 /* ────────────────────────────────────────────── the walk */

@@ -43,7 +43,7 @@ A `PRODUCT_TRANSITION_RULES` map beside the existing request one:
 
 | Edge | Who | Requires |
 |---|---|---|
-| `draft → submitted` | vendor (`owner`, `manager`) | readiness clean, attestation given |
+| `draft → submitted` | any active vendor member | readiness clean, attestation given |
 | `submitted → draft` | vendor | withdraw, before review starts |
 | `submitted → internal_review` | staff `product.review` | claiming it |
 | `submitted → changes_requested` | staff `product.review` | a reason |

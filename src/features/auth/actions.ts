@@ -1,12 +1,15 @@
 "use server";
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import type { Route } from "next";
 import { isAPIError } from "better-auth/api";
 import { fail, formDataToObject, ok, parseInput, withAction } from "@/lib/action-result";
 import type { ActionResult } from "@/lib/action-result";
+import { serverEnv } from "@/config/env";
 import { getAuth } from "@/lib/auth/auth";
 import { getSession } from "@/lib/auth/dal";
+import { clearSessionCookies } from "@/lib/auth/session-cookies";
 import { connectToDatabase } from "@/lib/db/client";
 import { Organization } from "@/lib/db/models/identity";
 import {
@@ -239,6 +242,76 @@ export async function signInAction(
   redirect(safeRedirectPath(formDataString(formData, "next"), "/dashboard"));
 }
 
+/* ────────────────────────────────────────────── sign in with google */
+
+/**
+ * OAuth, as a server action rather than a client `signIn.social()` call.
+ *
+ * ## Why not the client helper
+ *
+ * `client.ts` states the convention: authentication goes through server actions
+ * so the forms work without JavaScript and every failure arrives in one
+ * `ActionResult` shape. Google is the one flow that *must* leave the site, but
+ * that is a `redirect()` — which a server action does natively. Calling
+ * `signIn.social()` from a click handler would make this the only sign-in path
+ * that silently does nothing with JS disabled.
+ *
+ * ## `next` travels to Google and back
+ *
+ * `callbackURL` is where Better Auth returns the browser after the round trip.
+ * It is attacker-influenced — it started as `?next=` on our own URL — so it goes
+ * through `safeRedirectPath` before it is handed over, exactly as the password
+ * path does. Better Auth will honour whatever string we give it.
+ *
+ * ## The flag is checked here too
+ *
+ * The pages hide the button when Google is off, but a server action is a public
+ * POST endpoint: hiding the control is not the check (AGENTS.md).
+ */
+export async function signInWithGoogleAction(
+  _prev: ActionResult<never> | null,
+  formData: FormData,
+): Promise<ActionResult<never>> {
+  let destination: string | undefined;
+
+  const result = await withAction<never>(async () => {
+    if (!serverEnv().AUTH_GOOGLE_ENABLED) {
+      return fail("Google sign-in isn't available.", { code: "VALIDATION" });
+    }
+
+    const next = safeRedirectPath(formDataString(formData, "next"), "/dashboard");
+
+    const response = await getAuth().api.signInSocial({
+      body: {
+        provider: "google",
+        callbackURL: next,
+        errorCallbackURL: "/login?error=google",
+      },
+      headers: await headers(),
+    });
+
+    // `signInSocial` returns either a URL to send the browser to, or — for a
+    // flow that completed server-side — no URL at all. Only the first is
+    // meaningful here.
+    if (!response?.url) {
+      return fail("Google sign-in couldn't be started.", { code: "PROVIDER_UNAVAILABLE" });
+    }
+
+    destination = response.url;
+    return ok(undefined as never);
+  });
+
+  if (!result.ok) return result;
+
+  // Outside `withAction`, like every other redirect in this file: Next
+  // implements it by throwing, and the wrapper must not swallow navigation.
+  //
+  // `typedRoutes` cannot type an off-site URL, and this one is deliberately
+  // off-site — it is Google's consent screen. Same cast, and the same reason, as
+  // the hand-off to a payment provider in `features/checkout/actions.ts`.
+  redirect(destination! as Route);
+}
+
 /* ────────────────────────────────────────────── sign out */
 
 export async function signOutAction(): Promise<never> {
@@ -299,6 +372,18 @@ export async function resetPasswordAction(
   });
 
   if (!result.ok) return result;
+
+  /*
+   * Clear any session cookie before sending them to `/login`.
+   *
+   * Two reasons, and the second is the one that bites. Changing a password
+   * should end the old session — and a cookie the server no longer accepts sent
+   * to `/login` is bounced back to `/dashboard` by the proxy, which guards on
+   * presence rather than validity. That is an infinite redirect. A Server
+   * Action is one of the two places allowed to delete a cookie, so it happens
+   * here rather than being discovered a request later.
+   */
+  clearSessionCookies(await cookies());
   redirect("/login?reset=1");
 }
 

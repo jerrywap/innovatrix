@@ -220,6 +220,12 @@ export const REQUEST_STATUSES = values([
   "quoted",
   "approved",
   "converted",
+  // Everything past `converted` is delivery. It used to stop there — a terminal
+  // state reached the moment the deposit cleared, after which nothing could
+  // happen and the customer heard nothing further, permanently.
+  "in_progress",
+  "delivered",
+  "completed",
   "rejected",
   "cancelled",
 ] as const);
@@ -295,6 +301,7 @@ export const DOMAIN_EVENTS = values([
   "ProductVersionReleased",
   "MessagePosted",
   "WorkReadyToStart",
+  "RequestProgressPosted",
 ] as const);
 export type DomainEventType = (typeof DOMAIN_EVENTS)[number];
 

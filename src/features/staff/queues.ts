@@ -5,6 +5,7 @@ import type { RequestStatus } from "@/lib/db/enums";
 import { CustomerRequest, FollowUp, type CustomerRequestDoc } from "@/lib/db/models/requests";
 import { Quote } from "@/lib/db/models/billing";
 import { Organization, User } from "@/lib/db/models/identity";
+import { formatDateTime } from "@/lib/dates";
 
 /**
  * §31–32 — the staff portal is a queue of work, not a database browser.
@@ -46,7 +47,8 @@ export type QueueKey =
   | "technical-review"
   | "unassigned"
   | "mine"
-  | "ready-to-start";
+  | "ready-to-start"
+  | "in-progress";
 
 export interface QueueDefinition {
   key: QueueKey;
@@ -124,11 +126,24 @@ export const QUEUES: readonly QueueDefinition[] = [
      * paid and whose work has not started — there is no project entity in the
      * MVP, so this list *is* the handover, and `WorkReadyToStart` is the event
      * ticket 53 will replace it with.
+     *
+     * It used to be a queue nothing ever left: `converted` was terminal, so a
+     * request entered on payment and stayed for good, and the count only grew.
+     * "Start work" moves it to `in_progress` now, which is what makes this a
+     * queue rather than a ledger.
      */
     key: "ready-to-start",
     label: "Ready to start",
     description: "Paid and waiting on us to begin.",
     filter: () => ({ status: "converted" }),
+    sort: { updatedAt: 1 },
+  },
+  {
+    /* Work under way — the other half of the handover, and where it goes next. */
+    key: "in-progress",
+    label: "In progress",
+    description: "Being built. Post an update as it moves.",
+    filter: () => ({ status: "in_progress" }),
     sort: { updatedAt: 1 },
   },
   {
@@ -244,6 +259,6 @@ export async function queueRows(
       ? { assigneeName: userName.get(String(row.currentAssigneeUserId)) ?? "Someone" }
       : {}),
     ageDays: Math.floor((now - new Date(row.updatedAt).getTime()) / 86_400_000),
-    updatedAt: new Date(row.updatedAt).toISOString().slice(0, 10),
+    updatedAt: formatDateTime(row.updatedAt),
   }));
 }

@@ -303,6 +303,74 @@ describe("every transition leaves exactly one of each record — §70, §90", ()
   });
 });
 
+describe("progress updates carry the work past payment — §70", () => {
+  it("writes a customer-visible entry with no state change", async () => {
+    /*
+     * The gap this closes: `transition()` was the only writer of a
+     * customer-visible activity row, and `converted` — reached automatically
+     * when the deposit clears — was terminal. So a job in flight produced
+     * silence, and the customer's last update was "payment received".
+     */
+    const request = await submitted();
+    const before = await service.findByReference(request.reference, { organizationId: ORG });
+    await communication.ActivityEvent.deleteMany({});
+
+    await service.postProgressUpdate({
+      requestId: String(request._id),
+      actor: staff(),
+      message: "Tenant portal is done and on the test site.",
+    });
+
+    const after = await service.findByReference(request.reference, { organizationId: ORG });
+    expect(after?.status, "status must not move").toBe(before?.status);
+
+    const visible = await communication.ActivityEvent.find({
+      subjectId: request._id,
+      visibility: "customer",
+    }).lean();
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.message).toContain("test site");
+  });
+
+  it("keeps the internal note out of the customer's timeline", async () => {
+    // §37, on a second writer. The rule is not "the filter works" — it is that
+    // two audiences get two rows, so there is nothing to filter wrongly.
+    const request = await submitted();
+    await communication.ActivityEvent.deleteMany({});
+
+    await service.postProgressUpdate({
+      requestId: String(request._id),
+      actor: staff(),
+      message: "Reporting is next.",
+      internalNote: "Blocked on their DNS change; chase Tom.",
+    });
+
+    const visible = await communication.ActivityEvent.find({
+      subjectId: request._id,
+      visibility: "customer",
+    }).lean();
+    const internal = await communication.ActivityEvent.find({
+      subjectId: request._id,
+      visibility: "internal",
+    }).lean();
+
+    expect(visible).toHaveLength(1);
+    expect(internal).toHaveLength(1);
+    expect(JSON.stringify(visible)).not.toContain("DNS");
+  });
+
+  it("refuses an empty update", async () => {
+    const request = await submitted();
+    await expect(
+      service.postProgressUpdate({
+        requestId: String(request._id),
+        actor: staff(),
+        message: "   ",
+      }),
+    ).rejects.toThrow();
+  });
+});
+
 describe("events — §92", () => {
   it("emits after the transition, with the from and to", async () => {
     const seen: unknown[] = [];

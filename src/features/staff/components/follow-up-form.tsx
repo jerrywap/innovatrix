@@ -6,6 +6,7 @@ import { AlarmClock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createFollowUpAction } from "../actions";
+import { toDateInputValue } from "@/lib/dates";
 
 /**
  * "Follow up with them Tuesday" — §39, from wherever you are.
@@ -147,5 +148,5 @@ function days(offset: number): Date {
 
 /** `<input type="date">` wants `YYYY-MM-DD` and nothing else. */
 function isoDay(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return toDateInputValue(value);
 }

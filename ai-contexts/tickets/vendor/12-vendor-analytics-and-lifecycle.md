@@ -12,7 +12,7 @@ is discovered at the worst possible moment.
 
 ## Scope
 
-### `/vendor` — the dashboard
+### `/dashboard/selling` — the vendor's own dashboard
 
 §102: a dashboard leads with what needs doing, not with a number. So the top of
 the page is submissions awaiting changes, unanswered reviews, unanswered support

@@ -211,6 +211,20 @@ export interface DomainEventMap {
     quoteId: string;
     invoiceId: string;
   };
+
+  /**
+   * Staff said something about progress, without the state changing.
+   *
+   * The event exists so the customer is *notified*. Before it, the only way to
+   * tell somebody anything was to move the request between states — and past
+   * `converted` there were none, so a job in flight was silent by construction.
+   */
+  RequestProgressPosted: {
+    requestId: string;
+    reference: string;
+    organizationId: string;
+    message: string;
+  };
 }
 
 export type DomainEventName = keyof DomainEventMap;

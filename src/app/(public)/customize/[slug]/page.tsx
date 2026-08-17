@@ -45,13 +45,22 @@ export default async function Page({ params }: PageProps<"/customize/[slug]">) {
   // Component cannot set a cookie, and the first version of this tried to.
   const anonymousKey = session?.user.id ? undefined : await readAnonymousKey();
 
-  const conversation = await startOrResume({
-    contextType: "customization",
-    productId: String(product._id),
-    ...(session?.user.id ? { userId: session.user.id } : {}),
-    ...(session?.activeOrganizationId ? { organizationId: session.activeOrganizationId } : {}),
-    ...(anonymousKey ? { anonymousKey } : {}),
-  });
+  // No owner, no conversation — a crawler, since `proxy.ts` mints for everyone
+  // else. `startOrResume` refuses to write one nobody could read, so this has
+  // to branch rather than 500 an indexable page. See `/custom-software`.
+  const owner = Boolean(session?.user.id || anonymousKey);
+
+  const conversation = owner
+    ? await startOrResume({
+        contextType: "customization",
+        productId: String(product._id),
+        ...(session?.user.id ? { userId: session.user.id } : {}),
+        ...(session?.activeOrganizationId
+          ? { organizationId: session.activeOrganizationId }
+          : {}),
+        ...(anonymousKey ? { anonymousKey } : {}),
+      })
+    : null;
 
   const config = await resolveAiConfig();
   const available = aiConfigured() && config.enabled;
@@ -76,30 +85,39 @@ export default async function Page({ params }: PageProps<"/customize/[slug]">) {
         </p>
       )}
 
-      <Assistant
-        conversationId={String(conversation._id)}
-        initialMessages={conversation.messages
-          .filter((message) => message.role !== "system")
-          .map((message) => ({
-            role: message.role as "user" | "assistant",
-            content: message.content,
-          }))}
-        signedIn={Boolean(session?.user.id)}
-        signInHref={`/login?next=${encodeURIComponent(`/customize/${slug}`)}`}
-        startOverHref={`/customize/${slug}`}
-        {...(conversation.submittedRequestId
-          ? { submitted: { reference: "your request" } }
-          : {})}
-        suggestions={
-          conversation.messages.length === 0
-            ? [
-                "I want to change how it looks",
-                "I need it to work differently",
-                "I need it to connect to something else",
-              ]
-            : undefined
-        }
-      />
+      {conversation === null ? (
+        <p className="border-border bg-surface rounded-xl border px-4 py-3.5 text-[13.5px]">
+          <a href={`/customize/${slug}`} className="underline underline-offset-4">
+            Start a conversation
+          </a>{" "}
+          and tell us what you&rsquo;d want different about {product.name}.
+        </p>
+      ) : (
+        <Assistant
+          conversationId={String(conversation._id)}
+          initialMessages={conversation.messages
+            .filter((message) => message.role !== "system")
+            .map((message) => ({
+              role: message.role as "user" | "assistant",
+              content: message.content,
+            }))}
+          signedIn={Boolean(session?.user.id)}
+          signInHref={`/login?next=${encodeURIComponent(`/customize/${slug}`)}`}
+          startOverHref={`/customize/${slug}`}
+          {...(conversation.submittedRequestId
+            ? { submitted: { reference: "your request" } }
+            : {})}
+          suggestions={
+            conversation.messages.length === 0
+              ? [
+                  "I want to change how it looks",
+                  "I need it to work differently",
+                  "I need it to connect to something else",
+                ]
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }

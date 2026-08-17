@@ -72,6 +72,16 @@ as the offline payment recording that already works end to end, and it means the
 whole outbound path is testable without a provider account. Automated transfers
 are a driver, not a rewrite.
 
+### The payout account is the owner's, and only the owner's
+
+The vendor's bank details live behind `requireVendorOwner()` (vendor ticket 03) —
+read as well as write, so a member cannot copy them out either. This is the one
+capability the two-role model exists to separate: a wrong price is reversible and
+audited, and a wrong account number is money in a stranger's hands.
+
+Changing the account holds payouts and returns the vendor to re-verification
+(vendor ticket 02), without unpublishing anything.
+
 ### Building a batch
 
 A scheduled job (one row in `SCHEDULE`) drafts a payout per vendor whose cleared
@@ -137,6 +147,7 @@ on the vendor side than an invitation-based team account currently has.
 - [ ] A vendor without business verification is skipped, and can see that they were skipped and why.
 - [ ] A vendor below the threshold or with a negative balance is skipped with a reason.
 - [ ] A suspended vendor is skipped.
+- [ ] The vendor's payout account is unreadable and unwritable by a `member`, in the action and not only in the UI.
 - [ ] `draft → approved` requires a human with the payout permission; no code path approves automatically.
 - [ ] A failed transfer returns the payout to `approved` and its entries to `cleared`, with the reason recorded.
 - [ ] A retried confirmation of an already-paid payout changes nothing.

@@ -161,28 +161,70 @@ export default async function Page({ params }: PageProps<"/orders/[reference]/co
         </dl>
       </section>
 
+      {/*
+        Told per payment method. This used to say "we confirm your payment with
+        the provider — usually seconds" to a customer paying by bank transfer,
+        directly under the transfer instructions telling them it takes days.
+      */}
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-[16px] tracking-[-0.02em]">What happens next</h2>
         <ol className="text-muted-foreground flex flex-col gap-1.5 text-[13.5px]">
-          <li>1. We confirm your payment with the provider — usually seconds.</li>
-          <li>2. Your licence keys and downloads appear in My Software.</li>
-          <li>3. A receipt lands in your inbox.</li>
+          {awaitingTransfer ? (
+            <>
+              <li>1. You send the transfer, quoting {order.reference}.</li>
+              <li>2. We match it against your order — usually the next working day.</li>
+              <li>3. Your licence keys and downloads appear in My Software.</li>
+            </>
+          ) : (
+            <>
+              <li>1. We confirm your payment with the provider — usually seconds.</li>
+              <li>2. Your licence keys and downloads appear in My Software.</li>
+              <li>3. A receipt lands in your inbox.</li>
+            </>
+          )}
         </ol>
       </section>
 
+      {/*
+        The primary action follows what actually happened.
+
+        It used to be an unconditional "Go to My Software", which for an unpaid
+        transfer is a guaranteed empty page: there is no entitlement until the
+        money arrives. The order is the only screen with anything on it — and it
+        is the one that carries the bank details.
+      */}
       <div className="flex flex-wrap gap-3">
-        <Link
-          href={"/dashboard/software" as Route}
-          className="bg-foreground text-background rounded-full px-5 py-2.5 text-[13.5px] font-medium"
-        >
-          Go to My Software
-        </Link>
-        <Link
-          href={`/dashboard/orders/${order.reference}` as Route}
-          className="border-border hover:bg-surface-muted rounded-full border px-5 py-2.5 text-[13.5px]"
-        >
-          View this order
-        </Link>
+        {paid ? (
+          <>
+            <Link
+              href="/dashboard/software"
+              className="bg-foreground text-background rounded-full px-5 py-2.5 text-[13.5px] font-medium"
+            >
+              Go to My Software
+            </Link>
+            <Link
+              href={`/dashboard/orders/${order.reference}` as Route}
+              className="border-border hover:bg-surface-muted rounded-full border px-5 py-2.5 text-[13.5px]"
+            >
+              View this order
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link
+              href={`/dashboard/orders/${order.reference}` as Route}
+              className="bg-foreground text-background rounded-full px-5 py-2.5 text-[13.5px] font-medium"
+            >
+              View this order
+            </Link>
+            <Link
+              href="/marketplace"
+              className="border-border hover:bg-surface-muted rounded-full border px-5 py-2.5 text-[13.5px]"
+            >
+              Keep browsing
+            </Link>
+          </>
+        )}
       </div>
     </div>
   );

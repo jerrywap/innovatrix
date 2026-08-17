@@ -3,6 +3,30 @@
 **Source:** ticket 30, lines 25–26 · **Severity:** minor
 **Depends on:** — · **Blocks:** — · **Size:** M
 **Spec:** §31 (customer service dashboard), §102 (action-oriented dashboards), §95 (observability)
+**Status:** **done, 2026-08-17.**
+
+## What shipped
+
+`src/features/reporting/headline.ts` — the first `$group` aggregations in the codebase,
+kept deliberately small.
+
+- **`/staff`** gains §31's central row above the queue board: waiting on us, waiting on the
+  customer, quotes out, invoices outstanding with their value. The board is still the
+  content; §102 wants actions, and every counter still clicks into the queue it counts.
+- **`/admin`** gains revenue this month, orders, catalogue and job health above the index.
+- **`/staff/dashboard` and `/admin/dashboard` now redirect** to `/staff` and `/admin`. They
+  404'd — which is why the tester never saw the pages they were judging.
+
+**Revenue is a list, one entry per currency, never one number.** `money.ts` refuses
+cross-currency arithmetic and nobody has agreed an FX rate, so adding £70,750 to $51,923
+would be a fabrication with a currency symbol on it. Outstanding invoice value is the
+*balance* — total minus `amountPaid` — not what was billed.
+
+Summed from frozen order totals (§61), so repricing the catalogue cannot move last month's
+revenue. Both reads are suspended, so the index and the queue board render immediately.
+
+A reporting layer — time series, cohorts, per-product breakdowns, date ranges — is named as
+out of scope in the module's own docblock rather than left to be discovered.
 
 ## Why
 

@@ -35,21 +35,25 @@ journey cannot be completed) · **minor** (wording, spacing, polish).
 
 | # | Ticket | Severity | Size |
 |---|--------|----------|:----:|
-| 01 | [Public content & legal pages](01-public-content-and-legal-pages.md) | minor¹ | M |
-| 02 | [Landing hero & suggestion pool](02-landing-hero-and-suggestion-pool.md) | minor | S |
-| 03 | [Guest AI conversation](03-guest-ai-conversation.md) | **major** | S |
-| 04 | [Google sign-in & SMTP email](04-google-sign-in-and-smtp-email.md) | minor | M |
-| 05 | [Payment currency routing](05-payment-currency-routing.md) | **major** | M |
-| 06 | [Order detail & post-checkout](06-order-detail-and-post-checkout.md) | **major** | M |
-| 07 | [Timestamps that keep their time](07-timestamps-that-keep-their-time.md) | minor | S |
-| 08 | [Navigation & stub screens](08-navigation-and-stub-screens.md) | minor | M |
-| 09 | [Portal analytics](09-portal-analytics.md) | minor | M |
-| 10 | [Delivery progress tracking](10-delivery-progress-tracking.md) | **major** | L |
+| 01 | [Public content & legal pages](01-public-content-and-legal-pages.md) | ~~minor¹~~ **done** | M |
+| 02 | [Landing hero & suggestion pool](02-landing-hero-and-suggestion-pool.md) | ~~minor~~ **done** | S |
+| 03 | [Guest AI conversation](03-guest-ai-conversation.md) | ~~**major**~~ **fixed** | S |
+| 04 | [Google sign-in & SMTP email](04-google-sign-in-and-smtp-email.md) | ~~minor~~ **done** | M |
+| 05 | [Payment currency routing](05-payment-currency-routing.md) | ~~**major**~~ **done** | M |
+| 06 | [Order detail & post-checkout](06-order-detail-and-post-checkout.md) | ~~**major**~~ **done** | M |
+| 07 | [Timestamps that keep their time](07-timestamps-that-keep-their-time.md) | ~~minor~~ **done** | S |
+| 08 | [Navigation & stub screens](08-navigation-and-stub-screens.md) | ~~minor~~ **done** | M |
+| 09 | [Portal analytics](09-portal-analytics.md) | ~~minor~~ **done** | M |
+| 10 | [Delivery progress tracking](10-delivery-progress-tracking.md) | ~~**major**~~ **done** | L |
 | 11 | [Card payment fails with a generic error](11-payment-initiation-failure.md) | ~~**blocker**~~ **fixed** | M |
+| 12 | [Expired session redirect loop](12-expired-session-redirect-loop.md) | ~~**blocker**~~ **fixed** | S |
 
 ¹ Minor as a defect; `/terms` and `/privacy` are main-set decision #12 and block launch.
 
-**Suggested order.** ~~**11 first**~~ — **done (2026-08-17)**. Its diagnosis was wrong and the
+**All eleven are done (2026-08-17).** What follows is the order they were tackled in and
+why, kept because the reasoning still applies to the next batch.
+
+**Suggested order.** ~~**11 first**~~ — done. Its diagnosis was wrong and the
 ticket records why: the cause was a mistyped enum in `seed-bulk.ts` that made 1000 of 1004
 products unbuyable, not anything in the payment layer. Worth reading before starting any
 other ticket here, because the same lesson applies to all of them — **verify against the
@@ -64,6 +68,39 @@ where its boundary lies.
 
 Otherwise none of these depend on each other, so they can be picked up in any order by
 different people. The only sequencing that genuinely pays is 07 before 06 and 10.
+
+## Outcome
+
+All twelve shipped. **12 arrived after the batch** — a super-admin's session expired and
+`/dashboard` looped with `ERR_TOO_MANY_REDIRECTS`. Pre-existing since ticket 03, and latent
+because it needs a session to genuinely expire: the proxy guards on cookie *presence* and the
+DAL on *validity*, and nothing cleared a cookie the server had stopped accepting. `npm test` — **862 tests, 54 files, all passing**; lint clean (the 11
+remaining warnings are pre-existing in `scripts/storage-probe.ts`); typecheck clean;
+`npm run scan:bundle` clean.
+
+Four things were found *while fixing* that no ticket predicted, each caught by a test the
+project already had:
+
+- **`navigation.test.ts`** caught a first attempt at the cross-portal link that made
+  `adminNavFor()` non-empty for everybody — which the admin layout reads as "may enter".
+- **`loading-boundaries.test.ts`** caught the staff inbox guard sitting inside a
+  `<Suspense>`, where `forbidden()` renders under a 200.
+- **`dates.enforcement.test.ts`** — written as part of smoke ticket 07 — immediately caught
+  a date call site the migration had missed.
+- **`states.test.ts`** caught that the new delivery states broke an assumption nobody had
+  written down: that a customer may cancel from any state with a `cancelled` edge. They may
+  not, once money and work are committed, and the test now says so.
+- **`action-guards.test.ts`** caught ticket 12's new route handler, which authenticates
+  nothing — necessarily, since it serves the caller whose session is already rejected.
+
+Ticket 12 also produced the batch's clearest lesson about *incomplete* fixes: repairing the
+DAL did not fix the loop, because `dashboard/layout.tsx` had its own copy of the redirect.
+`login-redirect.test.ts` is now the rule that catches the copy rather than the original.
+
+The lesson from ticket 11 held throughout: the tickets' reasoning was sound and several of
+their conclusions were not. `/dashboard/orders/[reference]` genuinely did not exist; the
+`as Route` casts blamed for hiding it turned out to be unavoidable for dynamic routes and
+could not have caught it either way.
 
 ## What the tester could not see
 

@@ -93,7 +93,7 @@ goodwill credit, a chargeback fee, a correction. Permission-gated, always with a
 note, always audited. A ledger without an adjustment path grows a spreadsheet
 beside it.
 
-### What a vendor sees (`/vendor/earnings`)
+### What a vendor sees (`/dashboard/selling/earnings`)
 
 Balance split three ways — pending, cleared, paid — then entries, filterable,
 each linking to the order line that produced it. Every figure through
@@ -102,6 +102,10 @@ besides.
 
 Statements are per period and immutable once closed, because a statement that
 changes after a vendor has read it is worse than no statement.
+
+Readable by **any** active member, owner or not (vendor ticket 03). A member who
+cannot see the balance cannot answer "why did it drop", and the thing worth
+restricting is the payout *account*, not the history of what was earned.
 
 ### What staff see
 

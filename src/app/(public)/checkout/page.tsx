@@ -7,7 +7,7 @@ import { ShoppingCart } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getSession, requireOrg } from "@/lib/auth/dal";
+import { getSession, loginDestination, requireOrg } from "@/lib/auth/dal";
 import { connectToDatabase } from "@/lib/db/client";
 import { Organization } from "@/lib/db/models/identity";
 import { toObjectId } from "@/lib/db/base";
@@ -16,6 +16,7 @@ import { CartLines } from "@/features/cart/components/cart-lines";
 import { OrderSummary } from "@/features/cart/components/order-summary";
 import { BillingForm } from "@/features/checkout/components/billing-form";
 import { offlinePaymentAvailability } from "@/services/payments/offline";
+import { providersFor } from "@/services/payments/registry";
 
 export const metadata: Metadata = {
   title: "Checkout",
@@ -48,7 +49,12 @@ export default function Page() {
 
 async function CheckoutBody() {
   const session = await getSession();
-  if (!session) redirect("/login?next=/checkout");
+  // Same stale-cookie hazard as the dashboard: `/login` with a cookie the
+  // server rejects bounces back. `loginDestination()` clears it first.
+  if (!session) {
+    const destination = await loginDestination();
+    redirect(destination === "/login" ? "/login?next=/checkout" : destination);
+  }
 
   const cart = await loadCart();
   if (!cart || cart.lines.length === 0) {
@@ -90,11 +96,20 @@ async function CheckoutBody() {
   // customer would have nowhere to send it.
   const offline = await offlinePaymentAvailability();
 
+  // Whether a card payment is even possible in this cart's currency, asked
+  // before the customer fills anything in. `providersFor` applies the same
+  // three gates the resolver will — including which currencies the merchant's
+  // own account is provisioned for — so the form cannot offer a method that
+  // checkout would then refuse.
+  const cardAvailable = (await providersFor(cart.currency)).length > 0;
+
   return (
     <div className="grid gap-10 lg:grid-cols-[1fr_360px]">
       <BillingForm
         idempotencyKey={idempotencyKey}
         offlineAvailable={offline.available}
+        cardAvailable={cardAvailable}
+        currency={cart.currency}
         defaults={{
           organizationName: org?.name ?? organization.name,
           ...(session.user.name ? { contactName: session.user.name } : {}),

@@ -3,6 +3,25 @@
 **Source:** ticket 30, line 9 · **Severity:** **major** — blocks journey A3
 **Depends on:** — · **Blocks:** ticket 29 §A3 · **Size:** S
 **Spec:** §21–25 (custom build), §104 (AI is a layer, not the platform)
+**Status:** **fixed, 2026-08-17.** The diagnosis below was correct.
+
+> ## It was nearly closed as a false alarm
+>
+> Guest chat *did* work when tested by hand, and this ticket was about to be
+> struck out on that basis. Both things are true at once, and the reason is the
+> last line of the root cause: **the cookie lasts 30 days, and any document load
+> mints it.** Typing the URL, pressing refresh, opening a new tab, or clicking
+> "Start over" (`assistant.tsx:85` sets `window.location.href`) fixes a browser
+> permanently. Everyone who had ever developed or tested the page had already
+> minted one; only a genuinely cold visitor hit the bug.
+>
+> The database settled it. **9 of 21 conversations were orphaned** — no `userId`,
+> no `organizationId`, no `anonymousKey` — and **every one had zero messages**:
+> visitors who arrived, had a conversation created for them, and could never send
+> anything. All created during the smoke-test session.
+>
+> Worth remembering as a method: "I can't reproduce it" is a statement about the
+> tester's environment. The stored data is a statement about everyone's.
 
 ## Why
 
@@ -128,6 +147,53 @@ should say so rather than implying the form is a way around signing in.
 - [ ] A crawler and a prefetch still do not mint a conversation.
 - [ ] The degradation link either reaches a real form or is not shown.
 - [ ] Both cookie writes agree on `secure`.
+
+## What shipped
+
+| Fix | Where |
+|---|---|
+| Mint on any real visit, not only `sec-fetch-dest: document` — a new `isAssistantVisit()` distinct from `isRealVisit()` | `src/proxy.ts` |
+| `startOrResume` throws rather than persisting an owner-less conversation | `services/ai/conversation-service.ts` |
+| Both assistant pages render a conversation-less variant instead of 500ing when there is no owner | `custom-software/page.tsx`, `customize/[slug]/page.tsx` |
+| One `conversationCookie()` shape shared by both writers; proxy honours `x-forwarded-proto` | `services/ai/conversation-cookie.ts`, `proxy.ts` |
+| The `#manual-form` anchor becomes a callback that actually opens the form | `conversation.tsx`, `assistant.tsx`, `review-panel.tsx` |
+| 9 orphaned rows deleted | data |
+| Regression test: an owner-less create is refused, an `anonymousKey`-only create still works | `tenant-isolation.integration.test.ts` |
+
+### Two things the ticket got wrong
+
+**Prefetch cannot be excluded.** The fix originally tested `next-router-prefetch`;
+sending that header showed the cookie minted anyway, because Next strips its own
+routing headers before the proxy sees them — which `isRealVisit`'s own docblock
+says. The check was removed rather than left as a guarantee that does not hold.
+
+It does not matter, and the contrast with recently-viewed is why. A speculative
+*entry* in a list is wrong — it claims the visitor read something they hovered. A
+speculative *key* claims nothing: `startOrResume` resumes on it, so a prefetch
+plus the click after it produce one conversation. Verified — three requests
+sharing a key, one row.
+
+**Excluding crawlers broke them.** With the write guard in place, a bot — which
+is excluded from minting on purpose, since it discards cookies and would
+otherwise leave a row per crawled page forever — hit the guard and got a **500**
+on an indexable marketing page. Both assistant pages now branch: no owner, no
+conversation, and the copy still renders.
+
+### Verified live
+
+Against the dev server, cold with no cookies:
+
+| Request | Before | After |
+|---|---|---|
+| client-side nav (`sec-fetch-dest: empty`) | no cookie, orphan created | **cookie minted**, 200 |
+| document load | cookie minted | cookie minted, 200 |
+| crawler | orphan created | **no cookie, 200** (was 500 mid-fix) |
+| `purpose: prefetch` | no cookie | no cookie, 200 |
+| `/customize/[slug]` client-side nav | no cookie, orphan | **cookie minted**, 200 |
+
+End to end: arriving exactly as a cold visitor clicking "Get started", then
+posting a first message, streams a real reply. That request returned
+"No such conversation." before. Orphan count across every test: **0**.
 
 ## Notes
 

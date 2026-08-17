@@ -12,6 +12,7 @@ import { products } from "@/repositories/product.repository";
 import { productFiles } from "@/repositories/product-file.repository";
 import { productVersions } from "@/repositories/product-version.repository";
 import { availableUpdate, canDownload, hasSupport, type DownloadDecision } from "./rules";
+import { formatDay } from "@/lib/dates";
 
 /**
  * What a customer owns — §29, §64, §65.
@@ -179,8 +180,8 @@ function toView(
       ? { purchasedVersion: { id: String(purchased._id), version: purchased.version } }
       : {}),
     ...(update?.version ? { updateAvailable: { id: update.id, version: update.version } } : {}),
-    ...(entitlement.updatesUntil ? { updatesUntil: isoDay(entitlement.updatesUntil) } : {}),
-    ...(entitlement.supportUntil ? { supportUntil: isoDay(entitlement.supportUntil) } : {}),
+    ...(entitlement.updatesUntil ? { updatesUntil: formatDay(entitlement.updatesUntil) } : {}),
+    ...(entitlement.supportUntil ? { supportUntil: formatDay(entitlement.supportUntil) } : {}),
     supportActive: hasSupport(entitlement.supportUntil, now),
     updatesActive: Boolean(entitlement.updatesUntil && entitlement.updatesUntil >= now),
     ...(licence
@@ -257,7 +258,7 @@ export async function getOwnedSoftware(
       return {
         id: String(version._id),
         version: version.version,
-        ...(version.releasedAt ? { releasedAt: isoDay(version.releasedAt) } : {}),
+        ...(version.releasedAt ? { releasedAt: formatDay(version.releasedAt) } : {}),
         ...(version.changelog ? { changelog: version.changelog } : {}),
         isPurchased: String(version._id) === String(entitlement.purchasedVersionId),
         access,
@@ -358,10 +359,6 @@ export async function hasEntitlementsForOrder(
   session?: ClientSession,
 ): Promise<boolean> {
   return entitlements.existsForOrder(orderId, session);
-}
-
-function isoDay(value: Date): string {
-  return new Date(value).toISOString().slice(0, 10);
 }
 
 export { toObjectId };

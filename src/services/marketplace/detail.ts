@@ -15,6 +15,7 @@ import { getTaxonomyIndex, type ProductCard } from "./index";
 import { toCardsForRelated } from "./card-mapper";
 import { buildMarketplacePipeline } from "./pipeline";
 import type { PipelineStage } from "mongoose";
+import { formatDay } from "@/lib/dates";
 
 /**
  * The public product page's data — §8.
@@ -213,7 +214,7 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
     versions: versions.map((version) => ({
       id: String(version._id),
       version: version.version,
-      ...(version.releasedAt ? { releasedAt: isoDay(version.releasedAt) } : {}),
+      ...(version.releasedAt ? { releasedAt: formatDay(version.releasedAt) } : {}),
       ...(version.changelog ? { changelog: version.changelog } : {}),
       ...(version.minimumRequirements
         ? { minimumRequirements: version.minimumRequirements }
@@ -230,8 +231,8 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
       ...(product.seo?.description ? { description: product.seo.description } : {}),
       ...(product.seo?.ogImageUrl ? { ogImageUrl: product.seo.ogImageUrl } : {}),
     },
-    ...(product.publishedAt ? { publishedAt: isoDay(product.publishedAt) } : {}),
-    ...(product.updatedAt ? { updatedAt: isoDay(product.updatedAt) } : {}),
+    ...(product.publishedAt ? { publishedAt: formatDay(product.publishedAt) } : {}),
+    ...(product.updatedAt ? { updatedAt: formatDay(product.updatedAt) } : {}),
   };
 }
 
@@ -376,8 +377,4 @@ function storefrontPrices(
       },
     ];
   });
-}
-
-function isoDay(value: Date): string {
-  return new Date(value).toISOString().slice(0, 10);
 }

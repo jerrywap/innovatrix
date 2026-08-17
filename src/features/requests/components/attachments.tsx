@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { FileText, Loader2, Paperclip } from "lucide-react";
 import { formatBytes } from "@/lib/format-bytes";
 import { attachToRequestAction, createAttachmentUploadAction } from "../attachment-actions";
+import { formatDateTime } from "@/lib/dates";
 
 export interface AttachmentView {
   index: number;
@@ -92,7 +93,7 @@ export function Attachments({
           filename: file.name,
           contentType: file.type,
           sizeBytes: file.size,
-          uploadedAt: new Date().toISOString().slice(0, 10),
+          uploadedAt: formatDateTime(new Date()),
         },
       ]);
     } catch (caught) {

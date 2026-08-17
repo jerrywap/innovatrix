@@ -1,8 +1,13 @@
 /* eslint-disable @next/next/no-img-element */
+import { Suspense } from "react";
 import Link from "next/link";
+import type { Metadata, Route } from "next";
 import { SHOT, placeholder } from "@/lib/placeholder-images";
-import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
+import { DEFAULT_CURRENCY } from "@/config/storefront";
+import { SearchBox } from "@/features/marketplace/components/search-box";
+import { ProductCardTile } from "@/features/marketplace/components/product-card";
+import { getPublishedProductCount, getRail, getTaxonomyIndex } from "@/services/marketplace";
 
 /**
  * The home page had **no metadata of its own** before ticket 27.
@@ -60,11 +65,22 @@ const DOORS = [
   // being a compile error.
 ] as const;
 
-const PRODUCTS = [
-  { name: "Atlas CRM", cat: "Sales", price: "£299", img: SHOT.dashboard, adapted: 23 },
-  { name: "Tenancy", cat: "Property", price: "£450", img: SHOT.property, adapted: 11 },
-  { name: "Roster", cat: "Care & HR", price: "£380", img: SHOT.roster, adapted: 17 },
-  { name: "Freightline", cat: "Logistics", price: "£520", img: SHOT.logistics, adapted: 6 },
+/**
+ * Rows for the stylised app-preview in the hero — an illustration, not data.
+ *
+ * They used to be four real seeded products (Atlas CRM, Tenancy, Roster) with
+ * hardcoded prices and "adapted 23×" counts beside them. That made the home
+ * page a stale mirror of live rows: a price here that disagreed with the price
+ * on the product page is a screenshot in a complaint.
+ *
+ * Now they are descriptions of *kinds* of software rather than names of ours,
+ * and they carry no prices. The picture reads the same and asserts nothing.
+ * The real four are below, in `FeaturedProducts`, straight from the catalogue.
+ */
+const ILLUSTRATION = [
+  { name: "Client manager", cat: "Sales", img: SHOT.dashboard },
+  { name: "Lettings", cat: "Property", img: SHOT.property },
+  { name: "Shift planner", cat: "Care & HR", img: SHOT.roster },
 ];
 
 const LIFECYCLE = [
@@ -110,6 +126,73 @@ export default function Home() {
 
 /* ────────────────────────────────────────────────────────── hero */
 
+/**
+ * The chips, as real searches.
+ *
+ * `label` is what reads well on a pill; `q` is what actually finds something.
+ * They differ because "Rota & timesheets" is how a care manager says it and
+ * "rota timesheets" is what the text index scores.
+ */
+const HERO_CHIPS: ReadonlyArray<{ label: string; q: string }> = [
+  { label: "CRM", q: "crm" },
+  { label: "Booking", q: "booking" },
+  { label: "Property", q: "property" },
+  { label: "Rota & timesheets", q: "rota timesheets" },
+  { label: "Inventory", q: "inventory" },
+];
+
+/**
+ * The hero's search field.
+ *
+ * `navigate` mode: this is not a page with results to filter, so typing here
+ * takes you to the marketplace on submit rather than replacing the URL as you
+ * pause. Its own component because `SearchBox` reads `useSearchParams()` and so
+ * has to sit under a `<Suspense>` — the same treatment `/marketplace` gives it.
+ */
+function HeroSearch() {
+  return (
+    <SearchBox
+      basePath="/marketplace"
+      mode="navigate"
+      inputId="hero-search"
+      label="Search the marketplace"
+      placeholder="Search products, or describe what you need…"
+    />
+  );
+}
+
+/**
+ * The trust line, from the database.
+ *
+ * Async and suspended so `Home()` stays synchronous: the `(public)` layout goes
+ * to some trouble to keep these pages prerendered, and an `await` in the page
+ * body would make the whole route dynamic.
+ */
+async function CatalogueSummary() {
+  const [count, taxonomy] = await Promise.all([getPublishedProductCount(), getTaxonomyIndex()]);
+
+  const industries = taxonomy.industry?.length ?? 0;
+
+  // A brand-new catalogue should not boast. "Search 4 products" is worse than
+  // saying nothing, so below a threshold the copy drops the numbers entirely.
+  if (count < 25) {
+    return (
+      <p className="text-muted-foreground text-[13.5px]">
+        Ready-made software, adapted to how you actually work.
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-muted-foreground text-[13.5px]">
+      <span className="text-foreground font-medium">
+        {count.toLocaleString("en-GB")} products
+      </span>
+      {industries > 0 && ` across ${industries} industries`} · every one of them adaptable
+    </p>
+  );
+}
+
 function Hero() {
   return (
     <section className="relative overflow-hidden">
@@ -148,46 +231,39 @@ function Hero() {
               it.
             </p>
 
-            {/* dual entry — the two doors of §107, in one control */}
+            {/*
+              The two doors of §107, in one control.
+
+              This used to be a `<span>` styled to look like a search field,
+              with five `<button>`s under it that had no handlers — in a Server
+              Component, so they could not have had any. It was the first thing
+              on the site and the only part of it that did nothing.
+            */}
             <div className="mt-9 max-w-[560px]">
-              <div className="shadow-lift border-border bg-surface flex flex-col gap-2 rounded-[22px] border p-2 sm:flex-row sm:items-center sm:rounded-full sm:pl-5">
-                <div className="flex flex-1 items-center gap-3 px-3 py-2 sm:px-0 sm:py-0">
-                  <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="text-subtle shrink-0"
-                    aria-hidden
-                  >
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="m20 20-3.5-3.5" strokeLinecap="round" />
-                  </svg>
-                  <span className="text-subtle truncate text-[15px]">
-                    Search 148 products, or describe what you need
-                  </span>
+              <div className="shadow-lift border-border bg-surface flex flex-col gap-2 rounded-[22px] border p-2 sm:flex-row sm:items-center sm:rounded-full sm:pl-2.5">
+                <div className="flex-1">
+                  <Suspense fallback={<div className="h-11" />}>
+                    <HeroSearch />
+                  </Suspense>
                 </div>
                 <Link
                   href="/custom-software"
                   className="bg-signal text-signal-contrast shrink-0 rounded-full px-6 py-3 text-center text-[14px] font-medium transition hover:opacity-90"
                 >
-                  Start
+                  Describe it
                 </Link>
               </div>
 
               <div className="mt-3.5 flex flex-wrap gap-2">
-                {["CRM", "Booking", "Property", "Rota & timesheets", "Custom build"].map(
-                  (chip) => (
-                    <button
-                      key={chip}
-                      className="border-border bg-surface/60 text-muted-foreground hover:border-border-strong hover:text-foreground rounded-full border px-3.5 py-1.5 text-[12.5px] transition"
-                    >
-                      {chip}
-                    </button>
-                  ),
-                )}
+                {HERO_CHIPS.map((chip) => (
+                  <Link
+                    key={chip.label}
+                    href={`/marketplace?q=${encodeURIComponent(chip.q)}` as Route}
+                    className="border-border bg-surface/60 text-muted-foreground hover:border-border-strong hover:text-foreground rounded-full border px-3.5 py-1.5 text-[12.5px] transition"
+                  >
+                    {chip.label}
+                  </Link>
+                ))}
               </div>
             </div>
 
@@ -208,11 +284,19 @@ function Hero() {
                   </span>
                 ))}
               </div>
-              <p className="text-muted-foreground text-[13.5px]">
-                <span className="text-foreground font-medium">148 products</span> across 31
-                industries · median quote in{" "}
-                <span className="text-foreground font-medium">4.2 days</span>
-              </p>
+              {/*
+                Was "148 products across 31 industries · median quote in 4.2
+                days". The catalogue held a thousand across nine, and nothing
+                measures quote turnaround — the figure was copied from a design
+                mock-up that labels its own numbers illustrative. Two of the
+                three are now derived; the third is gone, because a claim we
+                cannot compute is one we should not print.
+              */}
+              <Suspense
+                fallback={<p className="text-muted-foreground text-[13.5px]">&nbsp;</p>}
+              >
+                <CatalogueSummary />
+              </Suspense>
             </div>
           </div>
 
@@ -240,11 +324,11 @@ function HeroSurface() {
           <span className="text-subtle font-mono text-[10px] tracking-[0.16em] uppercase">
             Marketplace
           </span>
-          <span className="text-subtle font-mono text-[10px]">148 results</span>
+          <span className="text-subtle font-mono text-[10px]">Search &amp; filter</span>
         </div>
 
         <div className="space-y-2">
-          {PRODUCTS.slice(0, 3).map((p) => (
+          {ILLUSTRATION.map((p) => (
             <div
               key={p.name}
               className="border-border bg-background/60 hover:border-border-strong flex items-center gap-3.5 rounded-2xl border p-2.5 transition"
@@ -261,9 +345,6 @@ function HeroSurface() {
                 <div className="truncate text-[14px] font-medium">{p.name}</div>
                 <div className="text-subtle font-mono text-[10.5px]">{p.cat}</div>
               </div>
-              <span className="text-muted-foreground shrink-0 font-mono text-[12.5px]">
-                {p.price}
-              </span>
             </div>
           ))}
         </div>
@@ -273,7 +354,7 @@ function HeroSurface() {
       <div className="shadow-float border-border bg-surface relative z-10 mt-[-14px] ml-auto w-[92%] rounded-[26px] border p-4 sm:mt-[-18px] sm:p-5 lg:w-[88%]">
         <div className="flex items-center justify-between pb-4">
           <span className="text-subtle font-mono text-[10px] tracking-[0.16em] uppercase">
-            CUS-2026-0084
+            Your request
           </span>
           <span className="bg-signal-soft text-signal-text flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[9.5px] tracking-[0.14em] uppercase">
             <span className="bg-signal inline-block h-1.5 w-1.5 rounded-full" />
@@ -443,46 +524,51 @@ function Marketplace() {
             href="/marketplace"
             className="border-border bg-surface hover:border-border-strong rounded-full border px-5 py-2.5 text-[13.5px] font-medium transition"
           >
-            Browse all 148 →
+            Browse the marketplace →
           </Link>
         </div>
 
-        <div className="-mx-5 flex snap-x snap-mandatory gap-4 overflow-x-auto px-5 pb-4 lg:mx-0 lg:grid lg:grid-cols-4 lg:px-0 lg:pb-0">
-          {PRODUCTS.map((p) => (
-            <article
-              key={p.name}
-              className="group border-border bg-surface hover:border-border-strong hover:shadow-lift w-[76vw] shrink-0 snap-start overflow-hidden rounded-[22px] border transition hover:-translate-y-1 sm:w-[45vw] lg:w-auto"
-            >
-              <div className="bg-surface-muted relative aspect-[4/3] overflow-hidden">
-                <img
-                  src={placeholder(p.img, 700)}
-                  alt=""
-                  loading="lazy"
-                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
-                />
-                <span className="bg-background/90 absolute top-3 left-3 rounded-full px-3 py-1 font-mono text-[9.5px] tracking-[0.14em] uppercase backdrop-blur">
-                  {p.cat}
-                </span>
-              </div>
-              <div className="p-4 lg:p-5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="text-[16px] font-medium tracking-[-0.02em]">{p.name}</h3>
-                  <span className="text-muted-foreground font-mono text-[13px]">{p.price}</span>
-                </div>
-                <div className="border-border mt-4 flex items-center justify-between border-t pt-3.5">
-                  <span className="text-subtle font-mono text-[10px] tracking-[0.12em] uppercase">
-                    Adapted {p.adapted}×
-                  </span>
-                  <span className="bg-signal-soft text-signal-text rounded-full px-2.5 py-1 font-mono text-[9.5px] tracking-[0.12em] uppercase">
-                    Customisable
-                  </span>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
+        <Suspense fallback={<FeaturedSkeleton />}>
+          <FeaturedProducts />
+        </Suspense>
       </div>
     </section>
+  );
+}
+
+/**
+ * Four real products, from the same rail `/marketplace` renders.
+ *
+ * These were four hardcoded objects with invented prices and "adapted 23×"
+ * counts — and three of the four names (Atlas CRM, Tenancy, Roster) are real
+ * seeded products, so the home page was showing stale copies of live rows. A
+ * price shown here that disagrees with the price on the product page is the
+ * kind of thing a customer screenshots.
+ *
+ * `ProductCardTile` is the tile the marketplace and its rails already use, so
+ * this section now cannot drift from them by construction.
+ */
+async function FeaturedProducts() {
+  const cards = await getRail("featured", DEFAULT_CURRENCY, 4);
+
+  if (cards.length === 0) return null;
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {cards.map((card) => (
+        <ProductCardTile key={card.id} card={card} />
+      ))}
+    </div>
+  );
+}
+
+function FeaturedSkeleton() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-hidden>
+      {[0, 1, 2, 3].map((n) => (
+        <div key={n} className="border-border bg-surface h-[280px] rounded-[22px] border" />
+      ))}
+    </div>
   );
 }
 
@@ -551,7 +637,9 @@ function Assistant() {
             </div>
 
             <div className="space-y-5 p-5 lg:p-7">
-              <Field label="Base product" value="Atlas CRM · v2.4.1" />
+              {/* Names the product the bubble above asks about. The version
+                  number that used to be here (`· v2.4.1`) was invented. */}
+              <Field label="Base product" value="Atlas CRM" />
               <Field label="Business type" value="Property management" />
 
               <div>

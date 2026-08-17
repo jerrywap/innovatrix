@@ -3,6 +3,37 @@
 **Source:** ticket 30, lines 13–14 · **Severity:** **major** — a journey dead-ends
 **Depends on:** — · **Blocks:** ticket 29 §A1, §B · **Size:** M
 **Spec:** §61 (orders), §13 (checkout), §14 (post-purchase access), §102 (action-oriented)
+**Status:** **done, 2026-08-17.**
+
+## What shipped
+
+- **`src/app/dashboard/orders/[reference]/page.tsx` now exists.** Lines with their frozen
+  prices (§61), add-ons nested under the line they belong to, totals, payment history,
+  billing snapshot, and links into the entitlements the order produced.
+- **`loadCustomerOrder` is its own loader**, not the admin one with a filter added.
+  `features/payments/orders-view.ts` is deliberately unscoped — staff read across
+  organisations — and putting the safe and unsafe call one argument apart is how the
+  unsafe one gets used by mistake. The customer loader cannot be called without an
+  organisation id.
+- **Blocking, no `loading.tsx`.** The 404 depends on the main query, so there is nothing
+  to stream ahead of it (AGENTS.md).
+- **Bank details are on the order**, not only on the confirmation page seen once. A
+  transfer is paid days later by somebody in accounts who was forwarded the reference.
+- **The confirmation page's CTAs follow the state.** "Go to My Software" was
+  unconditional — a guaranteed empty page for an unpaid transfer, which is exactly what
+  was reported. Unpaid orders now lead to the order. "What happens next" is written per
+  payment method; it used to promise "usually seconds" directly beneath the transfer
+  instructions saying it takes days.
+
+**On the `as Route` casts:** the ticket claimed they defeated `typedRoutes` and that
+removing them would have caught this. Half right. The *static* `/dashboard/software` cast
+was unnecessary and is gone. The *dynamic* ones are unavoidable — `typedRoutes` cannot
+prove `/dashboard/orders/${string}`, and the codebase casts at every dynamic link. So the
+compiler could not have caught the missing route either way.
+
+**Verified** against the real database: an owner loads their order; another organisation
+gets `null` → 404, not 403, so a reference cannot be enumerated; a missing reference and a
+lowercase one both behave; timestamps now carry the time (`15 Aug 2026, 19:56`).
 
 ## Why
 

@@ -84,7 +84,19 @@ export const REQUEST_TRANSITIONS: TransitionMap<RequestStatus> = {
   technical_review: ["under_review", "quoted", "rejected"],
   quoted: ["approved", "rejected", "under_review"],
   approved: ["converted", "cancelled"],
-  converted: [],
+  /*
+   * `converted` was terminal — and it is reached automatically the moment the
+   * deposit invoice is paid. So the last thing a customer was ever told was
+   * "Payment received — we're getting started", and there was no state anybody
+   * could move it to afterwards. The `ready-to-start` queue filtered on this
+   * status, which meant nothing ever left it either.
+   */
+  converted: ["in_progress", "cancelled"],
+  in_progress: ["delivered", "cancelled"],
+  // Back to `in_progress` when the customer says it is not right. Delivery is
+  // not an assertion that the work is accepted.
+  delivered: ["completed", "in_progress"],
+  completed: [],
   rejected: [],
   cancelled: [],
 };
@@ -286,6 +298,45 @@ export const REQUEST_TRANSITION_RULES: Readonly<Record<string, TransitionRule>> 
     permission: "request.close",
     customerMay: true,
     label: "Cancel",
+  },
+
+  /* ── delivery ─────────────────────────────────────────
+   *
+   * `request.update_status` throughout rather than a new permission: the roles
+   * that already move a request through review are the ones who deliver it, and
+   * inventing `request.deliver` would mean editing the 41×11 matrix for no
+   * behavioural difference. `request.close` still guards the ways out.
+   */
+  [edge("converted", "in_progress")]: {
+    permission: "request.update_status",
+    customerMay: false,
+    label: "Start work",
+  },
+  [edge("converted", "cancelled")]: {
+    permission: "request.close",
+    customerMay: false,
+    label: "Cancel",
+  },
+  [edge("in_progress", "delivered")]: {
+    permission: "request.update_status",
+    customerMay: false,
+    label: "Mark delivered",
+  },
+  [edge("in_progress", "cancelled")]: {
+    permission: "request.close",
+    customerMay: false,
+    label: "Cancel",
+  },
+  // The customer is who decides it is finished, so they may take this edge.
+  [edge("delivered", "completed")]: {
+    permission: "request.update_status",
+    customerMay: true,
+    label: "Mark complete",
+  },
+  [edge("delivered", "in_progress")]: {
+    permission: "request.update_status",
+    customerMay: true,
+    label: "Reopen — not right yet",
   },
 };
 

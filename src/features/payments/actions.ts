@@ -13,6 +13,7 @@ import { Order, Payment, PaymentSettings } from "@/lib/db/models/commerce";
 import { fromDecimal } from "@/lib/money";
 import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 import { staffActor, writeAuditLog } from "@/services/audit";
+import { SECRET_ENV_VARS, allDrivers, providersFor } from "@/services/payments/registry";
 import { createPaymentRecord } from "@/services/payments/payment-service";
 import { processPaymentSucceeded } from "@/services/payments/fulfilment";
 
@@ -36,6 +37,18 @@ const toggleSchema = z.object({
     .optional()
     .transform((value) => value === "on" || value === "true" || value === true),
   mode: z.enum(["test", "live"]).default("test"),
+});
+
+const providerCurrenciesSchema = z.object({
+  provider: providerKeySchema,
+  // A checkbox group: one box ticked arrives as a string, several as an array,
+  // none as `undefined` — which is a real choice here and means "takes nothing
+  // yet", not "unset". Empty is stored as-is and read back as the driver's
+  // default by `currenciesFor`, so it can never disable a provider silently.
+  currencies: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((value) => (value === undefined ? [] : Array.isArray(value) ? value : [value])),
 });
 
 const routingSchema = z.object({
@@ -71,20 +84,44 @@ export async function toggleProviderAction(
       { arrayFilters: [{ "target.key": input.provider }] },
     );
 
-    if (result.matchedCount === 0) {
-      // The settings document is created on first read, so this means the
-      // provider row is missing — a driver added since the document was made.
+    /*
+     * `modifiedCount`, not `matchedCount`.
+     *
+     * `matchedCount` counts the *document*, which exists — it is created on
+     * first read — so it was 1 even when `arrayFilters` matched no provider row
+     * and nothing was written. The fallback below could therefore never run, and
+     * toggling a provider with no row was a silent no-op.
+     *
+     * `modifiedCount` is 0 when nothing changed, which includes the case where
+     * the values were already what was asked for; re-pushing then is prevented
+     * by the `$ne` guard on the filter rather than by the count.
+     */
+    if (result.modifiedCount === 0) {
+      const driver = allDrivers().find((candidate) => candidate.key === input.provider);
+
       await PaymentSettings.updateOne(
-        { singleton: "global" },
+        // Guarded so a concurrent writer that has just added the row does not
+        // get a duplicate pushed on top of it.
+        { singleton: "global", "providers.key": { $ne: input.provider } },
         {
           $push: {
             providers: {
               key: input.provider,
               enabled: input.enabled,
               mode: input.mode,
-              supportedCurrencies: [],
+              // Both were missing here. Without `secretEnvVar` the admin screen
+              // cannot say which variable to set, and an empty currency list is
+              // read as "unset" by `currenciesFor` — deliberately, because the
+              // alternative is a provider that supports nothing.
+              ...(driver
+                ? {
+                    secretEnvVar: SECRET_ENV_VARS[driver.key as keyof typeof SECRET_ENV_VARS],
+                    supportedCurrencies: driver.supportedCurrencies(),
+                  }
+                : { supportedCurrencies: [] }),
             },
           },
+          $set: { updatedByUserId: toObjectId(staff.user.id) },
         },
         { upsert: true },
       );
@@ -101,6 +138,70 @@ export async function toggleProviderAction(
   });
 }
 
+/**
+ * Which currencies this merchant's account is actually provisioned for.
+ *
+ * The screen used to print `driver.supportedCurrencies()` as static text — what
+ * Paystack supports globally — while the account behind the key took NGN only.
+ * Routing believed the text, chose Paystack for a USD order, and the customer
+ * read Paystack's refusal at the last click. This is the field that fixes it,
+ * and it already existed on the schema with nothing writing to it.
+ */
+export async function setProviderCurrenciesAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ saved: true }>> {
+  return withAction(async () => {
+    const staff = await requirePermission("payment_provider.configure");
+    const input = parseInput(providerCurrenciesSchema, parseNestedFormData(formData));
+
+    const driver = allDrivers().find((candidate) => candidate.key === input.provider);
+    if (!driver) {
+      return fail("That provider has no driver.", { code: "VALIDATION" });
+    }
+
+    // The driver's list is a ceiling, not a suggestion: a currency it cannot
+    // format an amount for would fail inside `toProviderAmount` however
+    // confidently the database claimed it.
+    const ceiling = driver.supportedCurrencies();
+    const outside = input.currencies.filter(
+      (currency) => !(ceiling as readonly string[]).includes(currency),
+    );
+    if (outside.length > 0) {
+      return fail(`${driver.key} cannot take ${outside.join(", ")}.`, {
+        code: "VALIDATION",
+        fieldErrors: { currencies: [`Supported: ${ceiling.join(", ")}.`] },
+      });
+    }
+
+    await connectToDatabase();
+
+    const result = await PaymentSettings.updateOne(
+      { singleton: "global" },
+      {
+        $set: {
+          "providers.$[target].supportedCurrencies": input.currencies,
+          updatedByUserId: toObjectId(staff.user.id),
+        },
+      },
+      { arrayFilters: [{ "target.key": input.provider }] },
+    );
+
+    if (result.matchedCount === 0) {
+      return fail("That provider isn't set up yet — enable it first.", { code: "NOT_FOUND" });
+    }
+
+    await writeAuditLog({
+      action: "payment_settings.provider_changed",
+      actor: staffActor(staff.user),
+      after: { provider: input.provider, supportedCurrencies: input.currencies },
+    });
+
+    revalidatePath("/admin/settings/payments");
+    return ok({ saved: true as const });
+  });
+}
+
 export async function setCurrencyRoutingAction(
   _previous: ActionResult<unknown> | null,
   formData: FormData,
@@ -110,6 +211,39 @@ export async function setCurrencyRoutingAction(
     const input = parseInput(routingSchema, parseNestedFormData(formData));
 
     await connectToDatabase();
+
+    /*
+     * The `<select>` only ever offered providers that could serve this currency.
+     * That was the *whole* validation — and a server action is a public POST
+     * endpoint, so it was no validation at all (AGENTS.md, rule 2).
+     *
+     * `manual` was the sharpest edge: it is in `PAYMENT_PROVIDERS`, so both Zod
+     * and the schema accepted it as a primary, and `providersFor` then skipped
+     * it forever. The screen would show a configured route that could never be
+     * chosen, for a currency that silently took no payments.
+     */
+    const usable = new Set((await providersFor(input.currency)).map((entry) => entry.key));
+
+    if (!usable.has(input.primary)) {
+      return fail(`${input.primary} can't take ${input.currency}.`, {
+        code: "VALIDATION",
+        fieldErrors: {
+          primary: [
+            input.primary === "manual"
+              ? "Bank transfer is configured separately, not as a card route."
+              : "That provider is disabled, missing its key, or not enabled for this currency.",
+          ],
+        },
+      });
+    }
+
+    const rejected = input.fallbacks.filter((key) => !usable.has(key));
+    if (rejected.length > 0) {
+      return fail(`${rejected.join(", ")} can't take ${input.currency}.`, {
+        code: "VALIDATION",
+        fieldErrors: { fallbacks: ["Remove the providers that can't serve this currency."] },
+      });
+    }
 
     // Pull then push, so re-routing a currency replaces its row rather than
     // appending a second one the resolver would then pick between arbitrarily.

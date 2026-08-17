@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { serverEnv } from "@/config/env";
 import { AuthCard } from "@/features/auth/components/auth-card";
+import { GoogleButton } from "@/features/auth/components/google-button";
 import { RegisterForm } from "@/features/auth/components/register-form";
 import { optionalRedirectPath } from "@/features/auth/schemas";
 
@@ -28,6 +30,14 @@ export default async function RegisterPage({ searchParams }: PageProps<"/registe
       }
     >
       <RegisterForm next={next} />
+
+      {/* Same account either way: `trustedProviders: ["google"]` links a Google
+          sign-in to an existing email account rather than duplicating it. */}
+      {serverEnv().AUTH_GOOGLE_ENABLED && (
+        <div className="mt-5">
+          <GoogleButton next={next} label="Sign up with Google" />
+        </div>
+      )}
     </AuthCard>
   );
 }

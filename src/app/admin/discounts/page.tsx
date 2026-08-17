@@ -12,6 +12,7 @@ import { discountCodes } from "@/repositories/discount-code.repository";
 import { DiscountForm } from "@/features/pricing/components/discount-form";
 import { ToggleActive } from "@/features/pricing/components/toggle-active";
 import { setDiscountActiveAction } from "@/features/pricing/actions";
+import { formatDay } from "@/lib/dates";
 
 export const metadata: Metadata = { title: "Discounts" };
 
@@ -89,9 +90,7 @@ async function Codes() {
                     code.categorySlugs.length > 0
                       ? `categories: ${code.categorySlugs.join(", ")}`
                       : undefined,
-                    code.expiresAt
-                      ? `expires ${new Date(code.expiresAt).toLocaleDateString("en-GB")}`
-                      : undefined,
+                    code.expiresAt ? `expires ${formatDay(code.expiresAt)}` : undefined,
                   ]
                     .filter(Boolean)
                     .join(" · ")}

@@ -12,6 +12,7 @@ import { withTransaction } from "@/lib/db/transaction";
 import { emit } from "@/lib/events";
 import { writeAuditLog, type AuditActor } from "@/services/audit";
 import { balanceAmount, depositAmount } from "@/services/quotes/totals";
+import { formatDay } from "@/lib/dates";
 
 /**
  * Invoices — §63, §52, §61.
@@ -178,7 +179,7 @@ async function announce(invoice: InvoiceDoc): Promise<void> {
     portion: invoice.portion ?? "full",
     total: invoice.total.amount,
     currency: invoice.currency,
-    ...(invoice.dueAt ? { dueAt: invoice.dueAt.toISOString().slice(0, 10) } : {}),
+    ...(invoice.dueAt ? { dueAt: formatDay(invoice.dueAt) } : {}),
   });
 }
 

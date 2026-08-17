@@ -7,6 +7,7 @@ import { Organization } from "@/lib/db/models/identity";
 import { CustomerRequest } from "@/lib/db/models/requests";
 import { balanceAmount, depositAmount } from "@/services/quotes/totals";
 import { orgFilter } from "@/lib/auth/scope";
+import { formatDateTime, formatDay } from "@/lib/dates";
 
 /**
  * Reading a quote — §51.
@@ -145,16 +146,16 @@ export async function loadQuote(
           },
         }
       : {}),
-    ...(quote.estimatedStart ? { estimatedStart: isoDay(quote.estimatedStart) } : {}),
+    ...(quote.estimatedStart ? { estimatedStart: formatDay(quote.estimatedStart) } : {}),
     ...(quote.estimatedDurationDays
       ? { estimatedDurationDays: quote.estimatedDurationDays }
       : {}),
-    expiresAt: isoDay(quote.expiresAt),
+    expiresAt: formatDay(quote.expiresAt),
     expired,
     // Both conditions, and the date is one of them — see the note above.
     actionable: quote.status === "issued" && !expired,
-    ...(quote.issuedAt ? { issuedAt: isoDay(quote.issuedAt) } : {}),
-    ...(quote.acceptedAt ? { acceptedAt: isoDay(quote.acceptedAt) } : {}),
+    ...(quote.issuedAt ? { issuedAt: formatDay(quote.issuedAt) } : {}),
+    ...(quote.acceptedAt ? { acceptedAt: formatDateTime(quote.acceptedAt) } : {}),
     ...(quote.acceptedQuoteVersion ? { acceptedVersion: quote.acceptedQuoteVersion } : {}),
     ...(quote.rejectionReason ? { rejectionReason: quote.rejectionReason } : {}),
     organizationName: organization?.name ?? "Unknown",
@@ -205,7 +206,7 @@ export async function listQuotesForOrganization(
     status: row.status,
     total: row.total.amount,
     currency: row.currency,
-    expiresAt: isoDay(row.expiresAt),
+    expiresAt: formatDay(row.expiresAt),
     actionable: row.status === "issued" && row.expiresAt.getTime() > now,
   }));
 }
@@ -228,11 +229,7 @@ export async function listQuotesForRequest(requestId: string): Promise<ListedQuo
     status: row.status,
     total: row.total.amount,
     currency: row.currency,
-    expiresAt: isoDay(row.expiresAt),
+    expiresAt: formatDay(row.expiresAt),
     actionable: row.status === "issued" && row.expiresAt.getTime() > now,
   }));
-}
-
-function isoDay(value: Date): string {
-  return new Date(value).toISOString().slice(0, 10);
 }

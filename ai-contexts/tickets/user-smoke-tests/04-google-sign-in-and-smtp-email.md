@@ -3,6 +3,67 @@
 **Source:** ticket 30, lines 10–11 · **Severity:** minor
 **Depends on:** — · **Blocks:** ticket 29 §G · **Size:** M
 **Spec:** §75 (authentication), §69 (notifications)
+**Status:** **done, 2026-08-17.** SMTP verified with a real delivered email; Google ships
+behind its flag, awaiting OAuth credentials.
+
+## What shipped
+
+**Part A — Google.** `signInWithGoogleAction` (`features/auth/actions.ts`) calls
+`api.signInSocial` and redirects to the returned URL — **a server action, not a client
+`signIn.social()` call**, because `client.ts:10-14` states that auth goes through server
+actions so forms work without JavaScript. A click handler would have made this the one
+sign-in control that silently does nothing with JS off.
+
+`GoogleButton` renders on `/login` and `/register` only when `AUTH_GOOGLE_ENABLED` is on;
+the flag is read in the page (a Server Component) and crosses as a boolean, matching
+`settings-view.ts`'s "the boolean crosses the RSC boundary, never the string". The action
+re-checks the flag — hiding a control is not a check. `?next=` is sanitised by
+`safeRedirectPath` before being handed to Google as `callbackURL`, since it travels off-site
+and back. Added to the `action-guards.test.ts` allowlist beside `signInAction`, where the
+other pre-auth actions live.
+
+**To switch it on:** create an OAuth client in Google Cloud Console, set
+`AUTH_GOOGLE_CLIENT_ID` / `AUTH_GOOGLE_CLIENT_SECRET`, flip `AUTH_GOOGLE_ENABLED=true`. The
+authorised redirect URI is **`{APP_URL}/api/auth/callback/google`** — `http://localhost:3000/api/auth/callback/google`
+in development. Nothing else is needed: `trustedProviders: ["google"]` already links a Google
+sign-in to an existing password account rather than duplicating it, and the `session.created`
+audit hook already covers OAuth.
+
+**Part B — SMTP.** `smtpTransport()` behind the existing `EmailTransport` port, `nodemailer`
+added, pooled and built once because `resolveTransport()` is memoised. **It throws on
+failure** — `handlers/email.ts` does not catch, so the queue's five retries depend on it; a
+transport that swallowed would stamp `emailSentAt` on mail that never left.
+
+`SMTP_HOST/PORT/USERNAME/PASSWORD` added via `optionalShaped`, so the blank lines in
+`.env.example` do not break boot. **No `SMTP_SECURE`** — 465 means implicit TLS and anything
+else STARTTLS, so the port already answers it and two settings cannot disagree. A host without
+credentials now fails at boot rather than at send. `EMAIL_FROM` is finally read — it had been
+defined and ignored since ticket 24.
+
+Also fixed: the `.env.example` SMTP block had been appended under the **"Public (safe to
+expose)"** heading with `SMTP_PASSWORD=fake-password` — a password beneath a banner saying the
+opposite. Moved into the email section and blanked, and `SMTP_PASSWORD` added to
+`bundle-secret-scan.ts`'s `SECRET_VARS`, which had never known about it.
+
+### Verified live
+
+| Check | Result |
+|---|---|
+| Transport selection with SMTP configured | `smtp:jerrywap.com` |
+| **Real send** | delivered to a real inbox |
+| Send failure | **throws**, so the queue retries — confirmed against a rejected sender |
+| `SMTP_HOST` blank | falls back to `dev-console`, writes `.dev-emails/`, no throw |
+| Host without credentials | refuses to boot, naming the missing keys |
+| Google flag off | no button on either page; `npm run scan:bundle` clean |
+| Google flag on (dummy credentials) | button renders on both pages, `next=/checkout` carried through, real `<form method="POST">` |
+
+**One thing worth keeping:** the first real send **failed**, with
+`550 Sender verify failed — No Such User Here` for `no-reply@jerrywap.com`. The host requires
+the From address to be a real mailbox on the sending domain. `EMAIL_FROM` is now
+`hello@jerrywap.com` and delivery succeeds. Before going to production, set up a genuine
+`no-reply@` mailbox (or an alias) on the sending domain — a From that the domain does not
+authorise is rejected or spam-filed, and `.local`, which it was set to originally, is never
+deliverable.
 
 ## Why
 

@@ -2,7 +2,9 @@ import "server-only";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import type { ConversationSubjectType, MessageVisibility } from "@/lib/db/enums";
-import { Conversation, Message } from "@/lib/db/models/communication";
+import { Conversation, Message, type ConversationDoc } from "@/lib/db/models/communication";
+import { CustomerRequest } from "@/lib/db/models/requests";
+import { formatDateTime } from "@/lib/dates";
 import { User } from "@/lib/db/models/identity";
 import { ForbiddenError, NotFoundError } from "@/lib/errors";
 import { conversations, messages } from "@/repositories/conversation.repository";
@@ -268,6 +270,147 @@ export async function markThreadRead(input: {
     userId: input.userId,
     audience: input.audience,
   });
+}
+
+export interface ConversationSummary {
+  id: string;
+  subjectType: ConversationSubjectType;
+  subjectId: string;
+  /** `REQ-2026-0001` — what the customer recognises. */
+  reference: string;
+  title: string;
+  /** The last message this reader is allowed to have seen. */
+  excerpt: string;
+  lastAt: string;
+  unread: number;
+}
+
+/**
+ * Every thread this reader has, newest activity first — the inbox.
+ *
+ * ## Why there was none
+ *
+ * `/dashboard/messages` rendered a hardcoded "No messages" and performed no
+ * query at all, so it said that however many conversations existed. Every real
+ * thread was reachable only from inside its subject page. This is the
+ * aggregation that was missing; nothing else about ticket 21 changes.
+ *
+ * ## The §37 boundary, in the query
+ *
+ * The excerpt and the unread count both come from the **same audience filter**
+ * the thread view uses — `visibility: "customer"` for a customer, in the query
+ * rather than after it. That matters more here than in a thread: an internal
+ * note surfacing as a customer's "last message" would leak deliberation into a
+ * list, and a note bumping their unread count would tell them a note exists.
+ *
+ * ## An index, not a second chat
+ *
+ * It links into the subject. A thread belongs beside the request it is about
+ * (§101); lifting it out of that context is how the reply loses the thing it
+ * was replying to.
+ */
+export async function listConversations(input: {
+  organizationId: string;
+  userId: string;
+  limit?: number;
+}): Promise<ConversationSummary[]> {
+  return inbox({ ...input, audience: "customer" });
+}
+
+/**
+ * The same inbox, across every organisation — §30.
+ *
+ * Named rather than an optional `organizationId`, for the reason the customer
+ * order loader is a separate function too: the scoped and the unscoped call
+ * must not be one argument apart. Staff reading across organisations is
+ * legitimate and is authorised by `message.view_all` at the page.
+ */
+export async function listConversationsForStaff(input: {
+  userId: string;
+  limit?: number;
+}): Promise<ConversationSummary[]> {
+  return inbox({ ...input, audience: "staff" });
+}
+
+async function inbox(input: {
+  organizationId?: string;
+  userId: string;
+  audience: "customer" | "staff";
+  limit?: number;
+}): Promise<ConversationSummary[]> {
+  await connectToDatabase();
+
+  const rows = await Conversation.find({
+    ...(input.organizationId ? { organizationId: toObjectId(input.organizationId) } : {}),
+  })
+    .sort({ lastMessageAt: -1 })
+    .limit(input.limit ?? 50)
+    .lean<ConversationDoc[]>();
+
+  if (rows.length === 0) return [];
+
+  /*
+   * Subjects, resolved in one query rather than per row.
+   *
+   * A conversation stores only `subjectType` and `subjectId` — §38's
+   * polymorphic shape — so the reference and title a reader recognises live on
+   * the subject. Only `request` is ever written today; the map is keyed by id
+   * so adding `order` or `quote` is another lookup here, not a rewrite.
+   */
+  const requestIds = rows
+    .filter((row) => row.subjectType === "request")
+    .map((row) => row.subjectId);
+
+  const subjects = new Map<string, { reference: string; title: string }>();
+  if (requestIds.length > 0) {
+    const found = await CustomerRequest.find({ _id: { $in: requestIds } })
+      .select({ reference: 1, title: 1 })
+      .lean<Array<{ _id: unknown; reference: string; title?: string }>>();
+    for (const subject of found) {
+      subjects.set(String(subject._id), {
+        reference: subject.reference,
+        title: subject.title ?? subject.reference,
+      });
+    }
+  }
+
+  const summaries = await Promise.all(
+    rows.map(async (row) => {
+      const [visible, unread] = await Promise.all([
+        messages.listForConversation({
+          conversationId: String(row._id),
+          audience: input.audience,
+        }),
+        messages.countUnread({
+          conversationIds: [String(row._id)],
+          userId: input.userId,
+          audience: input.audience,
+        }),
+      ]);
+
+      const last = visible.at(-1);
+      // A conversation whose only messages are internal has nothing to show a
+      // customer — and must not appear as an empty row hinting that it exists.
+      if (!last) return null;
+
+      const subject = subjects.get(String(row.subjectId));
+
+      return {
+        id: String(row._id),
+        subjectType: row.subjectType,
+        subjectId: String(row.subjectId),
+        reference: subject?.reference ?? "",
+        title: subject?.title ?? "Conversation",
+        excerpt: last.body.slice(0, 160),
+        lastAt: formatDateTime(
+          (last as { createdAt?: Date }).createdAt ?? row.lastMessageAt ?? new Date(),
+        ),
+        unread,
+      } satisfies ConversationSummary;
+    }),
+  );
+
+  return summaries.filter((summary): summary is ConversationSummary => summary !== null);
 }
 
 /** Unread across every conversation in an organisation — the dashboard badge. */

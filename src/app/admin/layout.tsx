@@ -1,7 +1,7 @@
 import { AccountMenu } from "@/components/shell/account-menu";
 import { AppShell } from "@/components/shell/app-shell";
 import { requireAnyPermissionOrRedirect } from "@/lib/auth/dal";
-import { ADMIN_PERMISSIONS, adminNavFor } from "@/lib/navigation";
+import { ADMIN_PERMISSIONS, adminShellNavFor } from "@/lib/navigation";
 
 // TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
 // See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
@@ -26,7 +26,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <AppShell
       density="dense"
-      sections={adminNavFor(permissions)}
+      sections={adminShellNavFor(permissions)}
       homeHref="/admin"
       contextLabel="Admin"
       topBarEnd={<AccountMenu name={user.name} email={user.email} isStaff />}

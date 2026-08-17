@@ -81,7 +81,9 @@ describe("providerFetch", () => {
   });
 
   it("passes an abort signal so a hung provider cannot hold the action open", async () => {
-    const spy = vi.fn(async () => new Response("{}", { status: 200 }));
+    const spy = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
+      async () => new Response("{}"),
+    );
     vi.stubGlobal("fetch", spy);
 
     await providerFetch("paypal", "https://api.paypal.com/x", { method: "GET" });

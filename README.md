@@ -97,11 +97,19 @@ npm run db:seed
 npm run dev
 ```
 
-Then open <http://localhost:3000> and sign in with any account from
-[Demo accounts](#demo-accounts) below.
+Then open <http://localhost:3000> and sign in as
+**`super@innovatrix.test`** / **`innovatrix-demo-2026`** — that is the
+super-admin, and the same password works for every seeded account.
+[Demo accounts](#demo-accounts) lists all sixteen and what each one can reach.
 
 > Every `db:*` and `*:probe` script passes `--env-file=.env.local` explicitly.
 > **`.env` alone will not work** — it must be `.env.local`.
+
+> **Email in development: keep `EMAIL_TRANSPORT=log`.** Every seeded account is
+> on `.test`, a reserved TLD that can never receive mail, so a real send bounces
+> and the verification or reset link you wanted is nowhere. With `log`, the link
+> is printed in the terminal and written to `.dev-emails/`. See
+> [Reading email in development](#reading-email-in-development).
 
 ---
 
@@ -254,6 +262,64 @@ depending on the product's exposure setting.
 
 Freightline has no demo block on purpose: it is the fixture for "this product
 has no demo", which is a state the product page has to handle.
+
+---
+
+## Reading email in development
+
+Every seeded account is on `.test` — `super@innovatrix.test`,
+`amara@brightpath.test`. That is not laziness: `.test` is reserved by IANA
+precisely so it can never resolve, which makes these addresses safe to commit
+and impossible to accidentally mail.
+
+It also means **a real send can only fail**. Handing
+`super@innovatrix.test` to an SMTP server gets you:
+
+```
+550 The mail server could not deliver mail to super@innovatrix.test.
+    The account or domain may not exist…
+```
+
+and the reset link is gone — `sendAuthEmail` swallows the failure outside
+development so a bounce never breaks sign-up, and the queue simply retries an
+address that cannot exist.
+
+### The switch
+
+```bash
+EMAIL_TRANSPORT=log    # .dev-emails/ + the terminal  ← use this locally
+EMAIL_TRANSPORT=smtp   # really send, via SMTP_*
+```
+
+Left blank it derives: `smtp` if `SMTP_HOST` is set, otherwise `log`. Set it to
+`log` explicitly and it wins **even with working SMTP credentials**, which is the
+case it exists for. `EMAIL_TRANSPORT=smtp` with no `SMTP_HOST` refuses to boot
+rather than silently sending nothing.
+
+The transport is chosen once per process and announced, so "why did that email
+not arrive" is answerable from the first line of the log:
+
+```
+[email] transport: log (.dev-emails/)
+```
+
+**Changing it needs a `next dev` restart** — the transport is memoised for the
+life of the process, and its connection pool with it.
+
+### Where the mail goes
+
+```bash
+ls -t .dev-emails | head          # newest first, one .txt per message
+cat ".dev-emails/$(ls -t .dev-emails | head -1)"
+```
+
+Each file carries the recipient, subject, and the body with any link in it. The
+terminal also prints a banner with just the URL, so a verification or reset link
+can be clicked straight out of the log. `.dev-emails/` is gitignored — the link
+*is* the credential.
+
+So a password reset for a seeded account works end to end: request it, read the
+link out of `.dev-emails/`, open it, set a new password.
 
 ---
 

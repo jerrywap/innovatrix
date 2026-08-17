@@ -3,6 +3,30 @@
 **Source:** ticket 30, line 20 · **Severity:** minor
 **Depends on:** — · **Blocks:** — · **Size:** S
 **Spec:** §70 (activity timeline), §90 (audit trail)
+**Status:** **done, 2026-08-17.**
+
+## What shipped
+
+`src/lib/dates.ts` — `formatDay`, `formatDateTime`, `toDateInputValue` — with the day /
+moment distinction as the whole point of the module. All six private `isoDay()` copies and
+every inline truncation are gone; ~20 call sites classified one way or the other:
+
+- **Days**: due dates, expiries, release dates, entitlement windows, licence expiry.
+- **Moments**: timeline entries, `submittedAt`, `paidAt`, `uploadedAt`, `checkedAt`,
+  notification and activity rows, order and payment history, queue `updatedAt`.
+
+**The orphaned `Timeline` is adopted.** Both request pages hand-rolled a `<ul>`; they now
+use `src/components/timeline.tsx`, which was written in ticket 04, renders hour and minute,
+emits `<time dateTime>` — and was imported by nothing. `RequestTimelineEntry.at` carries an
+ISO string now rather than a pre-rendered day, which is what made that possible: formatting
+in the view layer was what threw the time away before any component could see it.
+
+**`dates.enforcement.test.ts` is the durable half.** It scans `src/` and fails on
+`toISOString().slice(0, 10)`, `toLocaleDateString`, `toLocaleTimeString` or a stray
+`Intl.DateTimeFormat`. AGENTS.md already required absolute dates and the rule was honoured
+in the file nobody imported while being broken in the helper everybody copied — the lesson
+is enforcement, not documentation. It immediately caught a call site I had missed in
+`products/components/testing-form.tsx`.
 
 ## Why
 

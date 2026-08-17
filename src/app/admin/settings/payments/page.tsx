@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requirePermissionOrForbid } from "@/lib/auth/dal";
 import { loadPaymentSettings } from "@/features/payments/settings-view";
+import { CurrencyEditor } from "@/features/payments/components/currency-editor";
 import { ProviderToggle } from "@/features/payments/components/provider-toggle";
 import { RoutingRow } from "@/features/payments/components/routing-row";
 import { CopyField } from "@/features/product/copy-field";
@@ -72,8 +73,8 @@ async function Settings() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-[14px] font-medium">{provider.label}</p>
-                  <p className="text-subtle font-mono text-[11px]">
-                    {provider.supportedCurrencies.join(" · ")}
+                  <p className="text-subtle text-[11.5px]">
+                    Currencies enabled on your {provider.label} account
                   </p>
                 </div>
                 <ProviderToggle
@@ -82,6 +83,18 @@ async function Settings() {
                   mode={provider.mode}
                 />
               </div>
+
+              {/*
+                Editable, and the reason is the whole ticket: this line used to
+                print what the provider supports globally, which is not what the
+                account behind the key is provisioned for. Routing now reads the
+                saved answer.
+              */}
+              <CurrencyEditor
+                provider={provider.key}
+                available={provider.availableCurrencies}
+                selected={provider.supportedCurrencies}
+              />
 
               <div className="border-border bg-surface-muted flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2">
                 <KeyRound className="text-subtle size-3.5 shrink-0" aria-hidden />

@@ -33,7 +33,7 @@ convention:
 |---|--------|-----------|:----:|
 | 01 | [Vendor identity & onboarding](01-vendor-identity-and-onboarding.md) | tickets 03, 20 | L |
 | 02 | [Vendor verification & trust](02-vendor-verification-and-trust.md) | vendor 01; ticket 05 | M |
-| 03 | [Vendor team & access](03-vendor-team-and-access.md) | vendor 01 | M |
+| 03 | [Vendor team & access](03-vendor-team-and-access.md) | vendor 01 | S |
 | 04 | [Product ownership & vendor authoring](04-product-ownership-and-authoring.md) | vendor 01, 03; ticket 06 | L |
 | 05 | [Submission & review](05-submission-and-review.md) | vendor 04; ticket 20 | L |
 | 06 | [Delivery methods](06-delivery-methods.md) | vendor 04, 05; tickets 07, 14 | L |
@@ -49,6 +49,28 @@ Demoable milestones: **03** (a developer can apply, be verified, and sign in) �
 **06** (a vendor's product is on sale and downloadable) → **09** (the vendor is
 paid what they are owed) → **11** (the marketplace reads as a marketplace rather
 than a catalogue).
+
+---
+
+## The 2026-08 simplification pass
+
+The first draft of this set answered `00-intro.md`'s "think all features of a
+modern vendor 3rd party distribution system" and was correspondingly large. It was
+reviewed against a narrower intent — *signed-up users sell scripts here, a team is
+optional, and nobody should be confused* — and simplified. **No feature was
+removed:** verification still gates selling, payouts still pay, ratings, disputes
+and storefronts all stand. What changed is the amount of structure behind them.
+
+| Change | Ticket | Why |
+|---|---|---|
+| **Two vendor roles** — `owner`, `member` — not four | 03 | Only one separation is load-bearing: who may change the payout account. The other three multiplied the (role × action) cases for a principal that is usually one person. Size M → S |
+| **One vendor per user**, enforced by index | 01, 03 | No vendor switcher. The customer shell already carries an `OrgSwitcher`; a second one makes every screen answer "as whom am I acting" first |
+| **`/dashboard/selling`, not a fourth `/vendor` shell** | 01, and paths throughout | Every vendor is a signed-up user, so they already have that shell. A vendor is still a third *principal* — `requireVendor()` is unchanged — but a new principal does not require a new portal. Reversible with a redirect |
+| **Applying is authenticated** | 01 | The applicant already has a verified email and a user id to hang the owner membership off. A public `/sell` page in front of it is content, not a form |
+| **Owner membership created with the vendor**, in one transaction | 01, 03 | A solo vendor is a vendor with one member, so no code downstream branches on "has a team" — and onboarding never mentions one |
+| **Commission resolves in two levels**, not three | 07 | A per-product rate is the level with the least demand and the most explaining. `resolveCommission()` still takes a third if V1 asks for one |
+| **Archive delivery ships first**, mirror and pull second | 06 | Archive already works. The other two share an SSRF-hardened fetcher and a retrying job that should not be built under "no vendor can list anything yet" pressure. All three stay in scope |
+| **Disputes are raisable by either party**, explicitly | 13 | Was implicit in the escalation rules. Named because it is a stated requirement: a customer *or* a vendor raises it, and raising it is what pulls staff in |
 
 ---
 

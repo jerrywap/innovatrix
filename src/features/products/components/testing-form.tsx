@@ -6,6 +6,7 @@ import { FieldGroup, SectionForm } from "./section-form";
 import { saveTestingAction } from "../actions";
 import { TESTING_CHECKLIST_STATUSES } from "@/lib/db/enums";
 import type { AdminProductView } from "@/services/catalog/product-view";
+import { formatDateTime } from "@/lib/dates";
 
 type ChecklistRow = AdminProductView["testingChecklist"][number];
 
@@ -78,11 +79,7 @@ function ChecklistRowFields({ row, index }: { row: ChecklistRow; index: number }
         <div className="flex items-center gap-2">
           {row.checkedAt && (
             <span className="text-subtle font-mono text-[10.5px]">
-              {new Date(row.checkedAt).toLocaleDateString("en-GB", {
-                day: "2-digit",
-                month: "short",
-                year: "numeric",
-              })}
+              {formatDateTime(row.checkedAt)}
             </span>
           )}
           <StatusBadge status={row.status} />

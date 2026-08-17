@@ -1,6 +1,7 @@
 import "server-only";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createTransport } from "nodemailer";
 import { serverEnv } from "@/config/env";
 
 /**
@@ -88,14 +89,109 @@ const consoleAndFileTransport: EmailTransport = {
   },
 };
 
+/* ────────────────────────────────────────────── smtp transport */
+
+/**
+ * Real delivery, over SMTP.
+ *
+ * ## It throws, and that is the contract
+ *
+ * `handlers/email.ts` does not catch: the job runner decides a send failed by
+ * watching for a rejection, and retries five times with backoff. A transport
+ * that swallowed its own errors would report success to the queue, stamp
+ * `emailSentAt`, and quietly deliver nothing.
+ *
+ * Note the other caller has the opposite contract — `sendAuthEmail` catches,
+ * because a verification email failing must not take down sign-up. Two callers,
+ * two policies, and both are satisfied by a transport that simply tells the
+ * truth.
+ *
+ * ## The transporter is pooled and built once
+ *
+ * `resolveTransport()` is memoised, so this closure is created once per process
+ * and nodemailer keeps the connection pool. Building one per send would mean a
+ * TLS handshake per email.
+ *
+ * ## `secure` comes from the port
+ *
+ * 465 is implicit TLS; anything else negotiates STARTTLS. Deriving it removes
+ * the configuration that can contradict itself.
+ */
+function smtpTransport(): EmailTransport {
+  const env = serverEnv();
+  const host = env.SMTP_HOST!;
+  const port = env.SMTP_PORT ?? 587;
+
+  const mailer = createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user: env.SMTP_USERNAME!, pass: env.SMTP_PASSWORD! },
+    pool: true,
+  });
+
+  return {
+    name: `smtp:${host}`,
+    async send(message) {
+      await mailer.sendMail({
+        from: env.EMAIL_FROM,
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        ...(message.html ? { html: message.html } : {}),
+      });
+    },
+  };
+}
+
 /* ────────────────────────────────────────────── selection */
 
 let transport: EmailTransport | undefined;
 
-/** Ticket 24 replaces the body of this function, not its callers. */
+/**
+ * Which transport should run, from the environment.
+ *
+ * Pure and exported so it can be tested without a mailer: the decision is the
+ * part that goes wrong, and it goes wrong silently.
+ *
+ * `EMAIL_TRANSPORT` wins when set. Unset, it derives — SMTP if a host is
+ * configured, otherwise log — so an existing `.env.local` keeps its meaning.
+ *
+ * ## Why the override exists
+ *
+ * Every seeded account is on `.test`, an IANA-reserved TLD that will never
+ * resolve. So with SMTP configured, a password reset for
+ * `super@innovatrix.test` is handed to a real mail server, bounces, and the
+ * link is nowhere — `sendAuthEmail` swallows the failure outside development,
+ * and the queue retries five times against an address that cannot exist.
+ *
+ * `EMAIL_TRANSPORT=log` is how a developer with working SMTP credentials still
+ * reads their own reset links.
+ */
+export function chooseTransportKind(env: {
+  EMAIL_TRANSPORT?: "log" | "smtp";
+  SMTP_HOST?: string;
+}): "log" | "smtp" {
+  if (env.EMAIL_TRANSPORT) return env.EMAIL_TRANSPORT;
+  return env.SMTP_HOST ? "smtp" : "log";
+}
+
+/**
+ * The transport itself, built once — `emailTransport()` memoises this.
+ *
+ * The default when nothing is configured is the log transport, deliberately:
+ * `.dev-emails/` is how ticket 29 §G is read, and nobody should start sending
+ * real mail from a laptop because they forgot to unset a variable.
+ */
 function resolveTransport(): EmailTransport {
-  // if (serverEnv().RESEND_API_KEY) return resendTransport();   ← ticket 24
-  return consoleAndFileTransport;
+  const env = serverEnv();
+  const kind = chooseTransportKind(env);
+
+  // Said once per process, because "why did that email not arrive" is otherwise
+  // a twenty-minute question with a one-word answer.
+  console.info(`[email] transport: ${kind}${kind === "log" ? " (.dev-emails/)" : ""}`);
+
+  return kind === "smtp" ? smtpTransport() : consoleAndFileTransport;
 }
 
 export function emailTransport(): EmailTransport {

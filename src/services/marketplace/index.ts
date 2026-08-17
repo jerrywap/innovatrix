@@ -4,7 +4,7 @@ import type { PipelineStage } from "mongoose";
 import { connectToDatabase } from "@/lib/db/client";
 import { Product, Taxonomy } from "@/lib/db/models/catalog";
 import type { TaxonomyKind } from "@/lib/db/enums";
-import type { StorefrontCurrency } from "@/config/storefront";
+import { DEFAULT_CURRENCY, type StorefrontCurrency } from "@/config/storefront";
 import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG } from "@/services/catalog/cache";
 import {
   buildMarketplacePipeline,
@@ -208,6 +208,27 @@ export async function getCardsBySlug(
   return slugs
     .map((slug) => bySlug.get(slug))
     .filter((card): card is ProductCard => Boolean(card));
+}
+
+/**
+ * How many products are actually on sale.
+ *
+ * Exists because the landing page claimed "148 products across 31 industries"
+ * as a hardcoded string — three times, in two different senses — while the
+ * catalogue held a thousand and nine industries. The figure had been copied
+ * from a design mock-up whose own footnotes call its numbers illustrative.
+ *
+ * `limit: 1` still runs the whole aggregation: `$facet` computes the count
+ * regardless, so the limit only bounds the rows we then throw away. It is
+ * cheap for the right reason instead — no `q`, so it routes through
+ * `cachedSearch` and is served from the listing cache like every other
+ * catalogue read.
+ */
+export async function getPublishedProductCount(
+  currency: StorefrontCurrency = DEFAULT_CURRENCY,
+): Promise<number> {
+  const { total } = await searchMarketplace({ sort: "latest", page: 1, limit: 1, currency });
+  return total;
 }
 
 /** Featured / latest / popular rails for the marketplace landing page. */

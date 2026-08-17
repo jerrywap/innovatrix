@@ -5,11 +5,13 @@ import { notFound } from "next/navigation";
 import { KeyRound } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { LICENCE_COPY } from "@/lib/licence-copy";
 import { requireOrg } from "@/lib/auth/dal";
 import { getOwnedSoftware } from "@/services/entitlements/entitlement-service";
 import { licenceForEntitlement } from "@/services/entitlements/activation-service";
 import { LicenceKeyField } from "@/features/software/components/licence-key-field";
 import { ActivationList } from "@/features/software/components/activation-list";
+import { formatDay } from "@/lib/dates";
 
 export const metadata: Metadata = { title: "Licence" };
 
@@ -28,22 +30,12 @@ export const metadata: Metadata = { title: "Licence" };
  * organisation, so a key can only be read by somebody in the organisation that
  * bought it. The key alone is enough to **activate** and deliberately not
  * enough to read a purchase history.
- */
-const TYPE_COPY: Record<string, string> = {
-  single_project: "One project. Use it in a single client build.",
-  single_installation: "One installation. Install it on one site you control.",
-  multi_installation: "Several installations, up to the limit below.",
-  commercial: "Commercial use, including work you sell on.",
-  developer: "Development and staging as well as production.",
-  saas: "Run it as a hosted service for your own customers.",
-  subscription: "Runs while the subscription does.",
-  lifetime: "Yours permanently, with no expiry.",
-};
-
-/**
- * Awaited at page level — the segment's `loading.tsx` is already the fallback,
- * and a nested boundary around one query bought nothing. See the parent route's
- * page for why `notFound()` under this segment renders a 404 body with a 200.
+ *
+ * ## Awaited at page level
+ *
+ * The segment's `loading.tsx` is already the fallback, and a nested boundary
+ * around one query bought nothing. See the parent route's page for why
+ * `notFound()` under this segment renders a 404 body with a 200.
  */
 export default async function Page({
   params,
@@ -88,7 +80,7 @@ export default async function Page({
         <dl className="border-border grid gap-x-6 gap-y-3 border-t pt-4 sm:grid-cols-2">
           <Row
             term="What it permits"
-            detail={TYPE_COPY[licence.type] ?? licence.type.replace(/_/g, " ")}
+            detail={LICENCE_COPY[licence.type] ?? licence.type.replace(/_/g, " ")}
           />
           <Row
             term="Installations"
@@ -114,12 +106,7 @@ export default async function Page({
                 : "Support isn't included in this purchase."
             }
           />
-          {licence.expiresAt && (
-            <Row
-              term="Expires"
-              detail={new Date(licence.expiresAt).toLocaleDateString("en-GB")}
-            />
-          )}
+          {licence.expiresAt && <Row term="Expires" detail={formatDay(licence.expiresAt)} />}
         </dl>
       </section>
 

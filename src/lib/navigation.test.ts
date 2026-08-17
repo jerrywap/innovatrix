@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ORGANIZATION_ROLES, STAFF_ROLES } from "@/lib/db/enums";
-import { permissionsForRoles } from "@/lib/auth/permissions";
+import { permissionsForRoles, type Permission } from "@/lib/auth/permissions";
 import { NAV_ICONS } from "@/components/shell/nav-icons";
 import {
   ADMIN_NAV,
@@ -9,6 +9,7 @@ import {
   DEFERRED_MODULES,
   STAFF_NAV,
   adminNavFor,
+  adminShellNavFor,
   allNavItems,
   customerNavFor,
   isActive,
@@ -62,12 +63,52 @@ describe("navigation is filtered, not decorative", () => {
     expect(technicalLabels).not.toContain("Invoices");
   });
 
-  it("shows organization settings only to owners and admins", () => {
+  it("offers no organization settings, to anyone, while the screen is a stub", () => {
+    /*
+     * This used to assert the opposite — visible to owners and admins — and the
+     * screen behind it renders a hardcoded "nothing to manage yet" with no
+     * query at all. It says that however many members the organisation has, so
+     * every one of those clicks was wasted.
+     *
+     * The route is deliberately still there: it must not 404, and the eventual
+     * ticket needs somewhere to land. Restore the nav entry in the same commit
+     * that gives it members, roles and billing details to show.
+     */
     for (const role of ORGANIZATION_ROLES) {
       const labels = customerNavFor(role).flatMap((s) => s.items.map((i) => i.label));
-      const expected = role === "owner" || role === "admin";
-      expect(labels.includes("Organization"), `role: ${role}`).toBe(expected);
+      expect(labels, `role: ${role}`).not.toContain("Organization");
     }
+  });
+
+  it("offers the admin area to staff who can reach it, and to nobody else", () => {
+    /*
+     * There was no path at all from `/staff` to `/admin`: neither table had an
+     * entry for the other, and the only cross-link lived in the avatar dropdown
+     * — where, at `/staff`, it pointed back at `/staff`.
+     *
+     * Gated on `ADMIN_PERMISSIONS`, which is what `app/admin/layout.tsx` uses
+     * as its own gate, so the link appears exactly when the destination would
+     * admit the visitor. A link that leads to a refusal is worse than no link.
+     */
+    const superAdmin = new Set(ADMIN_PERMISSIONS);
+    const staffLabels = staffNavFor(superAdmin).flatMap((s) => s.items.map((i) => i.label));
+    expect(staffLabels).toContain("Admin");
+
+    const supportOnly = new Set<Permission>(["request.view_all"]);
+    const supportLabels = staffNavFor(supportOnly).flatMap((s) => s.items.map((i) => i.label));
+    expect(supportLabels).not.toContain("Admin");
+    expect(supportLabels.length).toBeGreaterThan(0);
+  });
+
+  it("offers the way back to the staff console from admin", () => {
+    const adminLabels = adminShellNavFor(new Set(ADMIN_PERMISSIONS)).flatMap((s) =>
+      s.items.map((i) => i.label),
+    );
+    expect(adminLabels).toContain("Staff console");
+
+    // And nothing at all — not even the way out — for somebody the admin
+    // layout would turn away. `adminNavFor` being empty is what it reads.
+    expect(adminShellNavFor(new Set<Permission>(["request.view_all"]))).toHaveLength(0);
   });
 
   it("gives every organization role a usable dashboard", () => {

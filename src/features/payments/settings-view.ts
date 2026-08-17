@@ -5,6 +5,7 @@ import type { PaymentProvider as ProviderKey } from "@/lib/db/enums";
 import {
   SECRET_ENV_VARS,
   allDrivers,
+  currenciesFor,
   getPaymentSettings,
   providersFor,
 } from "@/services/payments/registry";
@@ -32,7 +33,10 @@ export interface ProviderSettingsView {
   /** The env var's **name**. Never its value. */
   secretEnvVar: string;
   secretPresent: boolean;
+  /** What this merchant account is provisioned for — what routing honours. */
   supportedCurrencies: string[];
+  /** What the provider supports at all; the ceiling the editor offers. */
+  availableCurrencies: string[];
   /** Set when the admin enabled it but the key is missing — the usual mistake. */
   misconfigured: boolean;
 }
@@ -44,6 +48,8 @@ export interface CurrencyRoutingView {
   /** Which providers could actually serve it right now. */
   available: ProviderKey[];
   covered: boolean;
+  /** The stored primary is not one `available` would pick — see below. */
+  stalePrimary: boolean;
 }
 
 export interface PaymentSettingsView {
@@ -80,7 +86,11 @@ export async function loadPaymentSettings(): Promise<PaymentSettingsView> {
       mode: record?.mode ?? "test",
       secretEnvVar: envVar,
       secretPresent: present,
-      supportedCurrencies: driver.supportedCurrencies(),
+      // What this account takes, not what the provider could take anywhere.
+      supportedCurrencies: currenciesFor(driver, record),
+      // Everything the provider is capable of — the ceiling the editor offers,
+      // and what makes the narrowing visible as a choice rather than a fact.
+      availableCurrencies: driver.supportedCurrencies(),
       // Enabled with no key is the misconfiguration that produces a checkout
       // failing at the last step, so it is called out rather than inferred.
       misconfigured: (record?.enabled ?? false) && !present,
@@ -104,6 +114,16 @@ export async function loadPaymentSettings(): Promise<PaymentSettingsView> {
       fallbacks: configured?.fallbacks ?? [],
       available,
       covered: available.length > 0,
+      /*
+       * A stored primary the resolver would not pick.
+       *
+       * The `<select>` lists `available`, so a primary outside it matched no
+       * option and the browser fell back to showing the first — the screen then
+       * displayed a route that was not the stored one, and saving overwrote the
+       * real value with the one the admin never chose. Surfacing it is the fix;
+       * silently agreeing with the browser was the bug.
+       */
+      stalePrimary: Boolean(configured?.primary && !available.includes(configured.primary)),
     });
   }
 

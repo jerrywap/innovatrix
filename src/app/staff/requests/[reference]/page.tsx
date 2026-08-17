@@ -11,12 +11,14 @@ import { Attachments } from "@/features/requests/components/attachments";
 import { permittedTransitions } from "@/services/requests/request-service";
 import { TransitionForm } from "@/features/staff/components/transition-form";
 import { InterpretationForm } from "@/features/staff/components/interpretation-form";
+import { ProgressForm } from "@/features/staff/components/progress-form";
 import { Transcript } from "@/features/staff/components/transcript";
 import { FollowUpForm } from "@/features/staff/components/follow-up-form";
 import { Thread } from "@/features/messaging/components/thread";
 import { staffThread } from "@/services/messaging/messaging-service";
 import { QuotePanel } from "@/features/quotes/components/quote-panel";
 import { listQuotesForRequest } from "@/features/quotes/quote-view";
+import { Timeline } from "@/components/timeline";
 
 export const metadata: Metadata = { title: "Request" };
 
@@ -146,6 +148,12 @@ export default async function Page({ params }: PageProps<"/staff/requests/[refer
             canUpload={false}
           />
 
+          <ProgressForm
+            requestId={request.id}
+            reference={request.reference}
+            canPost={staff.permissions.has("request.update_status")}
+          />
+
           <InterpretationForm
             requestId={request.id}
             reference={request.reference}
@@ -225,25 +233,20 @@ export default async function Page({ params }: PageProps<"/staff/requests/[refer
 
           <section className="flex flex-col gap-3">
             <h2 className="font-display text-[16px] tracking-[-0.02em]">Timeline</h2>
-            <ul className="border-border divide-border divide-y rounded-xl border">
-              {request.timeline.map((entry) => (
-                <li key={entry.id} className="flex flex-col gap-0.5 px-4 py-2.5">
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="text-[12.5px]">{entry.message}</span>
-                    <span className="text-subtle shrink-0 font-mono text-[10.5px]">
-                      {entry.at}
-                    </span>
-                  </span>
-                  {/* The customer's timeline and ours are the same feed with a
-                      different filter, so saying which is which here stops
-                      staff assuming the customer saw an internal note. */}
-                  <span className="text-subtle font-mono text-[9.5px] tracking-[0.14em] uppercase">
-                    {entry.internal ? "internal" : "customer sees this"}
-                    {entry.actorName ? ` · ${entry.actorName}` : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            {/* The customer's timeline and ours are the same feed with a
+                different filter. `isInternal` marks which is which, so staff
+                never assume the customer saw an internal note — the filtering
+                itself is in the query, not in this prop. */}
+            <Timeline
+              className="border-border bg-surface rounded-xl border p-5"
+              entries={request.timeline.map((entry) => ({
+                id: entry.id,
+                title: entry.message,
+                at: new Date(entry.at),
+                isInternal: entry.internal,
+                ...(entry.actorName ? { actor: entry.actorName } : {}),
+              }))}
+            />
           </section>
         </div>
       </div>

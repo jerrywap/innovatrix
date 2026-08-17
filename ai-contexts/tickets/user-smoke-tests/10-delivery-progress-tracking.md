@@ -3,6 +3,51 @@
 **Source:** ticket 30, lines 23–24 · **Severity:** **major** — the journey dead-ends
 **Depends on:** — · **Blocks:** — · **Size:** L
 **Spec:** §91 (state machines), §70 (activity timeline), §52 (quote → work conversion), §105 (long-term lifecycle)
+**Status:** **done, 2026-08-17.**
+
+## What shipped
+
+**States past `converted`.** `converted → in_progress → delivered → completed`, with
+`delivered → in_progress` because delivery is not acceptance, and staff-only cancellation
+from the two states where money and work are already committed. `completed` is the real
+terminal state; `converted` — which is reached *automatically* when the deposit clears — is
+no longer the end of the road.
+
+**`postProgressUpdate()` is the substance.** A customer-visible timeline entry with no state
+change. `transition()` was previously the only writer of a `visibility: "customer"` activity
+row, so telling a customer anything required moving the request between states — and past
+`converted` there were none. Most progress is not a state change: "the tenant portal is done,
+reporting is next" moves nothing and is the whole of being kept informed (§70).
+
+The internal note is a **second row**, exactly as `transition()` does it. §37 is a disclosure
+boundary; a row that was never written cannot leak, whereas a filter can be wrong once.
+
+**`RequestProgressPosted`** is emitted and mapped in the notification catalog — an update
+nobody is told about is a note in a file.
+
+**The queue is a queue again.** `ready-to-start` filtered on `converted`, which was terminal,
+so nothing ever left it and the count only grew. "Start work" moves it on, and a new
+`in-progress` queue holds what is under way.
+
+Status copy corrected too: `converted` said "Work has started", which it is not — it means
+the money arrived and the job is queued. Saying work had started while it sat in a handover
+queue is how a customer concludes nobody is doing anything.
+
+**No new entities.** `WorkOrder`, `Project`, `Milestone`, `Task` stay deferred and
+`WorkReadyToStart` remains the seam for ticket 53.
+
+### Verified end to end
+
+Against the real database, driving a request from `converted`:
+
+| | |
+|---|---|
+| Moves available from `converted` | **Start work, Cancel** — previously *none* |
+| Progress update posted, no state change | customer timeline gained the entry |
+| Internal note | staff see 5 entries, customer 4; **"DNS" absent from the customer payload** |
+| Moves from `delivered` | Mark complete · Reopen — not right yet |
+
+Three integration tests cover it, including the §37 boundary on this second writer.
 
 ## Why
 

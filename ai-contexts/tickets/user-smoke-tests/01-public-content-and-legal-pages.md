@@ -3,6 +3,39 @@
 **Source:** ticket 30, lines 1–6 · **Severity:** minor (terms/privacy block launch)
 **Depends on:** — · **Blocks:** launch · **Size:** M
 **Spec:** §4.1 (public website), §93 (SEO)
+**Status:** **done, 2026-08-17** — except the legal text itself, which still needs counsel.
+
+## What shipped
+
+- **`/services`** — §58's work split into what attaches to a marketplace product (§49's
+  add-ons, with the fixed / starting / quoted distinction) and what stands alone on software
+  we did not write. **Tech Assistant hours (§59) and the named §67 plans are deliberately not
+  offered** — both are deferred, and a page that sells them would be taking money for
+  machinery that does not exist.
+- **`/pricing`** — no invented tiers. The three pricing *shapes* (priced product, add-on,
+  quoted work), then all eight licence types, then the facts that surprise people: per-currency
+  prices set by hand, tax at checkout, what happens when an update window ends, and that a
+  quote is not a bill.
+- **`/terms` and `/privacy`** — written as accurate descriptions of how the platform behaves,
+  each opening with a notice that it is **not yet the binding document**. The privacy page's
+  inventory is drawn from the schema and lists all five cookies by name; the terms page
+  describes the frozen order snapshot, webhook-verified release and audited quote acceptance,
+  because those are things the code already guarantees.
+- **`/concepts` unlinked from the footer.** The route stays and remains `noindex`.
+- `LICENCE_COPY` lifted to `src/lib/licence-copy.ts` and imported by both `/pricing` and the
+  customer's licence screen — one description of what a licence permits, not two.
+
+**The noindex work in the original scope was dropped as unnecessary**: it was contingent on
+the pages still being stubs. They ship with content, so `sitemap.ts` stays as it is and
+`sitemap.test.ts` still passes.
+
+**Still blocked:** the actual legal text. This is README decision #12, and it blocks launch
+rather than development. The pages are structured so counsel's wording replaces the body
+without touching the layout.
+
+Verified: all four render 200 with no "coming"/"not yet published" copy remaining, the footer
+no longer links `/concepts`, and `sitemap`, `theme-tokens`, `loading-boundaries` and
+`navigation` tests pass.
 
 ## Why
 

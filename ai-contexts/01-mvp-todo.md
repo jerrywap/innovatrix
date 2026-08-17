@@ -389,22 +389,27 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 > **Innovatrix** sells software" — so these rows have no `§` behind them and cite
 > the sections they extend instead. Detailed tickets live in `tickets/vendor/`;
 > the `Ticket` column below refers to that set, not to `tickets/NN-*.md`.
+>
+> **Simplified 2026-08-17**, keeping every feature and cutting the structure
+> behind it: two vendor roles instead of four, one vendor per user, and the vendor
+> workspace nested at `/dashboard/selling` rather than a fourth app shell. The
+> full change list is in `tickets/vendor/README.md`.
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 20.1 | Vendor model, onboarding, state machine, `/vendor` shell, `requireVendor()` | [ ] | [ ] | vendor 01 |
+| 20.1 | Vendor model, authenticated application, state machine, `/dashboard/selling` segment, `requireVendor()` | [ ] | [ ] | vendor 01 |
 | 20.2 | Identity and business verification, document handling, trust badge | [ ] | [ ] | vendor 02 |
-| 20.3 | Vendor team members, roles and invitations | [ ] | [ ] | vendor 03 |
+| 20.3 | Two vendor roles (`owner`/`member`), invitations on the existing token rails | [ ] | [ ] | vendor 03 |
 | 20.4 | Product ownership (`vendorId`), vendor authoring workspace, vendor facet | [ ] | [ ] | vendor 04 |
 | 20.5 | Submission, staff review, rejection reasons, resubmission | [ ] | [ ] | vendor 05 |
-| 20.6 | Delivery: platform archive, vendor-hosted mirror, repository-pulled release | [ ] | [ ] | vendor 06 |
-| 20.7 | Configurable commission, resolution order, snapshot on the order line | [ ] | [ ] | vendor 07 |
+| 20.6 | Delivery: platform archive **first**, then vendor-hosted mirror and repository-pulled release | [ ] | [ ] | vendor 06 |
+| 20.7 | Configurable commission (platform → vendor), snapshot on the order line | [ ] | [ ] | vendor 07 |
 | 20.8 | Append-only earnings ledger, clearance, refund clawback | [ ] | [ ] | vendor 08 |
 | 20.9 | Payouts, `PayoutProvider` interface, batches, self-billed statements | [ ] | [ ] | vendor 09 |
 | 20.10 | Purchase-gated ratings and reviews, moderation, `AggregateRating` | [ ] | [ ] | vendor 10 |
 | 20.11 | Public vendor storefront, attribution, dynamic JSON-LD `seller` | [ ] | [ ] | vendor 11 |
 | 20.12 | Vendor analytics; suspension, offboarding, emergency delisting | [ ] | [ ] | vendor 12 |
-| 20.13 | Vendor support threads, SLA, refund requests, takedown | [ ] | [ ] | vendor 13 |
+| 20.13 | Vendor support threads, either-party disputes, SLA, refund requests, takedown | [ ] | [ ] | vendor 13 |
 
 ---
 
@@ -420,19 +425,26 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 21.1 | Public content: `/services`, `/pricing`, `/terms`, `/privacy`; drop the `/concepts` footer link | [ ] | — | smoke 01 |
-| 21.2 | Landing hero — a real search input and real counts; ~100-item suggestion pool sampled 4 at a time | [ ] | [ ] | smoke 02 |
-| 21.3 | **Signed-out visitors cannot use the assistant** — owner-less conversations are persisted and then refused | [ ] | [ ] | smoke 03 |
-| 21.4 | Google sign-in UI; **an SMTP driver** — neither is a config-only change | [ ] | [ ] | smoke 04 |
-| 21.5 | **Per-account currency support**; stop leaking provider error text; validate routing writes | — | [ ] | smoke 05 |
-| 21.6 | **`/dashboard/orders/[reference]` — never built**; post-checkout destinations for pending orders | [ ] | [ ] | smoke 06 |
-| 21.7 | `src/lib/dates.ts` — timestamps keep their time; adopt the orphaned `Timeline` | [ ] | [ ] | smoke 07 |
-| 21.8 | Staff ↔ admin sidebar links; a real messages inbox; hide `/dashboard/organization` | [ ] | [ ] | smoke 08 |
-| 21.9 | Headline figures on `/staff` and `/admin`; make the `/…/dashboard` URLs resolve | [ ] | [ ] | smoke 09 |
-| 21.10 | **Delivery progress tracking** — states past `converted`, staff progress updates on the customer timeline | [ ] | [ ] | smoke 10 |
-| 21.11 | **Card payment initiation fails** — no driver wraps `fetch`, so a transport failure escapes as an unmodelled exception | — | [ ] | smoke 11 |
+| 21.1 | Public content: `/services`, `/pricing`, `/terms`, `/privacy`; drop the `/concepts` footer link | [x] | — | smoke 01 |
+| 21.2 | Landing hero — a real search input and real counts; ~100-item suggestion pool sampled 4 at a time | [x] | [x] | smoke 02 |
+| 21.3 | **Signed-out visitors cannot use the assistant** — owner-less conversations are persisted and then refused | [x] | [x] | smoke 03 |
+| 21.4 | Google sign-in UI; **an SMTP driver** — neither is a config-only change | [x] | [x] | smoke 04 |
+| 21.5 | **Per-account currency support**; stop leaking provider error text; validate routing writes | — | [x] | smoke 05 |
+| 21.6 | **`/dashboard/orders/[reference]` — never built**; post-checkout destinations for pending orders | [x] | [x] | smoke 06 |
+| 21.7 | `src/lib/dates.ts` — timestamps keep their time; adopt the orphaned `Timeline` | [x] | [x] | smoke 07 |
+| 21.8 | Staff ↔ admin sidebar links; a real messages inbox; hide `/dashboard/organization` | [x] | [x] | smoke 08 |
+| 21.9 | Headline figures on `/staff` and `/admin`; make the `/…/dashboard` URLs resolve | [x] | [x] | smoke 09 |
+| 21.10 | **Delivery progress tracking** — states past `converted`, staff progress updates on the customer timeline | [x] | [x] | smoke 10 |
+| 21.11 | **Card payment initiation fails** — no driver wraps `fetch`, so a transport failure escapes as an unmodelled exception | — | [x] | smoke 11 |
+| 21.12 | **Expired session loops** `/dashboard` ⇄ `/login` — the proxy guards on cookie presence, the DAL on validity, and nothing cleared a stale cookie | — | [x] | smoke 12 |
 
-> **21.11** is the one blocking money: with a real Paystack test key configured, card
+> **All twelve are done (2026-08-17).** `npm test` passes at 862 tests across 54 files.
+> 21.12 was reported after the batch and is a pre-existing bug, not a regression from it.
+> Two of the tickets' own diagnoses were wrong and are corrected in place — see
+> `tickets/user-smoke-tests/README.md` for what the tester could not see, and what the
+> fixing turned up that no ticket predicted.
+>
+> **21.11** was the one blocking money: with a real Paystack test key configured, card
 > payment fails with the generic message. `ProviderUnavailableError` exists in the error
 > taxonomy and has **zero usages** — no driver wraps its `fetch`, so a network failure
 > arrives as a bare `TypeError` and bypasses every specific branch of `withAction`. Rows

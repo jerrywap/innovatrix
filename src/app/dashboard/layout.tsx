@@ -4,7 +4,12 @@ import { NotificationBell } from "@/components/shell/notification-bell";
 import { AppShell } from "@/components/shell/app-shell";
 import { OrgSwitcher } from "@/components/shell/org-switcher";
 import { redirect } from "next/navigation";
-import { getSession, listUserOrganizations, requireOrgOrNull } from "@/lib/auth/dal";
+import {
+  getSession,
+  listUserOrganizations,
+  loginDestination,
+  requireOrgOrNull,
+} from "@/lib/auth/dal";
 import { customerNavFor } from "@/lib/navigation";
 
 // TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
@@ -52,7 +57,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   if (!context) {
     const session = await getSession();
-    if (!session) redirect("/login");
+    // `loginDestination()`, not `/login`: a *stale* cookie sent to `/login` is
+    // bounced straight back here by the proxy, which guards on cookie presence
+    // rather than validity — an infinite redirect. See the DAL and
+    // `api/auth/stale-session`.
+    if (!session) redirect(await loginDestination());
     if (session.user.isStaff) redirect("/staff");
 
     return (

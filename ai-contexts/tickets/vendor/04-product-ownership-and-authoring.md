@@ -40,7 +40,7 @@ no field of their own. That is already how storage authorisation works —
 product — so vendor isolation on storage falls out of product ownership rather
 than needing a second axis.
 
-### The vendor product workspace (`/vendor/products`)
+### The vendor product workspace (`/dashboard/selling/products`)
 
 Ticket 06's ten-step wizard, scoped to one vendor. The steps are the same
 because the product model is the same; what differs is what a vendor may reach:

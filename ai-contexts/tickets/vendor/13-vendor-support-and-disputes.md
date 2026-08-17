@@ -45,6 +45,35 @@ or a dispute. Escalation adds staff as participants; it does not remove the
 vendor, because the person who can actually fix it is still the person who wrote
 it.
 
+### Either party may raise a dispute, and staff are told either way
+
+Support is a question; a dispute is a claim that something is wrong and needs
+deciding. **Both the customer and the vendor can raise one**, on an existing
+thread or as a new one, and raising it is what pulls staff in — not an escalation
+somebody has to notice is due.
+
+| Raised by | Typically | Staff role |
+|---|---|---|
+| Customer | not as described, does not work, refund refused | decide |
+| Vendor | abusive or fraudulent buyer, licence misuse, a review they believe breaches policy | decide |
+
+A dispute is a state on the thread rather than a fourth subject type — the
+conversation is already there and splitting it would mean two records of one
+argument. Raising it notifies staff immediately, adds them as participants, and
+creates a follow-up so it cannot sit unread; the thread stays visible to whichever
+of the two parties raised it and to the other, because a dispute neither party can
+see the progress of is one they will re-raise by email.
+
+Any active vendor member may raise or answer a dispute (vendor ticket 03) — this
+is not owner-only. The person who knows why the software behaved that way is
+whoever wrote it, and gating it on the account holder is how a Friday becomes a
+Monday.
+
+Staff resolve it explicitly: an outcome, a reason, and whatever action follows —
+refund, delisting, review removal, vendor suspension, or nothing. Recorded on the
+thread, audited, and each party told what was decided. A dispute that simply goes
+quiet is the failure mode this structure exists to prevent.
+
 ### Response SLA
 
 A target, per verification level, shown to the customer before they open a
@@ -108,6 +137,10 @@ Vendor-to-vendor communication. Automated takedown processing.
 - [ ] A vendor can only see threads about their own products, asserted in the tenant-isolation suite.
 - [ ] A thread opens against the vendor with staff able to observe.
 - [ ] Escalation adds staff without removing the vendor.
+- [ ] Both a customer and a vendor can raise a dispute, and either one notifies staff and creates a follow-up.
+- [ ] Any active vendor member can raise and answer a dispute; it is not owner-only.
+- [ ] A dispute cannot be closed without an outcome and a reason, and both parties are told what was decided.
+- [ ] A raised dispute is visible to both parties, not only to the one who raised it.
 - [ ] An overdue thread creates a staff follow-up through the existing model and reminder sweep.
 - [ ] Time-to-first-response is measured per vendor and visible to staff.
 - [ ] A vendor cannot approve or refuse a refund.

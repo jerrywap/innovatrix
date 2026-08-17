@@ -558,6 +558,102 @@ export async function reviseRequirements(input: {
   return updated;
 }
 
+/**
+ * A progress update — a customer-visible timeline entry with no state change.
+ *
+ * ## Why this did not exist, and what it cost
+ *
+ * `transition()` was the **only** writer of a `visibility: "customer"` activity
+ * row. So a customer could be told something only when their request moved
+ * between states — and once it reached `converted`, which happens automatically
+ * the moment the deposit clears, there were no states left. The last thing they
+ * ever heard was "Payment received", and weeks of work produced silence.
+ *
+ * Most progress is not a state change. "The tenant portal is done, reporting is
+ * next" moves nothing; it is the entire substance of being kept informed (§70).
+ *
+ * ## Two rows, never one field
+ *
+ * The internal note is a second `ActivityEvent`, exactly as `transition()` does
+ * it. §37 is a disclosure boundary and one field controlling two audiences is
+ * how deliberation leaks — a filter that is wrong once shows staff wording to
+ * the customer, whereas a row that was never written cannot be.
+ *
+ * ## Permission
+ *
+ * `request.update_status`: whoever may move the work along may say what is
+ * happening to it. Posting an update is strictly less powerful than a
+ * transition, so it needs no permission of its own.
+ */
+export async function postProgressUpdate(input: {
+  requestId: string;
+  actor: Extract<RequestActor, { type: "staff" }>;
+  /** Shown to the customer. Required — an empty update is not an update. */
+  message: string;
+  /** Staff-only, optional, written as its own row. */
+  internalNote?: string;
+}): Promise<void> {
+  if (!input.actor.permissions.has("request.update_status")) {
+    throw new ForbiddenError("You don't have permission to post updates.");
+  }
+
+  const message = input.message.trim();
+  if (message.length === 0) {
+    throw new ValidationError("An update needs something in it.", {
+      message: ["Say what has happened."],
+    });
+  }
+
+  await connectToDatabase();
+
+  const request = await CustomerRequest.findById(
+    toObjectId(input.requestId),
+  ).lean<CustomerRequestDoc>();
+  if (!request) throw new NotFoundError("request", { id: input.requestId });
+
+  await ActivityEvent.create({
+    organizationId: request.organizationId,
+    subjectType: "request",
+    subjectId: request._id,
+    type: "RequestProgressPosted",
+    message,
+    actorType: "staff",
+    actorUserId: toObjectId(input.actor.userId),
+    ...(input.actor.name ? { actorName: input.actor.name } : {}),
+    visibility: "customer",
+  });
+
+  if (input.internalNote?.trim()) {
+    await ActivityEvent.create({
+      organizationId: request.organizationId,
+      subjectType: "request",
+      subjectId: request._id,
+      type: "RequestProgressPosted",
+      message: input.internalNote.trim(),
+      actorType: "staff",
+      actorUserId: toObjectId(input.actor.userId),
+      visibility: "internal",
+    });
+  }
+
+  await writeAuditLog({
+    action: "request.progress_posted",
+    actor: auditActorFor(input.actor),
+    subject: { type: "request", id: input.requestId },
+    organizationId: String(request.organizationId),
+    after: { message },
+  });
+
+  // The customer is told. This is the whole point — an update nobody is
+  // notified about is a note in a file.
+  await emit("RequestProgressPosted", {
+    requestId: String(request._id),
+    reference: request.reference,
+    organizationId: String(request.organizationId),
+    message,
+  });
+}
+
 /** Staff-owned reading of the request. Never shown to the customer (§34). */
 export async function setInternalInterpretation(input: {
   requestId: string;

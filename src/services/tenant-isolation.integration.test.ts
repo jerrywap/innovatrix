@@ -363,4 +363,32 @@ describe("AI conversations", () => {
       aiConversations.getConversation(id, { anonymousKey: "some-other-cookie" }),
     ).rejects.toBeInstanceOf(errors.NotFoundError);
   });
+
+  /*
+   * The other side of the same check, and the more expensive one to have missed.
+   *
+   * `assertCanRead` refuses a conversation with no `userId`, no `organizationId`
+   * and no `anonymousKey` — correctly, since there is no credential that could
+   * ever match. But `startOrResume` used to *write* exactly that whenever it was
+   * called without an owner, which the assistant pages did on every visit that
+   * arrived without a cookie. The author of the conversation could not read it
+   * back: their first message returned "No such conversation."
+   *
+   * Nine such rows existed, every one with zero messages. Refusing at the write
+   * is what stops a fix upstream from silently regressing.
+   */
+  it("refuses to create a conversation nobody could ever read", async () => {
+    await expect(
+      aiConversations.startOrResume({ contextType: "custom_build" }),
+    ).rejects.toBeInstanceOf(errors.ValidationError);
+
+    // An anonymous key alone is a real owner, and must still work — this is the
+    // signed-out visitor the guard exists to protect, not to block.
+    await expect(
+      aiConversations.startOrResume({
+        contextType: "custom_build",
+        anonymousKey: "cold-visitor-cookie",
+      }),
+    ).resolves.toBeTruthy();
+  });
 });

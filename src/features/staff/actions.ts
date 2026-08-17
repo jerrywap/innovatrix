@@ -12,6 +12,7 @@ import { FollowUp } from "@/lib/db/models/requests";
 import { objectIdSchema } from "@/validators/common";
 import {
   assign,
+  postProgressUpdate,
   setInternalInterpretation,
   transition,
   type RequestActor,
@@ -125,6 +126,51 @@ export async function saveInterpretationAction(
 
     revalidatePath(`/staff/requests/${parsed.reference}`);
     return ok({ saved: true as const });
+  });
+}
+
+/**
+ * Say what is happening, without moving the request.
+ *
+ * ## The gap this fills
+ *
+ * A customer-visible timeline entry could only be written by a state change,
+ * and past `converted` there were no states left — so a job that ran for six
+ * weeks produced exactly one line, "Payment received", and then nothing. Most
+ * progress is not a state change: "the tenant portal is done, reporting next"
+ * moves nothing and is the whole substance of being kept informed (§70).
+ *
+ * ## The internal note is a separate row
+ *
+ * Not a flag on the same one. §37 is a disclosure boundary; a filter that is
+ * wrong once shows staff wording to a customer, whereas a row that was never
+ * written cannot leak.
+ */
+export async function postProgressUpdateAction(
+  _previous: unknown,
+  formData: FormData,
+): Promise<ActionResult<{ posted: true }>> {
+  return withAction(async () => {
+    const parsed = parseInput(
+      z.object({
+        requestId: objectIdSchema,
+        reference: z.string().trim().min(1).max(40),
+        message: z.string().trim().min(1).max(2000),
+        internalNote: z.string().trim().max(2000).optional(),
+      }),
+      Object.fromEntries(formData.entries()),
+    );
+
+    await postProgressUpdate({
+      requestId: parsed.requestId,
+      actor: await staffActorFromSession(),
+      message: parsed.message,
+      ...(parsed.internalNote ? { internalNote: parsed.internalNote } : {}),
+    });
+
+    revalidatePath(`/staff/requests/${parsed.reference}`);
+    revalidatePath(`/dashboard/requests/${parsed.reference}`);
+    return ok({ posted: true as const });
   });
 }
 

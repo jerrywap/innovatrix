@@ -137,16 +137,51 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
   {
     title: "Settings",
     items: [
-      {
-        label: "Organization",
-        href: "/dashboard/organization",
-        icon: "building",
-        organizationRoles: ["owner", "admin"],
-      },
+      /*
+       * `Organization` is not here, and the route still exists.
+       *
+       * `/dashboard/organization` renders a hardcoded empty state with no query
+       * behind it — it will say "nothing to manage yet" however many members an
+       * organisation has. A nav entry is a promise; this one costs a click and
+       * teaches the customer the product is unfinished. It goes back the moment
+       * tickets 03/24 give it members, roles and billing details to show.
+       */
       { label: "Account", href: "/dashboard/account", icon: "userCog" },
     ],
   },
 ];
+
+/* ────────────────────────────────────────────── crossing between portals */
+
+/**
+ * The way out of a portal, for somebody who belongs in both.
+ *
+ * There was none. `STAFF_NAV` had no `/admin` entry and `ADMIN_NAV` had no
+ * `/staff` entry, and the only cross-link anywhere was buried in the avatar
+ * dropdown — where, at `/staff`, it linked to `/staff`. A super-admin moving
+ * between the two consoles had to type the URL.
+ *
+ * ## Gated on the destination's own entry condition
+ *
+ * `ADMIN_PERMISSIONS` is derived from `ADMIN_NAV` and is what
+ * `app/admin/layout.tsx` uses as its gate, so a link gated on the same set is
+ * offered exactly when the destination would admit the visitor. `permitted()`
+ * treats a list as OR, which is the same semantics the layout applies. Defined
+ * as a `get` rather than a const because `ADMIN_PERMISSIONS` is declared below
+ * — and it must stay derived, or the link and the gate drift apart.
+ *
+ * A separate section rather than an item among the queues: this is leaving,
+ * not another place to work.
+ */
+const TO_ADMIN: NavSection = {
+  title: "Elsewhere",
+  items: [{ label: "Admin", href: "/admin", icon: "settings" }],
+};
+
+const TO_STAFF: NavSection = {
+  title: "Elsewhere",
+  items: [{ label: "Staff console", href: "/staff", icon: "inbox" }],
+};
 
 /* ────────────────────────────────────────────── staff (§77) */
 
@@ -369,11 +404,34 @@ export function customerNavFor(role: OrganizationRole): NavSection[] {
 }
 
 export function staffNavFor(permissions: ReadonlySet<Permission>): NavSection[] {
-  return prune(STAFF_NAV, (item) => permitted(item, permissions));
+  const sections = prune(STAFF_NAV, (item) => permitted(item, permissions));
+  // Offered exactly when `app/admin/layout.tsx` would admit them, because it is
+  // the same predicate. Appended here rather than declared in `STAFF_NAV`: the
+  // tables feed `ADMIN_PERMISSIONS`, and a link *gated on* that set, declared
+  // *inside* the set's own source, is a circular definition.
+  return canReachAdmin(permissions) ? [...sections, TO_ADMIN] : sections;
 }
 
 export function adminNavFor(permissions: ReadonlySet<Permission>): NavSection[] {
   return prune(ADMIN_NAV, (item) => permitted(item, permissions));
+}
+
+/**
+ * The admin sidebar, plus the way back to the staff console.
+ *
+ * Separate from `adminNavFor` because that function answers a second question —
+ * "may this person reach the admin area at all", which the layout decides by
+ * whether it comes back empty. Appending an unguarded link to it made the
+ * answer yes for everybody, which is how this was caught.
+ */
+export function adminShellNavFor(permissions: ReadonlySet<Permission>): NavSection[] {
+  const sections = adminNavFor(permissions);
+  return sections.length > 0 ? [...sections, TO_STAFF] : sections;
+}
+
+/** Does this permission set open at least one admin screen? */
+export function canReachAdmin(permissions: ReadonlySet<Permission>): boolean {
+  return ADMIN_PERMISSIONS.some((permission) => permissions.has(permission));
 }
 
 /** Every permission that opens at least one admin screen. */

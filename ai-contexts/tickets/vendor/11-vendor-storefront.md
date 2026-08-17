@@ -68,9 +68,15 @@ product, for the same reason they have no page otherwise — and `sitemap.test.t
 already asserts every static path resolves, so the dynamic half must not
 reintroduce what that test was written to catch.
 
-`robots.ts` is unchanged: the storefront is public and indexable, and `/vendor`
-(the vendor's own workspace) is already covered by the authenticated-area
-disallow rules.
+`robots.ts` is unchanged, and the nesting decision in vendor ticket 01 is why:
+the storefront at `/vendors/[slug]` is public and indexable, while the vendor's
+own workspace lives under `/dashboard/selling` and is therefore already inside
+the existing authenticated-area disallow. A top-level `/vendor` would have needed
+a new rule; this needs none.
+
+The two paths differ by one character in the singular, which is a real hazard for
+whoever writes the next link. The storefront is **plural** — `/vendors/[slug]`,
+one page per vendor — and the workspace is not a sibling of it.
 
 ### Progressive complexity
 
