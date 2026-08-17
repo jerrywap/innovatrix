@@ -276,3 +276,41 @@ export function invitationMessage(input: {
     ].join("\n"),
   };
 }
+
+/**
+ * A vendor team invitation — vendor ticket 03.
+ *
+ * Separate from `invitationMessage` because it invites somebody to *sell*, not to
+ * buy, and the two must not read alike: the recipient is about to get access to
+ * a product listing and, if promoted, a payout account. Says which vendor and who
+ * asked, because an invitation the recipient cannot place is one they report as
+ * spam.
+ *
+ * Reuses the `organization-invitation` kind so the dev transport files it beside
+ * the other invitation rather than needing a new `AuthEmailKind` for a difference
+ * only the copy cares about.
+ */
+export function vendorInvitationMessage(input: {
+  to: string;
+  vendorName: string;
+  inviterName: string;
+  role: string;
+  url: string;
+}): EmailMessage {
+  return {
+    to: input.to,
+    kind: "organization-invitation",
+    subject: `${input.inviterName} invited you to sell as ${input.vendorName}`,
+    text: [
+      `${input.inviterName} has invited you to join ${input.vendorName} on Innovatrix, ` +
+        `as ${input.role === "owner" ? "an owner" : "a team member"}.`,
+      "",
+      "Accepting gives you access to that vendor's products and listings. You'll " +
+        "need a confirmed email address on your Innovatrix account first.",
+      "",
+      input.url,
+      "",
+      "This invitation expires in 48 hours.",
+    ].join("\n"),
+  };
+}

@@ -77,6 +77,18 @@ export const STORAGE_POLICY: Record<StorageScope, ScopePolicy> = {
     contentTypes: ["application/pdf"],
     extensions: ["pdf"],
   },
+  /**
+   * Vendor verification documents — vendor ticket 02.
+   *
+   * A passport scan or a certificate of incorporation. Narrower than
+   * `payment-proof` on purpose: no `webp`, because nobody photographs an ID into
+   * webp and every format allowed is a decoder somebody has to trust.
+   */
+  "vendor-document": {
+    maxBytes: 10 * MB,
+    contentTypes: ["application/pdf", "image/jpeg", "image/png"],
+    extensions: ["pdf", "jpg", "jpeg", "png"],
+  },
   healthcheck: { maxBytes: 1024, contentTypes: ["text/plain"], extensions: ["txt"] },
 };
 

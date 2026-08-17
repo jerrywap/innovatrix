@@ -13,6 +13,9 @@ import {
   PRODUCT_VERSION_STATUSES,
   QUOTE_STATUSES,
   REQUEST_STATUSES,
+  VENDOR_INVITATION_STATUSES,
+  VENDOR_STATUSES,
+  VENDOR_VERIFICATION_STATUSES,
 } from "@/lib/db/enums";
 
 /**
@@ -124,6 +127,16 @@ const STATUS_TONES: Record<string, StatusTone> = {
   /* follow-ups */
   open: "attention",
   done: "positive",
+
+  /* vendors. `applied` is neutral and `in_review` is progress, mirroring
+     draft/internal_review — nothing is wrong with an application nobody has
+     picked up yet. `offboarded` is muted rather than negative: a vendor may
+     leave amicably, and the customers who bought from them keep everything. */
+  applied: "neutral",
+  in_review: "progress",
+  verified: "positive",
+  offboarded: "muted",
+  unstarted: "neutral",
 };
 
 /**
@@ -144,6 +157,8 @@ const STATUS_LABELS: Record<string, string> = {
   na: "Not applicable",
   pass: "Passed",
   fail: "Failed",
+  in_review: "In review",
+  unstarted: "Not started",
 };
 
 export function statusLabel(status: string): string {
@@ -196,6 +211,9 @@ const ALL_STATUS_ENUMS: ReadonlyArray<readonly string[]> = [
   QUOTE_STATUSES,
   INVOICE_STATUSES,
   TESTING_CHECKLIST_STATUSES,
+  VENDOR_STATUSES,
+  VENDOR_INVITATION_STATUSES,
+  VENDOR_VERIFICATION_STATUSES,
 ];
 
 /**

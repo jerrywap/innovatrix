@@ -52,6 +52,15 @@ export const PERMISSIONS = [
   /* Taxonomy — categories, industries, technologies. */
   "taxonomy.manage",
 
+  /* Third-party vendors (vendor tickets 01–02). Three, not one, because they
+     have different blast radii: deciding an application is a commercial call,
+     approving a verification level is what eventually lets money leave the
+     platform, and reading somebody's passport scan is the thing a person should
+     have to explain having done. */
+  "vendor.review",
+  "vendor.verify",
+  "vendor.view_documents",
+
   /* Customers & organizations */
   "customer.view_all",
   "customer.update",
@@ -248,6 +257,10 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // Whoever decides what a product costs decides what a promotion takes off
     // it. Keeping these together is what makes the pricing story one job.
     "discount.manage",
+    // Who sells here is the same commercial judgement as what gets published.
+    "vendor.review",
+    "vendor.verify",
+    "vendor.view_documents",
   ],
 
   finance: [
@@ -265,6 +278,11 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // Tax is a finance decision. Discounts are a commercial one — see
     // `marketplace_manager` — and finance does not get to invent them.
     "tax.manage",
+    // Business verification is what lets a payout run, so finance must be able
+    // to approve a level and read the evidence behind it. Deciding *whether a
+    // vendor may sell here at all* stays commercial: no `vendor.review`.
+    "vendor.verify",
+    "vendor.view_documents",
   ],
 
   devops: ["system.manage_jobs", "audit.view", "settings.manage", "product.view_all"],

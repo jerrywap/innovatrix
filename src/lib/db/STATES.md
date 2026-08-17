@@ -43,6 +43,20 @@ stateDiagram-v2
     deprecated --> archived
 ```
 
+## productVersion
+
+| From | To | |
+|---|---|---|
+| `draft` | `released` |  |
+| `released` | `deprecated` |  |
+| `deprecated` | — | **terminal** |
+
+```mermaid
+stateDiagram-v2
+    draft --> released
+    released --> deprecated
+```
+
 ## order
 
 | From | To | |
@@ -97,7 +111,10 @@ stateDiagram-v2
 | `technical_review` | `under_review` · `quoted` · `rejected` |  |
 | `quoted` | `approved` · `rejected` · `under_review` |  |
 | `approved` | `converted` · `cancelled` |  |
-| `converted` | — | **terminal** |
+| `converted` | `in_progress` · `cancelled` |  |
+| `in_progress` | `delivered` · `cancelled` |  |
+| `delivered` | `completed` · `in_progress` |  |
+| `completed` | — | **terminal** |
 | `rejected` | — | **terminal** |
 | `cancelled` | — | **terminal** |
 
@@ -122,6 +139,12 @@ stateDiagram-v2
     quoted --> under_review
     approved --> converted
     approved --> cancelled
+    converted --> in_progress
+    converted --> cancelled
+    in_progress --> delivered
+    in_progress --> cancelled
+    delivered --> completed
+    delivered --> in_progress
 ```
 
 ## quote
@@ -173,4 +196,27 @@ stateDiagram-v2
     overdue --> paid
     overdue --> cancelled
     paid --> refunded
+```
+
+## vendor
+
+| From | To | |
+|---|---|---|
+| `applied` | `in_review` · `rejected` |  |
+| `in_review` | `verified` · `rejected` |  |
+| `verified` | `suspended` · `offboarded` |  |
+| `suspended` | `verified` · `offboarded` |  |
+| `rejected` | — | **terminal** |
+| `offboarded` | — | **terminal** |
+
+```mermaid
+stateDiagram-v2
+    applied --> in_review
+    applied --> rejected
+    in_review --> verified
+    in_review --> rejected
+    verified --> suspended
+    verified --> offboarded
+    suspended --> verified
+    suspended --> offboarded
 ```

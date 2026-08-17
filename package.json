@@ -30,6 +30,7 @@
     "requests:probe": "tsx --conditions=react-server --env-file=.env.local scripts/request-probe.ts",
     "db:explain:queues": "tsx --conditions=react-server --env-file=.env.local scripts/explain-queues.ts",
     "jobs:probe": "tsx --conditions=react-server --env-file=.env.local scripts/jobs-probe.ts",
+    "vendors:probe": "tsx --conditions=react-server --env-file=.env.local scripts/vendors-probe.ts",
     "payments:probe": "tsx --conditions=react-server --env-file=.env.local scripts/payments-probe.ts",
     "scan:bundle": "tsx --env-file=.env.local scripts/bundle-secret-scan.ts",
     "audit:deps": "npm audit --audit-level=high",

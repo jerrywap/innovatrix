@@ -9,6 +9,7 @@ import {
   REQUEST_TRANSITIONS,
   REQUEST_TRANSITION_RULES,
   STATE_MACHINES,
+  VENDOR_TRANSITIONS,
   assertTransition,
   canTransition,
   isTerminal,
@@ -193,6 +194,34 @@ describe("product (§46)", () => {
   it("allows un-deprecating but never un-archiving", () => {
     expect(canTransition(PRODUCT_TRANSITIONS, "deprecated", "published")).toBe(true);
     expect(isTerminal(PRODUCT_TRANSITIONS, "archived")).toBe(true);
+  });
+});
+
+describe("vendor (vendor ticket 01)", () => {
+  it("walks an application through to verified", () => {
+    expect(canTransition(VENDOR_TRANSITIONS, "applied", "in_review")).toBe(true);
+    expect(canTransition(VENDOR_TRANSITIONS, "in_review", "verified")).toBe(true);
+  });
+
+  it("cannot verify an application nobody has reviewed", () => {
+    expect(canTransition(VENDOR_TRANSITIONS, "applied", "verified")).toBe(false);
+  });
+
+  it("lets a suspension be lifted, because a suspension is usually a dispute", () => {
+    expect(canTransition(VENDOR_TRANSITIONS, "verified", "suspended")).toBe(true);
+    expect(canTransition(VENDOR_TRANSITIONS, "suspended", "verified")).toBe(true);
+  });
+
+  it("never reopens a rejection or an offboarding", () => {
+    expect(isTerminal(VENDOR_TRANSITIONS, "rejected")).toBe(true);
+    expect(isTerminal(VENDOR_TRANSITIONS, "offboarded")).toBe(true);
+  });
+
+  it("cannot offboard somebody who was never verified", () => {
+    // Offboarding runs a final settlement (vendor ticket 12). There is nothing to
+    // settle for an applicant, and `rejected` is the state that means this.
+    expect(canTransition(VENDOR_TRANSITIONS, "applied", "offboarded")).toBe(false);
+    expect(canTransition(VENDOR_TRANSITIONS, "in_review", "offboarded")).toBe(false);
   });
 });
 

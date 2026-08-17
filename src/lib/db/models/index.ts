@@ -6,6 +6,7 @@
  * doesn't drag the whole schema graph into its bundle.
  */
 export * from "./identity";
+export * from "./vendors";
 export * from "./catalog";
 export * from "./commerce";
 export * from "./requests";

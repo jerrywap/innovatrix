@@ -16,6 +16,7 @@ import {
   contentDisposition,
   healthcheckKey,
   paymentProofKey,
+  vendorDocumentKey,
   productFileKey,
   productMediaKey,
   StorageKeyError,
@@ -70,6 +71,9 @@ const UPLOAD_TTL_SECONDS: Record<StorageScope, number> = {
   "payment-proof": 300,
   "quote-document": 300,
   "invoice-document": 300,
+  // Same reasoning as a receipt, more so: a KYC document is small, and the
+  // shorter the window the less time a leaked ticket is worth anything.
+  "vendor-document": 300,
   healthcheck: 60,
 };
 const DOWNLOAD_URL_TTL_SECONDS = 120;
@@ -425,6 +429,30 @@ export function assertPaymentProofKey(key: string, paymentId: string): string {
 
   if (!key.startsWith(`${root}/payments/${paymentId}/`)) {
     throw new StorageKeyError("That file does not belong to this payment.");
+  }
+  return key;
+}
+
+export function vendorDocumentPath(vendorId: string, filename: string): string {
+  return vendorDocumentKey(storageContext(), vendorId, filename);
+}
+
+/**
+ * Prove a client-supplied vendor-document key belongs to *this* vendor.
+ *
+ * Not `assertKeyBelongsTo`, for the same reason `assertAttachmentKey` isn't: that
+ * one checks the `products/{id}/versions/{id}/` layout and a vendor document is
+ * `vendors/{id}/documents/`. Being in the environment prefix only proves the key
+ * is one of ours, not that it is this caller's — and the attack this closes is a
+ * vendor attaching another vendor's passport scan to their own record and then
+ * reading it through the authorised route.
+ */
+export function assertVendorDocumentKey(key: string, vendorId: string): string {
+  const root = storageContext().root;
+  assertKeyInPrefix(key, root);
+
+  if (!key.startsWith(`${root}/vendors/${vendorId}/documents/`)) {
+    throw new StorageKeyError("That file does not belong to this vendor.");
   }
   return key;
 }

@@ -127,7 +127,112 @@ async function main() {
     if (!denied) process.exitCode = 1;
   }
 
+  await probeVendorDocuments({ pass, fail, root });
+
   console.log(`\n${process.exitCode ? "PROBE FAILED" : "probe complete — all checks passed"}`);
+}
+
+/**
+ * The `vendor-document` scope — vendor ticket 02.
+ *
+ * Its own section because it is the most sensitive scope the platform has, and the
+ * three properties that protect it are all environmental rather than logical:
+ * the ownership prefix has to hold against the *bound* root, an unsigned fetch has
+ * to be refused, and the object has to be deletable — which today it is not.
+ *
+ * It uses a `.pdf` key with a text body deliberately: `verifyUpload` is not called
+ * here, so nothing sniffs it, and the point of this section is the key layout and
+ * the access rules rather than the content check that `storage.test.ts` covers.
+ */
+async function probeVendorDocuments({
+  pass,
+  fail,
+  root,
+}: {
+  pass: (m: string) => void;
+  fail: (m: string) => void;
+  root: string;
+}) {
+  const {
+    createUploadUrl,
+    createDownloadUrl,
+    deleteObject,
+    headObject,
+    assertVendorDocumentKey,
+  } = await import("../src/services/storage");
+
+  const VENDOR = "652f1a2b3c4d5e6f70819200";
+  const OTHER = "652f1a2b3c4d5e6f70819299";
+
+  console.log("\nvendor-document scope");
+
+  const { vendorDocumentKey } = await import("../src/services/storage/keys");
+  const { storageContext } = await import("../src/services/storage/client");
+  const key = vendorDocumentKey(storageContext(), VENDOR, "probe-id.pdf");
+
+  key.startsWith(`${root}/vendors/${VENDOR}/documents/`)
+    ? pass("key lands on the vendor's own branch")
+    : fail(`key escaped the vendor branch: ${key}`);
+
+  try {
+    assertVendorDocumentKey(key, OTHER);
+    fail("another vendor's id accepted this key — cross-tenant theft is open");
+  } catch {
+    pass("a different vendor's id is refused against this key");
+  }
+
+  const body = new TextEncoder().encode("probe\n");
+  const ticket = await createUploadUrl({
+    scope: "vendor-document",
+    key,
+    filename: "probe-id.pdf",
+    contentType: "application/pdf",
+    sizeBytes: body.byteLength,
+  });
+
+  const put = await fetch(ticket.url, { method: "PUT", body, headers: ticket.headers });
+  put.ok ? pass(`upload succeeded (${put.status})`) : fail(`upload failed ${put.status}`);
+
+  // §66 and §88: this is the check that matters most for this scope. An
+  // unguessable URL is not protection for a passport scan, so the bucket refusing
+  // an unsigned GET is the only thing standing behind the authorised route.
+  const base = process.env.STORAGE_ENDPOINT
+    ? `${process.env.STORAGE_ENDPOINT}/${process.env.STORAGE_BUCKET}`
+    : `https://${process.env.STORAGE_BUCKET}.s3.${process.env.STORAGE_REGION}.amazonaws.com`;
+  const anon = await fetch(`${base}/${key}`);
+  anon.status === 403 || anon.status === 401
+    ? pass(`unsigned fetch refused (${anon.status})`)
+    : fail(
+        `unsigned fetch returned ${anon.status} — an identity document is publicly ` +
+          `readable to anyone who learns the key. Do not onboard a vendor until the ` +
+          `bucket's public-read policy is removed (ticket 05).`,
+      );
+
+  const dl = await createDownloadUrl({
+    key,
+    filename: "probe-id.pdf",
+    contentType: "application/pdf",
+    expiresInSeconds: 300,
+  });
+  (await fetch(dl.url)).ok ? pass("presigned GET works") : fail("presigned GET failed");
+
+  // Retention (ticket 02) depends on this, and it is currently denied. Reported
+  // rather than thrown, so the finding is visible instead of masking the checks.
+  try {
+    await deleteObject(key);
+    (await headObject(key)) === null
+      ? pass("probe document deleted — retention is achievable")
+      : fail("delete reported success but the object is still there");
+  } catch (e) {
+    const denied = String((e as { cause?: unknown }).cause ?? e).includes("s3:DeleteObject");
+    console.log(
+      denied
+        ? `  ! s3:DeleteObject NOT PERMITTED — vendor ticket 02's retention rule cannot be ` +
+            `honoured; \`purgedAt\` records intent only. Orphan left at ${key}`
+        : `  ✗ delete failed: ${e}`,
+    );
+    if (!denied) process.exitCode = 1;
+  }
 }
 
 main().catch((e) => {

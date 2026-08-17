@@ -9,6 +9,7 @@ import {
   listUserOrganizations,
   loginDestination,
   requireOrgOrNull,
+  requireVendorOrNull,
 } from "@/lib/auth/dal";
 import { customerNavFor } from "@/lib/navigation";
 
@@ -78,11 +79,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   const { user, organization, organizationId, role } = context;
-  const organizations = await listUserOrganizations();
+  const [organizations, vendor] = await Promise.all([
+    listUserOrganizations(),
+    // Vendor ticket 01: whether to draw the Selling group. One indexed lookup,
+    // `cache()`d in the DAL, and *only* about the chrome — the segment's own pages
+    // establish their scope for themselves and must never read it from here.
+    requireVendorOrNull(),
+  ]);
 
   return (
     <AppShell
-      sections={customerNavFor(role)}
+      sections={customerNavFor(role, { isVendor: vendor !== null })}
       homeHref="/dashboard"
       contextLabel={organization.isPersonal ? undefined : organization.name}
       banner={!user.emailVerified ? <VerifyEmailBanner /> : undefined}

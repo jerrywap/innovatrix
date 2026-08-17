@@ -8,6 +8,7 @@ import type {
   ProductVersionStatus,
   QuoteStatus,
   RequestStatus,
+  VendorStatus,
 } from "./enums";
 
 /**
@@ -33,6 +34,26 @@ export const PRODUCT_TRANSITIONS: TransitionMap<ProductStatus> = {
   published: ["deprecated", "archived"],
   deprecated: ["published", "archived"],
   archived: [],
+};
+
+/**
+ * Vendor ticket 01 — a vendor's life on the platform.
+ *
+ * `applied` is first because `states.test.ts` requires every state to be
+ * reachable from the first key, and an application is where a vendor begins.
+ *
+ * `suspended → verified` is the one edge back: a suspension is usually a dispute
+ * rather than an ending, and reinstating must be one action rather than a
+ * re-application. `rejected` and `offboarded` are terminal — offboarding runs a
+ * final settlement (vendor ticket 12) and un-running that is not a state change.
+ */
+export const VENDOR_TRANSITIONS: TransitionMap<VendorStatus> = {
+  applied: ["in_review", "rejected"],
+  in_review: ["verified", "rejected"],
+  verified: ["suspended", "offboarded"],
+  suspended: ["verified", "offboarded"],
+  rejected: [],
+  offboarded: [],
 };
 
 /**
@@ -356,6 +377,7 @@ export const STATE_MACHINES = {
   request: REQUEST_TRANSITIONS,
   quote: QUOTE_TRANSITIONS,
   invoice: INVOICE_TRANSITIONS,
+  vendor: VENDOR_TRANSITIONS,
 } as const;
 
 export type StateMachineName = keyof typeof STATE_MACHINES;

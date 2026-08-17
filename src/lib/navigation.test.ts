@@ -63,6 +63,49 @@ describe("navigation is filtered, not decorative", () => {
     expect(technicalLabels).not.toContain("Invoices");
   });
 
+  /**
+   * Vendor ticket 01. Being a vendor is orthogonal to an organisation role, so the
+   * Selling group must appear for a vendor in *every* role and for a non-vendor in
+   * none — including `owner`, whose organisation role says nothing about whether
+   * they sell here.
+   */
+  it("draws the Selling group only for a vendor, whatever their organisation role", () => {
+    for (const role of ORGANIZATION_ROLES) {
+      const asCustomer = customerNavFor(role).flatMap((s) => s.items.map((i) => i.label));
+      expect(asCustomer, `role: ${role}`).not.toContain("Selling");
+
+      const asVendor = customerNavFor(role, { isVendor: true }).flatMap((s) =>
+        s.items.map((i) => i.label),
+      );
+      expect(asVendor, `role: ${role}`).toContain("Selling");
+    }
+  });
+
+  /**
+   * The whole section goes, not just the item — `prune` drops a section once its
+   * last item does. An empty "Selling" heading above nothing would read as a
+   * broken screen rather than as a feature the viewer does not have.
+   */
+  it("drops the Selling section entirely rather than leaving an empty heading", () => {
+    const titles = customerNavFor("owner").map((s) => s.title);
+    expect(titles).not.toContain("Selling");
+    expect(customerNavFor("owner", { isVendor: true }).map((s) => s.title)).toContain(
+      "Selling",
+    );
+  });
+
+  /**
+   * Team is a route that exists and is deliberately unlinked from the navigation:
+   * a one-person vendor must not be walked through a team model to sell one script.
+   * It is reachable from vendor settings and nowhere else.
+   */
+  it("keeps the vendor team screen out of the navigation", () => {
+    const hrefs = customerNavFor("owner", { isVendor: true }).flatMap((s) =>
+      s.items.map((i) => i.href),
+    );
+    expect(hrefs).not.toContain("/dashboard/selling/team");
+  });
+
   it("offers no organization settings, to anyone, while the screen is a stub", () => {
     /*
      * This used to assert the opposite — visible to owners and admins — and the

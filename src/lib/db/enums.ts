@@ -46,6 +46,74 @@ export type StaffRole = (typeof STAFF_ROLES)[number];
 export const MEMBER_STATUSES = values(["invited", "active", "revoked"] as const);
 export type MemberStatus = (typeof MEMBER_STATUSES)[number];
 
+/* ────────────────────────────────────────────── vendors (post-MVP) */
+
+/**
+ * Third-party sellers — vendor tickets 01–03. Outside `00-techinical.md`, which
+ * never mentions a second seller, so these carry no `§`.
+ *
+ * `suspended` is reversible because a suspension is usually a dispute rather
+ * than an ending; `rejected` and `offboarded` are terminal.
+ */
+export const VENDOR_STATUSES = values([
+  "applied",
+  "in_review",
+  "verified",
+  "suspended",
+  "rejected",
+  "offboarded",
+] as const);
+export type VendorStatus = (typeof VENDOR_STATUSES)[number];
+
+/**
+ * Two roles, not four, and only one separation is load-bearing: **where the
+ * money goes**. A wrong price is reversible and audited; a wrong bank account is
+ * money in a stranger's hands. So `owner` holds the payout account, the
+ * agreement and the membership list, and `member` holds everything else.
+ *
+ * Deliberately *not* `ORGANIZATION_ROLES`. Those are buyer-shaped — who may
+ * spend, who receives an invoice — and sharing the word `owner` across two
+ * collections that mean different things by it is how a reader gets it wrong.
+ */
+export const VENDOR_ROLES = values(["owner", "member"] as const);
+export type VendorRole = (typeof VENDOR_ROLES)[number];
+
+/** A vendor member's status reuses `MEMBER_STATUSES`; an invitation has its own. */
+export const VENDOR_INVITATION_STATUSES = values([
+  "pending",
+  "accepted",
+  "revoked",
+  "expired",
+] as const);
+export type VendorInvitationStatus = (typeof VENDOR_INVITATION_STATUSES)[number];
+
+/**
+ * Two levels, because they gate different things and one is much cheaper.
+ * `identity` unlocks listing products; `business` unlocks receiving a payout.
+ * A vendor may therefore sell before business verification completes — earnings
+ * accrue and are simply not payable.
+ */
+export const VENDOR_VERIFICATION_LEVELS = values(["identity", "business"] as const);
+export type VendorVerificationLevel = (typeof VENDOR_VERIFICATION_LEVELS)[number];
+
+export const VENDOR_VERIFICATION_STATUSES = values([
+  "unstarted",
+  "pending",
+  "approved",
+  "rejected",
+] as const);
+export type VendorVerificationStatus = (typeof VENDOR_VERIFICATION_STATUSES)[number];
+
+export const VENDOR_DOCUMENT_KINDS = values([
+  "government_id",
+  "proof_of_address",
+  "company_registration",
+  "tax_document",
+  "bank_proof",
+  "other",
+] as const);
+export type VendorDocumentKind = (typeof VENDOR_DOCUMENT_KINDS)[number];
+
 /* ────────────────────────────────────────────── catalog */
 
 export const TAXONOMY_KINDS = values([
@@ -302,10 +370,26 @@ export const DOMAIN_EVENTS = values([
   "MessagePosted",
   "WorkReadyToStart",
   "RequestProgressPosted",
+  // Vendor tickets 01–03.
+  "VendorApplied",
+  "VendorVerified",
+  "VendorRejected",
+  "VendorSuspended",
 ] as const);
 export type DomainEventType = (typeof DOMAIN_EVENTS)[number];
 
-export const ACTOR_TYPES = values(["customer", "staff", "system", "webhook"] as const);
+/**
+ * A vendor editing their own product would otherwise be recorded as `customer`,
+ * which is wrong in the one collection that exists to be trustworthy later.
+ * Widening this enum does not invalidate any stored row.
+ */
+export const ACTOR_TYPES = values([
+  "customer",
+  "staff",
+  "vendor",
+  "system",
+  "webhook",
+] as const);
 export type ActorType = (typeof ACTOR_TYPES)[number];
 
 /** Anything a timeline can hang off. */
@@ -325,6 +409,13 @@ export const SUBJECT_TYPES = values([
    * subject-scoped index actually finds the job's own history.
    */
   "job",
+  /**
+   * Vendor ticket 01. Without this an audit row *about* a vendor — an
+   * application decision, a verification outcome, a suspension — cannot be found
+   * by the `{subjectType, subjectId, createdAt}` index, which is the only way
+   * that history is ever read back.
+   */
+  "vendor",
 ] as const);
 export type SubjectType = (typeof SUBJECT_TYPES)[number];
 

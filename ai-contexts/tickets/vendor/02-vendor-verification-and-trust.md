@@ -38,9 +38,17 @@ Key layout, following the existing shape:
 innovatrix/{env}/vendors/{vendorId}/documents/{nanoid}-{safeName}
 ```
 
-`assertKeyBelongsTo` binds a key to its vendor, so a client-supplied key
-pointing at another vendor's documents is refused rather than attached. That is
-the same cross-tenant theft attack the product-file guard already closes.
+A key is bound to its vendor, so a client-supplied key pointing at another
+vendor's documents is refused rather than attached — the same cross-tenant theft
+attack the product-file guard already closes.
+
+> **Corrected during implementation.** This said `assertKeyBelongsTo`, which
+> cannot serve it: that helper hardcodes `${root}/products/${productId}/` and a
+> vendor document is `vendors/{id}/documents/`. It gets a fourth hand-rolled
+> sibling, `assertVendorDocumentKey`, alongside `assertPaymentProofKey` and
+> `assertAttachmentKey` — the latter of which carries a comment recording that its
+> first version *did* reuse `assertKeyBelongsTo` and would have rejected every
+> legitimate upload.
 
 **Bytes never pass through the server**, in either direction — presigned PUT up,
 presigned GET down. This is not a preference: the bucket is shared with
@@ -89,7 +97,7 @@ the decision fields are shaped so a provider becomes a driver behind them later.
 ## Acceptance criteria
 - [ ] A vendor uploads a document through a presigned PUT, and no document byte reaches the Next.js server except the 4KB range read that sniffs its type.
 - [ ] A `.exe` renamed `passport.pdf` is refused on magic bytes, and the object is removed.
-- [ ] A key belonging to another vendor is refused by `assertKeyBelongsTo`, not merely by being in the right prefix.
+- [ ] A key belonging to another vendor is refused by `assertVendorDocumentKey`, not merely by being in the right prefix.
 - [ ] A document is readable only through the authenticated route: anonymous gets 401, a customer 403, a staff member without the permission 403, and a staff member with it a 307 to a short-lived URL.
 - [ ] Every document read writes an audit row naming the staff member.
 - [ ] `publicObjectUrl()` is not reachable from any verification code path.

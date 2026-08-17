@@ -5,6 +5,7 @@ import type { RequestStatus } from "@/lib/db/enums";
 import { CustomerRequest, FollowUp, type CustomerRequestDoc } from "@/lib/db/models/requests";
 import { Quote } from "@/lib/db/models/billing";
 import { Organization, User } from "@/lib/db/models/identity";
+import { Vendor } from "@/lib/db/models/vendors";
 import { formatDateTime } from "@/lib/dates";
 
 /**
@@ -168,6 +169,12 @@ export interface StaffCounts {
   queues: Record<QueueKey, number>;
   quotesAwaiting: number;
   overdueFollowUps: number;
+  /**
+   * Vendor ticket 01. A field rather than a `QueueKey`, because every `QUEUES`
+   * entry is counted against `CustomerRequest` and a vendor application is not
+   * one — same reason `quotesAwaiting` is a field.
+   */
+  vendorApplications: number;
 }
 
 /**
@@ -180,12 +187,13 @@ export interface StaffCounts {
 export async function staffCounts(staffUserId: string): Promise<StaffCounts> {
   await connectToDatabase();
 
-  const [counts, quotesAwaiting, overdueFollowUps] = await Promise.all([
+  const [counts, quotesAwaiting, overdueFollowUps, vendorApplications] = await Promise.all([
     Promise.all(
       QUEUES.map((queue) => CustomerRequest.countDocuments(queue.filter({ staffUserId }))),
     ),
     Quote.countDocuments({ status: "issued" }),
     FollowUp.countDocuments({ status: "open", dueAt: { $lt: new Date() } }),
+    Vendor.countDocuments({ status: { $in: ["applied", "in_review"] }, deletedAt: null }),
   ]);
 
   return {
@@ -194,6 +202,7 @@ export async function staffCounts(staffUserId: string): Promise<StaffCounts> {
     ) as Record<QueueKey, number>,
     quotesAwaiting,
     overdueFollowUps,
+    vendorApplications,
   };
 }
 
