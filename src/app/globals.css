@@ -260,6 +260,30 @@
   }
 
   /**
+   * Monospace shows characters, not prose — so no ligatures.
+   *
+   * JetBrains Mono ships programming ligatures and `body` above enables them (`"liga"`). One of
+   * them is `://`, which renders as a colon plus a tightened double slash — and at 12.5px in a URL
+   * field that reads as `https: /example.com`. A vendor reported the demo and Open Graph fields
+   * "converting" their URLs; nothing converted anything, the value round-trips byte for byte, and
+   * the glyphs were lying about it.
+   *
+   * `--font-mono` exists in this design to carry **values** — references, slugs, keys, storage
+   * paths, URLs, checksums. A value has to render as its own characters: a font feature that makes
+   * `//` look like `/` is a defect in a field where the difference decides whether a link works.
+   *
+   * Applied to the utility rather than only to inputs, because reading a URL out of a table is the
+   * same task as reading one out of a field. Prose keeps its ligatures; nothing here is prose.
+   */
+  .font-mono,
+  [class*="var(--font-jetbrains)"] {
+    font-variant-ligatures: none;
+    font-feature-settings:
+      "liga" 0,
+      "calt" 0;
+  }
+
+  /**
    * One focus ring per control.
    *
    * This is the baseline for plain elements — links, native inputs, anything
