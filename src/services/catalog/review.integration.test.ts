@@ -478,6 +478,59 @@ describe("reviewing", () => {
     // same path a first-party product takes.
     expect(updated.status).toBe("internal_review");
   });
+
+  /*
+   * The reported defect. `claim` takes the same `submitted → internal_review` edge, so a
+   * reviewer who pressed "Start review" first — which the screen offers first and describes
+   * as the considerate thing to do — could never approve: the transition asked for
+   * `internal_review → internal_review` and was refused, naming two identical states.
+   * Approval worked only for somebody who skipped the claim.
+   */
+  it("approves a submission the reviewer claimed first", async () => {
+    await seedReadyProduct();
+    await submit();
+    await reviewService.claim(PRODUCT, STAFF_ACTOR);
+
+    const updated = await reviewService.approve(
+      { productId: PRODUCT, detail: "Looks good." },
+      { ...STAFF_ACTOR },
+    );
+
+    expect(updated.status).toBe("internal_review");
+
+    const doc = await catalog.Product.findById(PRODUCT).lean();
+    expect(doc!.reviewNotes.map((n) => n.outcome)).toEqual(["submitted", "approved"]);
+  });
+
+  /*
+   * With the `internal_review` case allowed, the guarded transition no longer refuses a
+   * second approval — so two reviewers could both approve, appending two notes and telling
+   * the vendor twice.
+   */
+  it("refuses a second approval of the same submission", async () => {
+    await seedReadyProduct();
+    await submit();
+    await reviewService.approve({ productId: PRODUCT, detail: "ok" }, { ...STAFF_ACTOR });
+
+    await expect(
+      reviewService.approve({ productId: PRODUCT, detail: "ok again" }, { ...STAFF_ACTOR }),
+    ).rejects.toThrow(/already been approved/);
+
+    const doc = await catalog.Product.findById(PRODUCT).lean();
+    expect(doc!.reviewNotes.filter((n) => n.outcome === "approved")).toHaveLength(1);
+  });
+
+  it("refuses a claim on a submission somebody else is already reviewing", async () => {
+    await seedReadyProduct();
+    await submit();
+    await reviewService.claim(PRODUCT, STAFF_ACTOR);
+
+    // The state machine's own wording named two identical states, which reads as our bug
+    // rather than as somebody having got there first.
+    await expect(reviewService.claim(PRODUCT, STAFF_ACTOR)).rejects.toThrow(
+      /already reviewing this one/,
+    );
+  });
 });
 
 /* ────────────────────────────────────────────── §37 */

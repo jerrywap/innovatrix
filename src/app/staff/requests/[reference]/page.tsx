@@ -96,9 +96,11 @@ export default async function Page({ params }: PageProps<"/staff/requests/[refer
             <h2 className="font-display text-[16px] tracking-[-0.02em]">
               Customer-confirmed requirements
             </h2>
+            {/* §34. The rule belongs in the comment; the number on the screen only
+                tells a reader there is a document they have not got. */}
             <p className="text-subtle text-[12px]">
-              §34 — the customer owns these. Record a different reading below rather than
-              editing them.
+              The customer owns these. Record a different reading below rather than editing
+              them.
             </p>
             <ul className="border-border divide-border divide-y rounded-xl border">
               {request.customerRequirements.map((requirement) => (

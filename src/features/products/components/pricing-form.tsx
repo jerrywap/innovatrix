@@ -81,7 +81,7 @@ export function PricingForm({
 
       <FieldGroup
         title="Service add-ons"
-        description="Installation, branding, data migration — the things sold alongside (§49)."
+        description="Installation, branding, data migration — the things sold alongside."
       >
         <Repeater
           initial={product.addons}
