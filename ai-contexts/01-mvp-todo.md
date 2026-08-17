@@ -397,11 +397,11 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 20.1 | Vendor model, authenticated application, state machine, `/dashboard/selling` segment, `requireVendor()` | [ ] | [ ] | vendor 01 |
-| 20.2 | Identity and business verification, document handling, trust badge | [ ] | [ ] | vendor 02 |
-| 20.3 | Two vendor roles (`owner`/`member`), invitations on the existing token rails | [ ] | [ ] | vendor 03 |
-| 20.4 | Product ownership (`vendorId`), vendor authoring workspace, vendor facet | [ ] | [ ] | vendor 04 |
-| 20.5 | Submission, staff review, rejection reasons, resubmission | [ ] | [ ] | vendor 05 |
+| 20.1 | Vendor model, authenticated application, state machine, `/dashboard/selling` segment, `requireVendor()` | [x] | [x] | vendor 01 |
+| 20.2 | Identity and business verification, document handling, trust badge | [x] | [x] | vendor 02 | ← docs upload + staff-only signed read route; `s3:DeleteObject` still denied, so `purgedAt` records intent
+| 20.3 | Two vendor roles (`owner`/`member`), invitations in our own `VendorInvitation` collection | [x] | [x] | vendor 03 | ← the `Verification` "rails" the ticket assumed do not exist — Better Auth owns that collection outright
+| 20.4 | Product ownership (`vendorId`), vendor authoring workspace, vendor facet | [x] | [~] | vendor 04 | ← nine of ten wizard steps; **versions deferred to vendor 06**, which owns delivery methods and has to scope ticket 07's file actions anyway
+| 20.5 | Submission, staff review, rejection reasons, resubmission | [x] | [x] | vendor 05 | ← `PRODUCT_TRANSITION_RULES` as data, replacing an ad-hoc ternary that existed twice
 | 20.6 | Delivery: platform archive **first**, then vendor-hosted mirror and repository-pulled release | [ ] | [ ] | vendor 06 |
 | 20.7 | Configurable commission (platform → vendor), snapshot on the order line | [ ] | [ ] | vendor 07 |
 | 20.8 | Append-only earnings ledger, clearance, refund clawback | [ ] | [ ] | vendor 08 |
