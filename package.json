@@ -32,7 +32,7 @@
     "jobs:probe": "tsx --conditions=react-server --env-file=.env.local scripts/jobs-probe.ts",
     "vendors:probe": "tsx --conditions=react-server --env-file=.env.local scripts/vendors-probe.ts",
     "payments:probe": "tsx --conditions=react-server --env-file=.env.local scripts/payments-probe.ts",
-    "scan:bundle": "tsx --env-file=.env.local scripts/bundle-secret-scan.ts",
+    "scan:bundle": "tsx --env-file-if-exists=.env.local scripts/bundle-secret-scan.ts",
     "audit:deps": "npm audit --audit-level=high",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration"
