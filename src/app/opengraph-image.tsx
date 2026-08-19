@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { BRAND } from "@/config/brand";
+import { BRAND_MARK_ACCENT, BRAND_MARK_INK } from "@/components/shell/brand-mark";
 
 /**
  * The default social card — §93.
@@ -44,25 +45,15 @@ export default async function Image() {
         padding: "72px 80px",
       }}
     >
-      {/* The lockup, drawn rather than imported: the mark's arcs are three path
-          strings, and duplicating them here costs less than making `brand-mark`
-          render under Satori, which supports a subset of SVG and no CSS
-          variables. `brand-mark.tsx` is the source these were copied from. */}
+      {/* The lockup. The paths are imported from `brand-mark.tsx` but the `<svg>`
+          is rebuilt here, because Satori renders a subset of SVG and resolves no
+          CSS variables — so the component itself cannot be used, only its
+          geometry, which is the part that must not drift. The dark theme's ink
+          and accent, as literals, since this card is always on the dark ground. */}
       <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-        <svg
-          width="54"
-          height="54"
-          viewBox="0.6 10 80 80"
-          fill="none"
-          strokeWidth={9.5}
-          strokeLinecap="round"
-        >
-          <path stroke="#fbfaf7" d="M70.26 27.25A34 34 0 1 0 62 79.44" />
-          <path
-            stroke="#fbfaf7"
-            d="M61.8 39.2A10.8 10.8 0 1 0 51 50a10.8 10.8 0 1 1-10.8 10.8"
-          />
-          <path stroke="#ff6a3d" d="M28 20.56A34 34 0 0 1 70.26 27.25" />
+        <svg width="58" height="58" viewBox="0 0 112 112">
+          <path fill="#fbfaf7" d={BRAND_MARK_INK} />
+          <path fill="#ff6a3d" d={BRAND_MARK_ACCENT} />
         </svg>
         <div
           style={{ display: "flex", fontSize: 40, letterSpacing: "-0.03em", fontWeight: 600 }}

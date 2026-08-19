@@ -1,19 +1,25 @@
 import { ImageResponse } from "next/og";
+import { BRAND_MARK_INK } from "@/components/shell/brand-mark";
 
 /**
- * The home-screen icon — white mark on the brand orange, per the brand sheet's
- * third app-mark treatment.
+ * The home-screen icon — white mark on the brand orange, matching the brand
+ * sheet's third app-mark treatment.
  *
- * ## Why generated, and why it is not the SVG
+ * ## Why generated, and why not `icon.svg`
  *
- * iOS ignores `icon.svg` and it does not composite a transparent icon onto
- * anything sensible, so this surface needs its own square, opaque, raster asset.
- * Generating it from the same arc geometry as `brand-mark.tsx` is what stops the
- * two drifting; a PNG exported once drifts the first time the mark is touched
- * and nobody notices, because nobody looks at their own home screen icon.
+ * iOS ignores `icon.svg`, and it will not composite a transparent icon onto
+ * anything sensible, so this surface needs its own square, opaque raster.
+ * Generating it from the same path constant as `brand-mark.tsx` is what stops
+ * the two drifting — a PNG exported once drifts the first time the mark is
+ * touched and nobody notices, because nobody inspects their own home screen.
  *
- * iOS also rounds the corners itself, so the square is drawn square. Rounding it
- * here would show as a dark seam inside Apple's own mask.
+ * **The accent is deliberately absent.** On an orange ground an orange terminal
+ * has nothing to contrast with; the brand sheet's orange tile is a solid white
+ * mark for the same reason. This is the one treatment that is monochrome by
+ * necessity rather than by choice.
+ *
+ * iOS rounds the corners itself, so the tile is drawn square — rounding it here
+ * shows as a dark seam inside Apple's own mask.
  */
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
@@ -27,23 +33,13 @@ export default async function AppleIcon() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        // Literals, not tokens: `ImageResponse` renders outside the document,
+        // A literal, not a token: `ImageResponse` renders outside the document,
         // so a CSS custom property has nothing to resolve against.
         background: "#e0521f",
       }}
     >
-      <svg
-        width="128"
-        height="128"
-        viewBox="0.6 10 80 80"
-        fill="none"
-        stroke="#ffffff"
-        strokeWidth={9.5}
-        strokeLinecap="round"
-      >
-        <path d="M70.26 27.25A34 34 0 1 0 62 79.44" />
-        <path d="M61.8 39.2A10.8 10.8 0 1 0 51 50a10.8 10.8 0 1 1-10.8 10.8" />
-        <path d="M28 20.56A34 34 0 0 1 70.26 27.25" />
+      <svg width="118" height="118" viewBox="0 0 112 112">
+        <path fill="#ffffff" d={BRAND_MARK_INK} />
       </svg>
     </div>,
     size,
