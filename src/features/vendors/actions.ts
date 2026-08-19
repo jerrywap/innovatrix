@@ -16,6 +16,7 @@ import { serverEnv } from "@/config/env";
 import { ForbiddenError } from "@/lib/errors";
 import { LIMITS, consume } from "@/lib/rate-limit";
 import { staffActor, vendorActor } from "@/services/audit";
+import { vendorChanged } from "@/services/catalog/cache";
 import { sendAuthEmail, vendorInvitationMessage } from "@/services/email";
 import * as documentService from "@/services/vendors/document-service";
 import * as memberService from "@/services/vendors/member-service";
@@ -46,6 +47,17 @@ import {
 
 function refreshSelling() {
   revalidatePath("/dashboard/selling", "layout");
+}
+
+/**
+ * The public storefront's cache — vendor ticket 11.
+ *
+ * `getStorefront` is a `"use cache"` read, so a profile edit or a verification decision would
+ * otherwise take up to the cache window to show. Called with the **slug**, which is immutable
+ * once verified (vendor ticket 01) — that immutability is what makes a slug-keyed tag safe.
+ */
+function refreshStorefront(slug?: string) {
+  if (slug) vendorChanged(slug);
 }
 
 function refreshStaffVendors(vendorId?: string) {
@@ -114,6 +126,7 @@ export async function saveProfileAction(
     );
 
     refreshSelling();
+    refreshStorefront(context.vendor.slug);
     return ok({ saved: true as const });
   });
 }
@@ -403,13 +416,16 @@ export async function reviewApplicationAction(
     const ip = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim();
     const userAgent = requestHeaders.get("user-agent");
 
-    await vendorService.transition(input.vendorId, to, staffActor(staff.user), {
+    const vendor = await vendorService.transition(input.vendorId, to, staffActor(staff.user), {
       ...(input.reason ? { reason: input.reason } : {}),
       ...(ip ? { ip } : {}),
       ...(userAgent ? { userAgent } : {}),
     });
 
     refreshStaffVendors(input.vendorId);
+    // Verifying a vendor creates their storefront and suspending one removes it, so the
+    // cached read has to go either way — vendor ticket 11.
+    refreshStorefront(vendor.slug);
     revalidatePath("/staff");
 
     return ok({ decided: true as const });

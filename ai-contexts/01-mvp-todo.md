@@ -49,7 +49,7 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 * Dynamic sandboxes and deployment automation (§10, §58)
 * Semantic/vector search (§74) — MVP is keyword + facets, Atlas Search index left in place to grow into
 * Product comparison (§6)
-* Ratings/reviews (§6) — **un-deferred**; the third-party vendor system needs them, see vendor ticket 10
+* Ratings/reviews (§6) — **un-deferred and now built** (vendor ticket 10, 2026-08-17). Purchase-gated on an active entitlement, one per entitlement by unique index, published on submission and reportable after. `AggregateRating` is emitted only where real reviews exist, which is the rule ticket 27 protected rather than an exception to it
 * Refunds beyond a manual admin-recorded refund (§62)
 * **Third-party vendors** — outside the MVP *and* outside the spec, which never mentions a second
   seller. Tracked as its own set in `tickets/vendor/`; summarised as bucket 20 below.
@@ -406,10 +406,10 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 | 20.7 | Configurable commission (platform → vendor), snapshot on the order line | [x] | [x] | vendor 07 | ← `/admin/settings/commission` as its own route: the payments page is gated on `payment_provider.configure`, which the role that sets our cut does not hold
 | 20.8 | Append-only earnings ledger, clearance, refund clawback | [x] | [x] | vendor 08 | ← the 14-day refund window existed only as prose; this introduces the constant and asserts clearance exceeds it. Statements deferred to 20.9, which owns them
 | 20.9 | Payouts, `PayoutProvider` interface, batches, self-billed statements | [x] | [x] | vendor 09 | ← `manual` is a real driver (unlike inbound, where it throws); a draft claims its entries so a second batch cannot see the same money; the statement is derived, so "immutable once paid" is a property of the data
-| 20.10 | Purchase-gated ratings and reviews, moderation, `AggregateRating` | [ ] | [ ] | vendor 10 |
-| 20.11 | Public vendor storefront, attribution, dynamic JSON-LD `seller` | [ ] | [ ] | vendor 11 |
-| 20.12 | Vendor analytics; suspension, offboarding, emergency delisting | [ ] | [ ] | vendor 12 |
-| 20.13 | Vendor support threads, either-party disputes, SLA, refund requests, takedown | [ ] | [ ] | vendor 13 |
+| 20.10 | Purchase-gated ratings and reviews, moderation, `AggregateRating` | [x] | [x] | vendor 10 | ← the aggregate is a **sum and a count**, never a stored average, recomputed from the reviews in the same transaction; hiding a review drops it from the rating immediately
+| 20.11 | Public vendor storefront, attribution, dynamic JSON-LD `seller` | [x] | [x] | vendor 11 | ← the grid goes through `searchMarketplace`, because a card's price is computed by that pipeline and not stored; the card became an overlay-link `<article>` so a second link inside it is valid HTML
+| 20.12 | Vendor analytics; suspension, offboarding, emergency delisting | [x] | [~] | vendor 12 | ← **traffic figures are absent by design** (nothing counts a page view; the screen says so rather than showing a placeholder). Unlisting via `listingSuppressed` keeps URLs, publish dates and reviews, so reinstating is one action
+| 20.13 | Vendor support threads, either-party disputes, SLA, refund requests, takedown | [x] | [x] | vendor 13 | ← `internal` now means **staff-only**, so a vendor cannot read a staff note about them either; the thread's subject is the entitlement, which makes the scope check the existing one
 
 ---
 

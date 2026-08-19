@@ -7,7 +7,11 @@ import { CustomerRequest } from "@/lib/db/models/requests";
 import { formatDateTime } from "@/lib/dates";
 import { User } from "@/lib/db/models/identity";
 import { ForbiddenError, NotFoundError } from "@/lib/errors";
-import { conversations, messages } from "@/repositories/conversation.repository";
+import {
+  conversations,
+  messages,
+  type MessageAudience,
+} from "@/repositories/conversation.repository";
 import { emit } from "@/lib/events";
 
 /**
@@ -48,6 +52,22 @@ export interface CustomerMessage {
   mine: boolean;
 }
 
+/**
+ * What a **vendor** sees — vendor ticket 13.
+ *
+ * A separate type with no `visibility` field, for exactly the reason `CustomerMessage` has none:
+ * layer 3. A vendor may read `customer` and `vendor` messages and must never read an `internal`
+ * one, and a type that cannot express an internal message cannot serialise one into a vendor's
+ * payload even if the query filter were got wrong.
+ *
+ * It is not `CustomerMessage` under another name, because the two audiences see different sets
+ * and one type for both would be a type that lies to one of them.
+ */
+export interface VendorMessage extends CustomerMessage {
+  /** Whether this message is also visible to the customer. The vendor needs to know. */
+  visibleToCustomer: boolean;
+}
+
 /** What staff see. Carries `visibility`, because staff must know which is which. */
 export interface StaffMessage extends CustomerMessage {
   visibility: MessageVisibility;
@@ -64,6 +84,23 @@ export async function customerThread(input: {
   return thread({ ...input, audience: "customer" });
 }
 
+/**
+ * The thread as the vendor reads it — vendor ticket 13.
+ *
+ * Its own exported function, like `customerThread` and `staffThread`, so a vendor-facing caller
+ * has **no audience parameter to get wrong**. That is layer 2 of §37's boundary, and adding a
+ * third audience is exactly the change that would have broken it if the audience were an
+ * argument threaded through from a page.
+ */
+export async function vendorThread(input: {
+  organizationId: string;
+  subjectType: ConversationSubjectType;
+  subjectId: string;
+  viewerUserId: string;
+}): Promise<VendorMessage[]> {
+  return thread({ ...input, audience: "vendor" }) as Promise<VendorMessage[]>;
+}
+
 export async function staffThread(input: {
   organizationId: string;
   subjectType: ConversationSubjectType;
@@ -78,8 +115,8 @@ async function thread(input: {
   subjectType: ConversationSubjectType;
   subjectId: string;
   viewerUserId: string;
-  audience: "customer" | "staff";
-}): Promise<CustomerMessage[] | StaffMessage[]> {
+  audience: MessageAudience;
+}): Promise<CustomerMessage[] | VendorMessage[] | StaffMessage[]> {
   await connectToDatabase();
 
   const conversation = await conversations.findForSubject(
@@ -128,7 +165,17 @@ async function thread(input: {
     // Layer 3 in practice: this spread is the *only* place `visibility` can
     // enter a DTO, and it cannot fire for a customer.
     ...(input.audience === "staff" ? { visibility: row.visibility } : {}),
-  })) as CustomerMessage[] | StaffMessage[];
+    /*
+     * A vendor gets a *derived boolean*, not the field — vendor ticket 13.
+     *
+     * They genuinely need to know whether the customer can see a message (it changes what they
+     * write next), and "customer or not" is the whole of what they need. Handing them
+     * `visibility` would put `"internal"` in the type of a payload that must never carry one.
+     */
+    ...(input.audience === "vendor"
+      ? { visibleToCustomer: row.visibility === "customer" }
+      : {}),
+  })) as CustomerMessage[] | VendorMessage[] | StaffMessage[];
 }
 
 /* ────────────────────────────────────────────── writes */
@@ -138,7 +185,7 @@ export interface PostInput {
   subjectType: ConversationSubjectType;
   subjectId: string;
   senderUserId: string;
-  senderType: "customer" | "staff";
+  senderType: "customer" | "staff" | "vendor";
   body: string;
   visibility: MessageVisibility;
   attachments?: Array<{
@@ -180,8 +227,26 @@ export async function postMessage(input: PostInput): Promise<PostResult> {
     throw new ForbiddenError("A message needs something in it.");
   }
 
+  /*
+   * What each sender is *allowed* to choose.
+   *
+   * - A **customer** is forced to `customer`. They have no legitimate reason to post an
+   *   internal note, so the safest reading of `visibility: "internal"` arriving from one is
+   *   "somebody is probing" — and coercing is one fewer branch than refusing.
+   * - A **vendor** may choose `customer` (answering the buyer) or `vendor` (a note to us), and
+   *   `internal` is coerced to `vendor`. Vendor ticket 13 made `internal` mean staff-only, and
+   *   that now includes hiding it from the vendor — so a vendor writing one would be writing a
+   *   note they could not then read.
+   * - **Staff** choose freely; that is the point of the field.
+   */
   const visibility: MessageVisibility =
-    input.senderType === "customer" ? "customer" : input.visibility;
+    input.senderType === "customer"
+      ? "customer"
+      : input.senderType === "vendor"
+        ? input.visibility === "customer"
+          ? "customer"
+          : "vendor"
+        : input.visibility;
 
   const conversation = await conversations.findOrCreateForSubject({
     organizationId: input.organizationId,
@@ -221,6 +286,17 @@ export async function postMessage(input: PostInput): Promise<PostResult> {
             ? { lastStaffMessageAt: new Date() }
             : {}),
       },
+      /*
+       * Vendor ticket 13's SLA measurement, stamped **once**.
+       *
+       * `$setOnInsert` cannot be used on an update, so `$min` does the job: the earliest
+       * customer-visible vendor reply wins, and a second reply cannot move the figure. Only a
+       * customer-visible reply counts — a note to us is not an answer to the buyer, and letting
+       * it stop the clock would report a response time nobody experienced.
+       */
+      ...(input.senderType === "vendor" && visibility === "customer"
+        ? { $min: { firstVendorResponseAt: new Date() } }
+        : {}),
       $addToSet: { participantUserIds: toObjectId(input.senderUserId) },
     },
   );
@@ -335,7 +411,7 @@ export async function listConversationsForStaff(input: {
 async function inbox(input: {
   organizationId?: string;
   userId: string;
-  audience: "customer" | "staff";
+  audience: MessageAudience;
   limit?: number;
 }): Promise<ConversationSummary[]> {
   await connectToDatabase();
@@ -371,6 +447,40 @@ async function inbox(input: {
         reference: subject.reference,
         title: subject.title ?? subject.reference,
       });
+    }
+  }
+
+  /*
+   * Vendor support threads — vendor ticket 13, and the reason the map above is keyed by id.
+   *
+   * §38 and §101: a customer should not have to work out which of three parties owns their problem
+   * before they can ask about it, so their request threads, order threads and vendor threads are
+   * one inbox. The subject is an entitlement, so the recognisable label is the **product name** —
+   * "Northwind Dispatch" is what the customer thinks they are asking about, not an entitlement id.
+   */
+  const supportIds = rows
+    .filter((row) => row.subjectType === "vendor_support")
+    .map((row) => row.subjectId);
+
+  if (supportIds.length > 0) {
+    const { Entitlement } = await import("@/lib/db/models/commerce");
+    const { Product } = await import("@/lib/db/models/catalog");
+
+    const entitlements = await Entitlement.find({ _id: { $in: supportIds } })
+      .select({ productId: 1 })
+      .lean<Array<{ _id: unknown; productId: import("mongoose").Types.ObjectId }>>();
+
+    const products = await Product.find({
+      _id: { $in: entitlements.map((row) => row.productId) },
+    })
+      .select({ name: 1 })
+      .lean<Array<{ _id: unknown; name: string }>>();
+    const nameById = new Map(products.map((row) => [String(row._id), row.name]));
+
+    for (const row of entitlements) {
+      const name = nameById.get(String(row.productId));
+      if (!name) continue;
+      subjects.set(String(row._id), { reference: name, title: `Support · ${name}` });
     }
   }
 

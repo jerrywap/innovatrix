@@ -112,7 +112,7 @@ export function NewVersionForm({
 
       <FieldGroup
         title="Who gets this free"
-        description="§45 — recorded here, enforced when a customer downloads."
+        description="Recorded here, enforced when a customer downloads."
       >
         <label className="flex items-center gap-2.5 text-[13.5px]">
           <Checkbox name="updateEligibility[includesPriorMajor]" value="on" />

@@ -86,6 +86,31 @@ export interface QuoteDoc {
   acceptedAt?: Date;
   acceptedQuoteVersion?: number;
   rejectionReason?: string;
+
+  /* ── vendor ticket 14: custom work on a vendor's product ── */
+
+  /** Whose software this quote is about. Absent ⇒ the platform's own work, as before. */
+  vendorId?: Types.ObjectId;
+  /** The brief the vendor priced, for provenance. */
+  vendorBriefId?: Types.ObjectId;
+  /**
+   * **The vendor's own figure**, and the basis for what they are owed — not the quote total.
+   *
+   * Two numbers, deliberately. The vendor priced the work and that price is what their earning is
+   * computed from; the customer's total defaults to it but staff may quote higher, and the difference
+   * is platform margin on top of commission. Reading the vendor's share off the *total* would mean a
+   * staff member raising the price silently raised what we owe, which is not what "the vendor prices
+   * it" promised.
+   */
+  vendorAmount?: { amount: number; currency: string };
+  /**
+   * The commission rate, **snapshotted when the quote was issued**.
+   *
+   * The same rule as `OrderLine.commissionBasisPoints` — "resolved at checkout and never re-read".
+   * A rate change must not retroactively alter what a vendor is owed on work already quoted, and
+   * reading `resolveCommissionForVendor()` at payment time would do exactly that.
+   */
+  vendorCommissionBasisPoints?: number;
 }
 
 const quoteSchema = new Schema<QuoteDoc>(
@@ -150,6 +175,12 @@ const quoteSchema = new Schema<QuoteDoc>(
     acceptedAt: Date,
     acceptedQuoteVersion: Number,
     rejectionReason: String,
+
+    // Vendor ticket 14. All absent on every quote that existed before it, and on first-party work.
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
+    vendorBriefId: { type: Schema.Types.ObjectId, ref: "VendorBrief" },
+    vendorAmount: { type: MoneySchema },
+    vendorCommissionBasisPoints: Number,
   },
   schemaOptions({ collection: "quotes" }),
 );

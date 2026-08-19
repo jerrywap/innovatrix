@@ -1,9 +1,10 @@
 import "server-only";
-import type { ClientSession } from "mongoose";
+import type { ClientSession, Types } from "mongoose";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import { counterStore } from "@/lib/db/counter-store";
 import type { RequestKind, RequestStatus } from "@/lib/db/enums";
+import { Product } from "@/lib/db/models/catalog";
 import { ActivityEvent } from "@/lib/db/models/communication";
 import {
   AiConversation,
@@ -337,6 +338,29 @@ export async function submitFromConversation(input: SubmitInput): Promise<Custom
 
   const prefix = input.kind === "customization" ? "CUS" : "REQ";
 
+  /*
+   * Whose software is this about — vendor ticket 14.
+   *
+   * Resolved here and nowhere else, because this is the one moment the answer is knowable and
+   * fixed: the product may change hands later, and the request was still asked of whoever was
+   * selling it. Absent for a first-party product and for every `custom_build`, which has no base
+   * product to own.
+   *
+   * Read **outside** the transaction on purpose. It is a single indexed read of a public catalogue
+   * row, nothing in the transaction depends on its freshness, and holding a session open across it
+   * would lengthen the transaction for no gain.
+   *
+   * This does **not** notify the vendor. Staff triage first (decision W3), so routing is a separate
+   * deliberate act — see `brief-service.routeToVendor`.
+   */
+  const vendorId: Types.ObjectId | undefined = input.baseProductId
+    ? ((
+        await Product.findById(toObjectId(input.baseProductId))
+          .select({ vendorId: 1 })
+          .lean<{ vendorId?: Types.ObjectId }>()
+      )?.vendorId ?? undefined)
+    : undefined;
+
   const request = await withTransaction(async (session) => {
     const existing = await AiConversation.findById(toObjectId(input.conversationId))
       .session(session)
@@ -371,6 +395,7 @@ export async function submitFromConversation(input: SubmitInput): Promise<Custom
           ...(input.baseProductVersionNumber
             ? { baseProductVersionNumber: input.baseProductVersionNumber }
             : {}),
+          ...(vendorId ? { vendorId } : {}),
           customerRequirements: input.customerRequirements,
           assumptions: input.assumptions,
           requirementsVersion: 1,

@@ -42,12 +42,30 @@ export function QuoteBuilder({
   organizationId,
   currency,
   defaultTitle,
+  vendorQuote,
 }: {
   requestId: string;
   reference: string;
   organizationId: string;
   currency: string;
   defaultTitle: string;
+  /**
+   * Vendor ticket 14 — a vendor has priced this, and their figure prefills the first line.
+   *
+   * Prefilled rather than locked. The vendor's number is what *they* are owed and it is fixed on the
+   * brief; what the customer is quoted is staff's call, and any excess is platform margin. A read-only
+   * field would imply the two are the same, and a staff member wanting margin would work around it by
+   * adding a second line — which is worse, because then neither number means what it says.
+   *
+   * Only `briefId` is posted. Everything about the money is re-read from the brief on the server.
+   */
+  vendorQuote?: {
+    briefId: string;
+    vendorName: string;
+    /** Decimal, for the input. The server converts from the brief, not from this. */
+    amountDecimal: string;
+    effort: string;
+  };
 }) {
   const [state, submit] = useActionState(saveQuoteDraftAction, null);
   const [rows, setRows] = useState([0]);
@@ -72,6 +90,18 @@ export function QuoteBuilder({
       <input type="hidden" name="reference" value={reference} />
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="currency" value={currency} />
+      {vendorQuote && <input type="hidden" name="briefId" value={vendorQuote.briefId} />}
+
+      {vendorQuote && (
+        <p className="rounded-lg border border-[var(--signal)]/40 bg-[var(--signal)]/5 px-3 py-2.5 text-[13px]">
+          {vendorQuote.vendorName} priced this at{" "}
+          <span className="font-mono">
+            {vendorQuote.amountDecimal} {currency}
+          </span>{" "}
+          — {vendorQuote.effort}. That figure is what they are owed, and it is prefilled below.
+          Quote higher if we are adding to it; the difference is ours.
+        </p>
+      )}
 
       <Field label="Title">
         <Input name="title" defaultValue={defaultTitle} maxLength={200} required />
@@ -125,10 +155,15 @@ export function QuoteBuilder({
                 maxLength={300}
                 required
                 aria-label={`Line ${index + 1} description`}
+                {...(index === 0 && vendorQuote
+                  ? { defaultValue: `${defaultTitle} — built by the vendor` }
+                  : {})}
               />
               <select
                 name={`items[${index}][kind]`}
-                defaultValue="development"
+                // `third_party` for a vendor's work, which is what it is: the platform is reselling
+                // somebody else's development. The category already existed in `QUOTE_ITEM_KINDS`.
+                defaultValue={index === 0 && vendorQuote ? "third_party" : "development"}
                 className="border-border bg-background rounded-lg border px-2.5 py-1.5 text-[12.5px]"
                 aria-label={`Line ${index + 1} kind`}
               >
@@ -146,6 +181,9 @@ export function QuoteBuilder({
               inputMode="decimal"
               required
               aria-label={`Line ${index + 1} unit price in ${currency}`}
+              {...(index === 0 && vendorQuote
+                ? { defaultValue: vendorQuote.amountDecimal }
+                : {})}
             />
             <Input
               name={`items[${index}][quantity]`}

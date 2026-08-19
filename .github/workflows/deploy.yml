@@ -1,0 +1,80 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches:
+      - main
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+
+    # Deploy only when CI completed successfully.
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DEPLOY_SHA='$DEPLOY_SHA' bash -s" <<'EOF'
+            set -euo pipefail
+
+            cd /home/cosetup/htdocs/cosetup.net
+
+            echo "==> Deploying $DEPLOY_SHA"
+
+            git fetch origin main
+            git reset --hard "$DEPLOY_SHA"
+
+            echo "==> Installing dependencies"
+            npm ci
+
+            echo "==> Building application"
+            npm run build
+
+            echo "==> Reloading application"
+            pm2 reload cosetup --update-env
+
+            echo "==> Saving PM2 process list"
+            pm2 save
+
+            echo "==> Waiting for application"
+            sleep 5
+
+            echo "==> Running health check"
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --retry 5 \
+              --retry-delay 3 \
+              http://127.0.0.1:3000/ \
+              > /dev/null
+
+            echo "==> Deployment successful"
+          EOF

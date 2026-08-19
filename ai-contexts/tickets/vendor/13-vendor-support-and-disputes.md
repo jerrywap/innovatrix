@@ -33,6 +33,28 @@ internal message in it. Vendors get the same treatment as a third audience.
 A staff assessment of a vendor's responsiveness is exactly the note that must
 not reach them.
 
+> **Implemented 2026-08-17 — a third audience, not a third filter.**
+> `MESSAGE_VISIBILITIES` gained `vendor`, and the audience became a union
+> (`"customer" | "vendor" | "staff"`) rather than the boolean it could have
+> stayed. `visibilityFilter()` in the repository is the single query fragment
+> both the thread read and the unread count use, so the two cannot disagree —
+> which matters because a note bumping a customer's unread count tells them a
+> note exists even if they never see it.
+>
+> All three layers of §37's boundary extend rather than bend:
+>
+> 1. **Query** — `visibilityFilter` is in the `find`, not applied after it.
+> 2. **A function per audience** — `vendorThread()` alongside `customerThread()`
+>    and `staffThread()`, so a vendor-facing caller has no audience argument to
+>    get wrong.
+> 3. **A type per audience** — `VendorMessage` has no `visibility` field, so an
+>    internal message cannot be serialised into a vendor payload even if the
+>    first two failed. It carries a derived `visibleToCustomer` boolean instead,
+>    which is the whole of what a vendor needs to know.
+>
+> A vendor's own `internal` is coerced to `vendor`, because since `internal`
+> means staff-only they would be writing a note they could not read back.
+
 ### Who answers first
 
 The vendor. They wrote the software, and routing every question through staff
@@ -57,6 +79,18 @@ somebody has to notice is due.
 | Customer | not as described, does not work, refund refused | decide |
 | Vendor | abusive or fraudulent buyer, licence misuse, a review they believe breaches policy | decide |
 
+> **Implemented 2026-08-17 — `Conversation.dispute`, and the thread is the record.**
+> Raising one sets `escalatedAt` in the same update, so "raising it pulls staff
+> in" is one write rather than a second step somebody could omit. A second open
+> dispute on the same thread is refused: the other party's position belongs *in*
+> the conversation as a message, not as a competing dispute about the same
+> argument.
+>
+> `$set` on the whole subdocument replaces it, with no `$unset` of the old
+> outcome fields alongside — MongoDB refuses `$set` on a path and `$unset` on its
+> child in one update, which is how the first version failed loudly rather than
+> quietly.
+
 A dispute is a state on the thread rather than a fourth subject type — the
 conversation is already there and splitting it would mean two records of one
 argument. Raising it notifies staff immediately, adds them as participants, and
@@ -68,6 +102,20 @@ Any active vendor member may raise or answer a dispute (vendor ticket 03) — th
 is not owner-only. The person who knows why the software behaved that way is
 whoever wrote it, and gating it on the account holder is how a Friday becomes a
 Monday.
+
+> **Implemented 2026-08-17 — recording the decision does not perform it.**
+> `resolveDispute` requires an outcome *and* a reason, guards on the current
+> status so two reviewers produce one decision, closes the follow-up, and tells
+> both parties. What it deliberately does **not** do is carry the outcome out: a
+> refund, a delisting, a review removal and a suspension each have their own
+> service, permission and audit row, and a resolver that triggered them would be
+> a second way into all four. The screen says so under the control, so nobody
+> assumes a refund has gone out.
+>
+> `no_action` is in the outcome enum for a reason: a dispute decided in the
+> vendor's favour is a real decision, and without it a reviewer's only choices
+> would be to act or to leave the thread open — which is exactly how a dispute
+> goes quiet.
 
 Staff resolve it explicitly: an outcome, a reason, and whatever action follows —
 refund, delisting, review removal, vendor suspension, or nothing. Recorded on the
@@ -81,6 +129,16 @@ thread so the expectation is set rather than discovered. Time-to-first-response
 is measured and feeds the operational signals on vendor ticket 12's staff view —
 distinct from the rating, which is customer opinion. A vendor may be well rated
 and slow.
+
+> **Implemented 2026-08-17 — hourly, not daily, and the reason is arithmetic.**
+> The targets are 24 and 48 hours (`SLA_HOURS`, from the verification level), so
+> a daily sweep would report a breach up to a day late — on a 24-hour target that
+> is a 100% margin of error. The query is `{responseDueAt, firstVendorResponseAt}`-
+> indexed and finds nothing most hours.
+>
+> `firstVendorResponseAt` is stamped with `$min` by the vendor's first
+> **customer-visible** reply. A note to us is not an answer to the buyer, and
+> letting one stop the clock would report a response time nobody experienced.
 
 An overdue thread creates a follow-up for staff, reusing ticket 20's `FollowUp`
 model and the daily reminder sweep from ticket 25 — the `{status, dueAt}` index
@@ -130,22 +188,57 @@ deferred post-MVP for the platform's own support, and no more justified here.
 Vendor-to-vendor communication. Automated takedown processing.
 
 ## Acceptance criteria
-- [ ] A vendor support thread uses the existing conversation model, not a second one.
-- [ ] A customer never receives an `internal` message — not in the page, the payload, or a notification.
-- [ ] A **vendor** never receives an `internal` message, and this is asserted separately from the customer case.
-- [ ] A `vendor`-visibility message reaches the vendor and staff and never the customer.
-- [ ] A vendor can only see threads about their own products, asserted in the tenant-isolation suite.
-- [ ] A thread opens against the vendor with staff able to observe.
-- [ ] Escalation adds staff without removing the vendor.
-- [ ] Both a customer and a vendor can raise a dispute, and either one notifies staff and creates a follow-up.
-- [ ] Any active vendor member can raise and answer a dispute; it is not owner-only.
-- [ ] A dispute cannot be closed without an outcome and a reason, and both parties are told what was decided.
-- [ ] A raised dispute is visible to both parties, not only to the one who raised it.
-- [ ] An overdue thread creates a staff follow-up through the existing model and reminder sweep.
-- [ ] Time-to-first-response is measured per vendor and visible to staff.
-- [ ] A vendor cannot approve or refuse a refund.
-- [ ] An approved refund suspends rather than revokes the entitlement and writes the negative ledger entry.
-- [ ] The vendor is notified of a refund and its reason, and can reconcile it against their balance.
-- [ ] A takedown claim records the claimant and the allegation, and every step is audited.
-- [ ] A delisted product's existing customers keep their downloads unless the resolution says otherwise.
-- [ ] A customer sees request, order and vendor threads in one inbox.
+- [x] A vendor support thread uses the existing conversation model, not a second one.
+- [x] A customer never receives an `internal` message — not in the page, the payload, or a notification.
+- [x] A **vendor** never receives an `internal` message, and this is asserted separately from the customer case.
+- [x] A `vendor`-visibility message reaches the vendor and staff and never the customer.
+- [x] A vendor can only see threads about their own products, asserted in the tenant-isolation suite.
+- [x] A thread opens against the vendor with staff able to observe.
+- [x] Escalation adds staff without removing the vendor.
+- [x] Both a customer and a vendor can raise a dispute, and either one notifies staff and creates a follow-up.
+- [x] Any active vendor member can raise and answer a dispute; it is not owner-only.
+- [x] A dispute cannot be closed without an outcome and a reason, and both parties are told what was decided.
+- [x] A raised dispute is visible to both parties, not only to the one who raised it.
+- [x] An overdue thread creates a staff follow-up through the existing model and reminder sweep.
+- [x] Time-to-first-response is measured per vendor and visible to staff.
+- [x] A vendor cannot approve or refuse a refund.
+- [x] An approved refund suspends rather than revokes the entitlement and writes the negative ledger entry.
+- [x] The vendor is notified of a refund and its reason, and can reconcile it against their balance.
+- [x] A takedown claim records the claimant and the allegation, and every step is audited.
+- [x] A delisted product's existing customers keep their downloads unless the resolution says otherwise.
+- [x] A customer sees request, order and vendor threads in one inbox.
+
+## Implementation notes — 2026-08-17
+
+**The thread's subject is the entitlement.** One choice, three jobs: the scope check is the same
+indexed `organizationId` filter every other thread uses, a customer can only open a thread about
+something they actually bought (no second rule needed), and the vendor is derivable from the
+product. It also makes open-and-reply the same operation, since the conversation's unique
+`(subjectType, subjectId)` index means the second message continues the first thread.
+
+**`VendorSupportThreadOpened` fires only on the first message.** A vendor notified "a question
+about X" on every reply learns to ignore the notification; the reply itself already produces a
+`MessagePosted`.
+
+**A second question does not restart the response clock.** `responseDueAt` is set only when unset
+or when the previous cycle was answered — otherwise a customer chasing an unanswered thread would
+push the deadline out by asking again.
+
+**"An approved refund suspends rather than revokes" was already true.** `processPaymentRefunded`
+takes that position (vendor ticket 08 attached the negative ledger entry to it), so the refund half
+of this ticket is a *route in* rather than new behaviour: `requestRefund` records the ask as a
+dispute so staff are pulled in, and `assertNotVendorRefund` is the structural guard that fails
+loudly if somebody adds a vendor-facing refund action by copying a staff one.
+
+**Takedown: receiving and delisting are separate steps, deliberately.** A claim is not a finding,
+and a system that delisted on receipt is one where a competitor takes a product down by emailing
+us. Step 1 records the claim whether or not step 2 follows; step 2 goes through vendor ticket 12's
+`emergencyDelist`, so entitlements are **suspended, not revoked** by the same one decision.
+
+**The allegation is copied into the audit row as well as onto the claim.** The claim document is
+mutable by design — its status moves — and §90's append-only copy is what proves what was alleged
+and when. A takedown is the thing most likely to be litigated.
+
+**Every reason a party reads is stored verbatim and rendered escaped.** Dispute details, outcome
+reasons and takedown allegations are all attacker-influenced text shown to the other party; none of
+it goes near `dangerouslySetInnerHTML`.

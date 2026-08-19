@@ -172,3 +172,80 @@ and is not pretended at here.
 - [x] Every transition writes an audit row naming the actor and the reason where there is one.
 - [x] `PRODUCT_TRANSITION_RULES` is data, and a test iterates every edge asserting who may take it.
 - [x] Publishing emits `ProductPublished`, and the vendor is told their product is live.
+
+## Follow-up — 2026-08-17
+
+### Claiming a submission made approving it impossible
+
+Reported from `/staff/vendor-submissions/[id]`: **"I wanted to approve. A product cannot move from
+internal_review to internal_review."**
+
+`claim` and `approve` both took `submitted → internal_review`. The note in `review-service.ts`
+called that deliberate — approving a *submission* is not approving a *product* — and the reasoning
+holds, but it makes the two mutually exclusive: press **Start review**, which the screen offers
+first and describes as the considerate thing to do, and approval then asks the state machine for a
+self-edge. `assertTransition` refuses it, correctly and unhelpfully, naming two identical states.
+Approval worked only for a reviewer who skipped the claim, which is the opposite of the order the
+screen suggests.
+
+`approve` now accepts a product already in `internal_review` and moves no state, because the state
+is already where approval puts it. The decision never was the transition: it is the note the vendor
+reads, the audit row, and `ProductApproved`.
+
+That loses a guarantee the guarded transition was giving for free, so it is replaced explicitly:
+`alreadyApproved(product)` reads `reviewNotes` — append-only, and already holding exactly this — for
+an `approved` note after the newest `submitted` one. Two reviewers can no longer both approve and
+tell the vendor twice, and a resubmission reopens the question by construction, with no flag to
+clear. The staff screen uses the same predicate to stop drawing a form whose only outcome would be
+that refusal, and `claim` on a claimed submission now says somebody got there first rather than
+quoting the state machine at a reviewer.
+
+### Spec section numbers were reaching users
+
+Also reported, from the same screen: the internal-note hint read *"Never sent to the vendor and never
+in their payload — §37."*
+
+`§37` is a reference into our own technical document. The comments in this codebase are full of
+those on purpose — naming the rule a line obeys is worth more than restating the line — but that is
+a conversation between people who have the document. Six had escaped into visible copy: the hint
+above, four wizard field-group descriptions a **vendor** reads on their own product ("the things
+sold alongside (§49)"), and a staff request screen. A reader who cannot resolve the reference
+concludes something was pasted from a place they were not meant to see, and they are right.
+
+All six are rewritten to say the rule, with the section number moved into the comment beside them.
+`src/app/internal-shorthand.test.ts` strips comments and fails on a `§` anywhere in `src/app`,
+`src/features` or `src/components` — it found the sixth one itself. Test files keep theirs, since a
+`describe("§84 …")` names the rule under test and no user reads a test name; `/concepts` is exempt
+as an internal design scratchpad that argues in spec terms.
+
+### "Still cannot see how to publish it"
+
+Reported straight after the approval above: the reviewer opened
+`/admin/products/[id]/review` and found no way to publish. Nothing was broken — the product was
+in `internal_review`, `ready → published` is the only edge that publishes, and the two are three
+hops apart. **The screen never said so**, which made a working pipeline look like a missing button.
+
+`PublishPanel` printed the legal destinations as bare status names — "Testing", "Changes
+requested", "Draft", "Archived" — in one row, at one weight, with `Publish` highlighted only when
+it happened to be among them. So at every stage before `ready` the panel read as a dead end with
+four equal exits, one of which archives the product.
+
+Three changes, no new mechanism:
+
+1. **A rail.** `PRODUCT_PUBLICATION_PATH` — a new display-only ordering beside
+   `PRODUCT_TRANSITIONS`, because the graph is deliberately directionless and cannot answer "what
+   is ahead of me" — drawn with the current position marked. `states.test.ts` checks every
+   consecutive pair is a real edge with a rule, so the rail cannot show a step the machine refuses.
+2. **Edge labels, not destination names.** `PRODUCT_TRANSITION_RULES` has carried "Send to
+   testing", "Mark ready", "Publish", "Request changes" since vendor ticket 05 wrote it, and this
+   panel was ignoring every one of them to print the target state instead. A verb says what the
+   button does.
+3. **Forward first.** The step that advances toward sale is the primary button, separated from the
+   ones that go back or archive. The forward step is the *furthest*-forward legal destination,
+   which is what makes `draft` work without a special case: it has two forward edges, and the later
+   one (`internal_review`, "Send to review") is the staff route, while `submitted` belongs to the
+   vendor and has no staff permission at all.
+
+The three deliberate steps stay deliberate — a vendor's product goes through the same testing
+checklist and readiness gate as a first-party one, which is this ticket's whole premise. They are
+now visible instead of inferred.

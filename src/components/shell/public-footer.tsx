@@ -26,6 +26,20 @@ const COLUMNS: ReadonlyArray<{
     ],
   },
   {
+    /*
+     * Vendor tickets 01 and 11 — the front door.
+     *
+     * `/sell` existed for six tickets and was linked from **nowhere**: not here, not in
+     * `PUBLIC_NAV`, not on the homepage, not in the sitemap. The application form behind it
+     * worked perfectly and no visitor could reach it, which is the same as not having built it.
+     */
+    heading: "Sell with us",
+    links: [
+      { label: "Sell your software", href: "/sell" },
+      { label: "Vendor agreement", href: "/terms/vendor" },
+    ],
+  },
+  {
     heading: "Legal",
     links: [
       { label: "Terms", href: "/terms" },

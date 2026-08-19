@@ -163,9 +163,51 @@ describe("a version cannot be released while its artefact is not here", () => {
 
   it("leaves an archive-method version alone — it has no source to wait for", async () => {
     await seed();
+    // The fixture product is `vendor_hosted`, so the method has to be set for this to be
+    // the case it names. It said "archive" and tested the other method for a while.
+    await catalog.Product.updateOne({ _id: PRODUCT }, { $set: { deliveryMethod: "archive" } });
+
     // No `artefactSource` at all, which is what a direct upload looks like.
     const released = await versionService.releaseVersion(VERSION, ACTOR, SCOPE);
     expect(released.status).toBe("released");
+  });
+
+  /*
+   * The reported defect: a vendor tried the repository method, the fetch 404'd, they
+   * switched back to `archive` and uploaded a package — and release refused for ever,
+   * quoting a URL that is no longer part of how this product is delivered. Worse, they
+   * could not clear it: `DeliverySource` renders only for the two remote methods, so under
+   * `archive` the failed source is not on the screen at all.
+   */
+  it("ignores a failed source left over from a method the product no longer uses", async () => {
+    await seed();
+    await catalog.Product.updateOne({ _id: PRODUCT }, { $set: { deliveryMethod: "archive" } });
+    await catalog.ProductVersion.updateOne(
+      { _id: VERSION },
+      {
+        $set: {
+          artefactSource: {
+            status: "failed",
+            repositoryUrl: "https://github.com/someone/abandoned",
+            tag: "abc",
+            failureReason: "That URL answered 404.",
+          },
+        },
+      },
+    );
+
+    const released = await versionService.releaseVersion(VERSION, ACTOR, SCOPE);
+    expect(released.status).toBe("released");
+  });
+
+  it("refuses a remote-method version with no source, naming what is missing", async () => {
+    await seed();
+    // `vendor_hosted` from the fixture, and nothing filled in. This used to fall through to
+    // "upload an application package", which names a control the screen does not have under
+    // either remote method.
+    await expect(versionService.releaseVersion(VERSION, ACTOR, SCOPE)).rejects.toThrow(
+      /nowhere to fetch from/,
+    );
   });
 });
 

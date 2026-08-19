@@ -1,8 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Loader2, Plus, Sparkles, Trash2, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Loader2, Plus, Sparkles, Trash2, TriangleAlert } from "lucide-react";
+import Link from "next/link";
+import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -33,6 +35,20 @@ import {
  *
  * `signedIn === false` or a failed summary both land on the same editor with an
  * empty line in it. §104: the customer must be able to submit regardless.
+ *
+ * ## Sending it has to look like it happened
+ *
+ * It did not. `submitRequirementsAction` returned `ok({ reference })`, this component
+ * rendered the failure branch and **nothing at all** for success, and the form stayed on
+ * screen with every field still filled in. A customer pressed the button, saw no change,
+ * reloaded, filled it in again and pressed it again — three times, producing CUS-2026-0001
+ * through 0003, all with the same title, all real, all in the staff queue.
+ *
+ * Reloading is what turned "no feedback" into duplicate work: a fresh page load starts a
+ * fresh conversation, and `submitFromConversation` is idempotent *per conversation*, so the
+ * second attempt was a genuinely new request rather than a rejected repeat. The one thing
+ * that stops this is telling the customer it worked, so the confirmation replaces the form
+ * outright and carries the reference.
  */
 export function ReviewPanel({
   conversationId,
@@ -67,6 +83,13 @@ export function ReviewPanel({
 
   const [state, submit] = useActionState(submitRequirementsAction, null);
 
+  const sentHeading = useRef<HTMLHeadingElement>(null);
+  // `state.ok` in the dependency rather than `state`: a failed submit re-renders too, and
+  // stealing focus from the field somebody is fixing would be worse than saying nothing.
+  useEffect(() => {
+    if (state?.ok) sentHeading.current?.focus();
+  }, [state?.ok]);
+
   async function draft() {
     setDrafting(true);
     setDraftError(null);
@@ -91,6 +114,52 @@ export function ReviewPanel({
       Object.fromEntries(
         result.data.lines.map((line) => [line.key, line.origin === "confirmed"]),
       ),
+    );
+  }
+
+  /*
+   * Sent — and the form is *gone*, not merely accompanied by a message.
+   *
+   * A confirmation above a still-filled form invites exactly the second press this whole
+   * branch exists to prevent, and the fields are no longer editable in any useful sense:
+   * the request is in the staff queue and changes belong on its own screen.
+   *
+   * The reference is the thing worth showing. It is what support will ask for, and it is
+   * the proof the press did something — which a "thanks, we'll be in touch" does not carry.
+   */
+  if (state?.ok) {
+    return (
+      <div className="border-border bg-surface flex flex-col gap-3 rounded-xl border p-4">
+        {/*
+          Focused rather than announced through a live region. `role="status"` on a node that
+          mounts already-populated is announced inconsistently across screen readers, and the
+          form this replaces was the thing that had keyboard focus — so moving focus here is
+          both the reliable announcement and the correct place to land.
+        */}
+        <h2
+          ref={sentHeading}
+          tabIndex={-1}
+          className="font-display flex items-center gap-2 text-[16px] tracking-[-0.02em] focus-visible:outline-none"
+        >
+          <CheckCircle2 className="size-4 text-[var(--signal)]" aria-hidden />
+          Sent to Innovatrix
+        </h2>
+        <p className="text-muted-foreground text-[13.5px]">
+          We have it. Your reference is{" "}
+          <span className="text-foreground font-mono">{state.data.reference}</span> — we will
+          come back to you on this request, and you can follow it from your dashboard.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild className="w-fit">
+            <Link href={`/dashboard/requests/${state.data.reference}` as Route}>
+              Follow this request
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="w-fit">
+            <Link href="/dashboard/requests">All your requests</Link>
+          </Button>
+        </div>
+      </div>
     );
   }
 

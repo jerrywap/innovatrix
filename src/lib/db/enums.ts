@@ -157,6 +157,33 @@ export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
  * excluded from three runs has no way to discover it, and a free-text reason written by a
  * job is a sentence nobody can filter, count or explain twice the same way.
  */
+/**
+ * A review's life — vendor ticket 10.
+ *
+ * Published on submission (decision **V7**): pre-moderation would put a staff member
+ * between every customer and their opinion, and the volume that makes it necessary is a
+ * long way off. `hidden` is reversible and the author is told why; `removed` is a policy
+ * breach. Neither deletes the row — a review nobody can find is still evidence in a
+ * dispute about what was said.
+ */
+export const REVIEW_STATUSES = values(["published", "hidden", "removed"] as const);
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+
+/**
+ * Why somebody reported a review.
+ *
+ * A closed set, because the report queue has to be sortable and countable, and because
+ * "other" with a required note is a better answer than free text on every report.
+ */
+export const REVIEW_REPORT_REASONS = values([
+  "spam",
+  "abusive",
+  "off_topic",
+  "misleading",
+  "other",
+] as const);
+export type ReviewReportReason = (typeof REVIEW_REPORT_REASONS)[number];
+
 export const PAYOUT_SKIP_REASONS = values([
   /** Business verification incomplete — money must not leave to an unverified account. */
   "unverified",
@@ -462,15 +489,145 @@ export type InvoiceSourceType = (typeof INVOICE_SOURCE_TYPES)[number];
 
 /* ────────────────────────────────────────────── communication */
 
-export const CONVERSATION_SUBJECT_TYPES = values(["request", "order", "quote"] as const);
+/**
+ * `vendor_support` is the fourth — vendor ticket 13.
+ *
+ * A fourth subject type, **not a second messaging system**. Ticket 21's one
+ * `Conversation` + `Message` model already carries the visibility discipline that matters
+ * here, and a parallel system would mean a second place for §37's boundary to be got wrong.
+ */
+export const CONVERSATION_SUBJECT_TYPES = values([
+  "request",
+  "order",
+  "quote",
+  "vendor_support",
+  /**
+   * Vendor ticket 14 — the staff↔vendor half of a mediated customization.
+   *
+   * A **fifth subject type and a second thread on one request**, which needs justifying because
+   * §38 is one-conversation-per-subject and this looks like two. It is two subjects: the customer's
+   * request, and the brief a vendor was asked to price. They have to be separate because the
+   * visibility table above cannot express "customer and staff, but not the vendor" — a `customer`
+   * message is visible to the vendor by design, and `VendorMessage` carries `senderName`. Adding a
+   * fourth level would fix the projection and not the problem, since no visibility rule stops a
+   * customer typing their own phone number into a body.
+   *
+   * So the vendor is not a participant in the customer's conversation at all, and mediation is
+   * structural rather than a flag. The unique index on `{subjectType, subjectId}` is what makes the
+   * separate type necessary rather than optional.
+   */
+  "vendor_brief",
+] as const);
 export type ConversationSubjectType = (typeof CONVERSATION_SUBJECT_TYPES)[number];
 
-export const MESSAGE_SENDER_TYPES = values(["customer", "staff", "system"] as const);
+export const MESSAGE_SENDER_TYPES = values([
+  "customer",
+  "staff",
+  "system",
+  /** Vendor ticket 13 — the third party in a three-party conversation. */
+  "vendor",
+] as const);
 export type MessageSenderType = (typeof MESSAGE_SENDER_TYPES)[number];
 
-/** §37 — `internal` must never reach a customer payload. */
-export const MESSAGE_VISIBILITIES = values(["customer", "internal"] as const);
+/**
+ * §37 — `internal` must never reach a customer payload, and now never a **vendor** one.
+ *
+ * Three levels, because vendor ticket 13 introduced a third audience:
+ *
+ * | | Customer | Vendor | Staff |
+ * |---|---|---|---|
+ * | `customer` | ✓ | ✓ | ✓ |
+ * | `vendor` | | ✓ | ✓ |
+ * | `internal` | | | ✓ |
+ *
+ * `internal` therefore means **staff-only**, and that now includes hiding it from the vendor:
+ * a staff assessment of a vendor's responsiveness is exactly the note that must not reach
+ * them. The addition is the reason `listForConversation` takes an audience rather than a
+ * boolean.
+ */
+export const MESSAGE_VISIBILITIES = values(["customer", "vendor", "internal"] as const);
+
+/**
+ * A brief's life — vendor ticket 14.
+ *
+ * `sent` the moment staff hand it over; `answered` once the vendor has priced it; `declined` when
+ * they say they will not; `withdrawn` when staff pull it back — which is also what a requirements
+ * revision does to the brief it supersedes, because a brief is **what the vendor was shown** and
+ * editing one would destroy the only record of that.
+ *
+ * `answered` is not terminal: staff may ask for a revised price, which reopens it. `declined` and
+ * `withdrawn` are, and a new brief is the way forward from either.
+ */
+export const VENDOR_BRIEF_STATUSES = values([
+  "sent",
+  "answered",
+  "declined",
+  "withdrawn",
+] as const);
+export type VendorBriefStatus = (typeof VENDOR_BRIEF_STATUSES)[number];
 export type MessageVisibility = (typeof MESSAGE_VISIBILITIES)[number];
+
+/**
+ * A dispute's life — vendor ticket 13.
+ *
+ * A **state on the thread**, not a fourth subject type: the conversation is already there, and
+ * splitting it would leave two records of one argument. `withdrawn` exists because a customer
+ * who gets what they wanted mid-dispute should not need staff to close it.
+ */
+export const DISPUTE_STATUSES = values([
+  "open",
+  "under_review",
+  "resolved",
+  "withdrawn",
+] as const);
+export type DisputeStatus = (typeof DISPUTE_STATUSES)[number];
+
+/**
+ * Why a dispute was raised, by whichever party raised it.
+ *
+ * Both sides in one closed set rather than two enums, because the queue is one queue and a
+ * reason nobody can filter on is a reason nobody counts.
+ */
+export const DISPUTE_REASONS = values([
+  /* Customer-side. */
+  "not_as_described",
+  "does_not_work",
+  "refund_refused",
+  "no_response",
+  /* Vendor-side. */
+  "abusive_buyer",
+  "licence_misuse",
+  "unfair_review",
+  "other",
+] as const);
+export type DisputeReason = (typeof DISPUTE_REASONS)[number];
+
+/**
+ * How staff decided — vendor ticket 13.
+ *
+ * `no_action` is in the list deliberately: a dispute resolved in the vendor's favour is a real
+ * outcome, and without it a reviewer's only options would be to act or to leave the thread
+ * open, which is how a dispute goes quiet.
+ */
+export const DISPUTE_OUTCOMES = values([
+  "refunded",
+  "product_delisted",
+  "review_removed",
+  "vendor_suspended",
+  "no_action",
+  "other",
+] as const);
+export type DisputeOutcome = (typeof DISPUTE_OUTCOMES)[number];
+
+/** Where a takedown claim has got to — vendor ticket 13. */
+export const TAKEDOWN_STATUSES = values([
+  "received",
+  "product_delisted",
+  "awaiting_vendor",
+  "resolved",
+  "rejected",
+] as const);
+export type TakedownStatus = (typeof TAKEDOWN_STATUSES)[number];
 
 /** §92 — the canonical business events. */
 export const DOMAIN_EVENTS = values([
@@ -508,6 +665,16 @@ export const DOMAIN_EVENTS = values([
   "VendorVerified",
   "VendorRejected",
   "VendorSuspended",
+  // Vendor ticket 13.
+  "VendorSupportThreadOpened",
+  "DisputeRaised",
+  "DisputeResolved",
+  // Vendor ticket 12.
+  "VendorOffboarded",
+  "ProductEmergencyDelisted",
+  // Vendor ticket 10.
+  "ProductReviewPublished",
+  "ProductReviewFlagged",
   // Vendor ticket 09 — the first events about money leaving.
   "VendorPayoutPaid",
   "VendorPayoutFailed",
@@ -515,6 +682,10 @@ export const DOMAIN_EVENTS = values([
   "ProductSubmitted",
   "ProductChangesRequested",
   "ProductApproved",
+  // Vendor ticket 14.
+  "CustomizationRoutedToVendor",
+  "VendorBriefAnswered",
+  "VendorBriefDeclined",
 ] as const);
 export type DomainEventType = (typeof DOMAIN_EVENTS)[number];
 
@@ -556,6 +727,13 @@ export const SUBJECT_TYPES = values([
    * that history is ever read back.
    */
   "vendor",
+  /**
+   * Vendor ticket 10. Hiding or removing somebody's review is a staff decision about
+   * public, attacker-controlled text on a page we want indexed — exactly the kind of
+   * decision §90 exists to record, and without this the row cannot be found by the
+   * `{subjectType, subjectId, createdAt}` index.
+   */
+  "review",
 ] as const);
 export type SubjectType = (typeof SUBJECT_TYPES)[number];
 

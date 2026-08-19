@@ -151,9 +151,26 @@ export interface DecisionInput {
   internalNote?: string;
 }
 
-/** Claim a submission. No note: starting to read something is not feedback. */
+/**
+ * Claim a submission. No note: starting to read something is not feedback.
+ *
+ * The state move is real — `submitted → internal_review` takes it out of the waiting
+ * count — so claiming a submission somebody else already claimed would otherwise fail
+ * with the state machine's own wording, which names two identical states and reads like
+ * a bug in us. See `alreadyApproved` for the other half of that problem.
+ */
 export async function claim(productId: string, actor: AuditActor): Promise<ProductDoc> {
   await connectToDatabase();
+
+  const product = await products.findById(productId);
+  if (!product) throw new NotFoundError("product", { id: productId });
+
+  if (product.status === "internal_review") {
+    throw new ValidationError(
+      "Somebody is already reviewing this one. Reload to see where it got to.",
+    );
+  }
+
   return productService.transition(productId, "internal_review", actor);
 }
 
@@ -223,10 +240,32 @@ export async function requestChanges(
 /**
  * Approve a submission into the platform's own pipeline.
  *
- * `submitted → internal_review` is the same edge as `claim`, and that is deliberate:
- * approving a *submission* is not approving a *product*. From here it takes exactly
- * the path a first-party product takes — the same testing checklist, the same
- * readiness gate, the same `product.publish` at the end.
+ * `submitted → internal_review` is the edge, and approving a *submission* is not
+ * approving a *product*: from here it takes exactly the path a first-party product
+ * takes — the same testing checklist, the same readiness gate, the same
+ * `product.publish` at the end.
+ *
+ * ## Claiming first used to make approval impossible
+ *
+ * `claim` takes the **same** edge, so a reviewer who pressed "Start review" — which the
+ * screen offers first and describes as the polite thing to do — moved the product to
+ * `internal_review`, and approving then asked for `internal_review → internal_review`.
+ * `assertTransition` refused it, correctly, with "A product cannot move from
+ * internal_review to internal_review". Approval worked only for a reviewer who skipped
+ * the claim. It was reported by the first person to use the screen in the intended
+ * order.
+ *
+ * So approval accepts a product already in `internal_review` and moves no state, because
+ * the state is already where approval puts it. The decision was never the transition: it
+ * is the note the vendor reads, the audit row, and `ProductApproved`.
+ *
+ * ## Which means the transition is no longer what stops a double approval
+ *
+ * A guarded state move used to make a second approval impossible for free. With the
+ * `internal_review` case allowed, two reviewers could both approve, appending two notes
+ * and telling the vendor twice. `alreadyApproved` restores that: an approval after the
+ * newest submission means this submission is decided, and only a fresh `submitted` note
+ * opens it again.
  */
 export async function approve(
   input: Omit<DecisionInput, "reasons"> & { reasons?: ReviewReasonCode[] },
@@ -238,7 +277,20 @@ export async function approve(
     throw new ValidationError("A review decision must name who made it.");
   }
 
-  const updated = await productService.transition(input.productId, "internal_review", actor);
+  const product = await products.findById(input.productId);
+  if (!product) throw new NotFoundError("product", { id: input.productId });
+
+  if (alreadyApproved(product)) {
+    throw new ValidationError(
+      "This submission has already been approved. It is in our own pipeline now — " +
+        "publishing happens from the product's admin screen.",
+    );
+  }
+
+  const updated =
+    product.status === "internal_review"
+      ? product
+      : await productService.transition(input.productId, "internal_review", actor);
 
   await appendNote(input.productId, {
     at: new Date(),
@@ -266,6 +318,27 @@ export async function approve(
   }
 
   return updated;
+}
+
+/**
+ * Has the newest submission already been decided in the vendor's favour?
+ *
+ * Read off `reviewNotes`, which is append-only and already holds exactly this: find the
+ * last `submitted` note and ask whether an `approved` one follows it. A resubmission
+ * pushes a new `submitted` note, which reopens the question by construction — no flag to
+ * clear, and nothing to get out of step with the notes a reviewer reads.
+ *
+ * A product with an `approved` note and no submission at all is treated as decided too,
+ * which is the honest answer for the staff-driven path where nobody submitted anything.
+ */
+export function alreadyApproved(product: ProductDoc): boolean {
+  let lastSubmitted = -1;
+  for (const [index, note] of product.reviewNotes.entries()) {
+    if (note.outcome === "submitted") lastSubmitted = index;
+  }
+  return product.reviewNotes.some(
+    (note, index) => note.outcome === "approved" && index > lastSubmitted,
+  );
 }
 
 async function appendNote(productId: string, note: ProductReviewNote): Promise<void> {

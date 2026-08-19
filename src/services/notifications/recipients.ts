@@ -44,6 +44,13 @@ export async function resolveAudience(
     ownerUserId?: string;
     assigneeUserId?: string;
     productId?: string;
+    /**
+     * Several products at once — vendor ticket 12's offboarding notice.
+     *
+     * One event, one audience, many products: telling a customer four times that their vendor
+     * has left because they bought four things would be worse than not telling them.
+     */
+    productIds?: readonly string[];
     /** Vendor tickets 01, 05 — whose vendor account this concerns. */
     vendorId?: string;
     conversationId?: string;
@@ -86,7 +93,7 @@ async function resolve(
       return staffWith(audience.permission as Permission);
 
     case "entitled_owners":
-      return entitledOwners(context.productId);
+      return entitledOwners(context.productId, context.productIds);
 
     case "vendor_member":
       return vendorMembers(context.vendorId);
@@ -161,11 +168,18 @@ async function vendorMembers(vendorId?: string): Promise<Recipient[]> {
   return users(members.map((row) => String(row.userId)));
 }
 
-async function entitledOwners(productId?: string): Promise<Recipient[]> {
-  if (!productId) return [];
+async function entitledOwners(
+  productId?: string,
+  productIds?: readonly string[],
+): Promise<Recipient[]> {
+  // One or many. `productIds` is vendor ticket 12's offboarding case, where the audience is
+  // everybody holding anything that vendor sold — deduplicated by organisation below, so a
+  // customer who bought three of their products is told once.
+  const ids = productIds?.length ? productIds : productId ? [productId] : [];
+  if (ids.length === 0) return [];
 
   const entitlements = await Entitlement.find({
-    productId: toObjectId(productId),
+    productId: { $in: ids.slice(0, 100).map((id) => toObjectId(id)) },
     status: "active",
   })
     .select({ organizationId: 1 })

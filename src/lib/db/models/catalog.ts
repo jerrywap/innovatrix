@@ -380,6 +380,41 @@ export interface ProductDoc {
   vendorSlug?: string;
   vendorName?: string;
   /**
+   * Off the marketplace without being unpublished — vendor ticket 12.
+   *
+   * Set when a vendor is suspended or offboarded, and cleared when they are reinstated. The
+   * product keeps `status: "published"`, its URL, its publish date and its reviews; the
+   * marketplace pipeline excludes it and checkout refuses it.
+   *
+   * Moving it to `draft` instead would have been the obvious choice and is wrong three ways: it
+   * loses the publish date, it breaks every inbound link, and it makes reinstatement a
+   * re-approval rather than one flag flip.
+   */
+  listingSuppressed?: boolean;
+  /** Why an emergency delisting happened — vendor ticket 12. On the record, for the process. */
+  delistedReason?: string;
+  /**
+   * What customers rated it — vendor ticket 10.
+   *
+   * ## A sum and a count, never a stored average
+   *
+   * `ratingSum / ratingCount` is exact integer arithmetic, and the average is derived at
+   * the point of display. Storing the average would put a float in the database that can
+   * disagree with the reviews behind it — the same argument §84 makes about money and §103
+   * makes about the database being the source of truth.
+   *
+   * A **derived cache**, recomputed from the reviews inside the same transaction as every
+   * review write. It exists only because a marketplace listing cannot aggregate per card;
+   * the reviews remain the source of truth, and `recomputeProductRating` is the one writer.
+   *
+   * `ratingDistribution` is five counts, one-star first. A 4.2 average made of forty fives
+   * and ten ones is a different product from one made of fifty fours, and a bare average
+   * hides that.
+   */
+  ratingSum?: number;
+  ratingCount?: number;
+  ratingDistribution?: number[];
+  /**
    * How this vendor supplies their bytes — vendor ticket 06.
    *
    * The seam, declared with all three values from the start so switching does not need
@@ -474,6 +509,15 @@ const productSchema = new Schema<ProductDoc>(
     vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
     vendorSlug: { type: String, lowercase: true, trim: true },
     vendorName: { type: String, trim: true },
+    // Vendor ticket 12. Absent on every first-party product and on every product of a vendor
+    // in good standing, which is why the pipeline filters on `$ne: true` rather than `false`.
+    listingSuppressed: Boolean,
+    delistedReason: { type: String, trim: true },
+    // Vendor ticket 10. Integers, so the derived average cannot drift; absent on a product
+    // nobody has reviewed, which is how the card and the JSON-LD know to emit nothing.
+    ratingSum: { type: Number, min: 0 },
+    ratingCount: { type: Number, min: 0 },
+    ratingDistribution: { type: [Number], default: undefined },
     deliveryMethod: { type: String, enum: DELIVERY_METHODS },
     // Mixed, because the tree's shape is defined by Zod rather than by
     // Mongoose. A Mongoose sub-schema here would be a second, weaker copy of

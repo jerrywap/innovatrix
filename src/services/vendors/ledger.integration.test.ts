@@ -25,6 +25,7 @@ let communication: typeof import("@/lib/db/models/communication");
 let errors: typeof import("@/lib/errors");
 let scope: typeof import("@/lib/auth/scope");
 let moneyLib: typeof import("@/lib/money");
+let billing: typeof import("@/lib/db/models/billing");
 
 const VENDOR = "7d00c46f6c887b38e2f0e0a1";
 const OTHER_VENDOR = "7d00c46f6c887b38e2f0e0a2";
@@ -50,6 +51,7 @@ beforeAll(async () => {
   errors = await import("@/lib/errors");
   scope = await import("@/lib/auth/scope");
   moneyLib = await import("@/lib/money");
+  billing = await import("@/lib/db/models/billing");
 
   const { connectToDatabase } = await import("@/lib/db/client");
   await connectToDatabase();
@@ -67,6 +69,8 @@ afterEach(async () => {
   // here rather than relaxing the model is the point.
   await ledgerModels.LedgerEntry.collection.deleteMany({});
   await commerce.Order.deleteMany({});
+  await billing.Quote.deleteMany({});
+  await billing.Invoice.deleteMany({});
   await communication.AuditLog.collection.deleteMany({});
 });
 
@@ -509,5 +513,160 @@ describe("reconcile", () => {
     // reconciliation failure.
     const { rows } = await ledger.reconcile(WINDOW[0], WINDOW[1]);
     expect(rows[0]!.drift).toBe(0);
+  });
+});
+
+/* ────────────────────────────────────────────── custom work — vendor ticket 14 */
+
+/**
+ * A vendor earning that comes from an **invoice**, not an order line.
+ *
+ * Before this, `recordEarnings` filtered `order.items` and `InvoicePaid` never touched the ledger at
+ * all, so a vendor who scoped, priced and delivered a customization earned nothing and no
+ * `LedgerEntry` shape could describe it. The interesting cases are the two numbers (the vendor's
+ * price versus the customer's total) and the deposit split.
+ */
+describe("recordCustomWorkEarning", () => {
+  const QUOTE = "7d00c46f6c887b38e2f0e0f1";
+  const INVOICE = "7d00c46f6c887b38e2f0e0f2";
+  const BALANCE_INVOICE = "7d00c46f6c887b38e2f0e0f3";
+
+  /** A quote whose customer total is *higher* than the vendor's price — staff added margin. */
+  async function quoteFixture(overrides: Record<string, unknown> = {}) {
+    await billing.Quote.create({
+      _id: QUOTE,
+      reference: "QUO-2026-9001",
+      version: 1,
+      organizationId: ORG,
+      requestId: PRODUCT,
+      title: "Second depot",
+      deliverables: [],
+      exclusions: [],
+      items: [],
+      currency: "GBP",
+      subtotal: { amount: 300_000, currency: "GBP" },
+      total: { amount: 300_000, currency: "GBP" },
+      paymentTerms: "full_upfront" as const,
+      expiresAt: new Date(Date.now() + 86_400_000),
+      status: "accepted" as const,
+      vendorId: VENDOR,
+      vendorAmount: { amount: 240_000, currency: "GBP" },
+      vendorCommissionBasisPoints: 3000,
+      ...overrides,
+    });
+  }
+
+  async function invoiceFixture(id: string, amount: number, portion = "full") {
+    await billing.Invoice.create({
+      _id: id,
+      reference: `INV-2026-${id.slice(-4)}`,
+      organizationId: ORG,
+      sourceType: "quote" as const,
+      sourceId: QUOTE,
+      portion: portion as "full",
+      items: [],
+      currency: "GBP",
+      subtotal: { amount, currency: "GBP" },
+      total: { amount, currency: "GBP" },
+      amountPaid: { amount, currency: "GBP" },
+      status: "paid" as const,
+      issuedAt: new Date(),
+      dueAt: new Date(),
+    });
+  }
+
+  it("earns the vendor their share of their own price, not of the customer's total", async () => {
+    await quoteFixture();
+    await invoiceFixture(INVOICE, 300_000);
+
+    const result = await ledger.recordCustomWorkEarning({ invoiceId: INVOICE, quoteId: QUOTE });
+    expect(result.written).toBe(true);
+
+    const [entry] = await ledgerModels.LedgerEntry.find({ vendorId: VENDOR }).lean();
+
+    /*
+     * 240,000 × (1 − 30%) = 168,000. **Not** 300,000 × 70% = 210,000.
+     *
+     * The customer paid £3,000 and the vendor priced £2,400; the £600 difference is platform margin
+     * on top of commission. Reading the vendor's share off the total would mean a staff member
+     * raising the price silently raised what we owe — the opposite of "the vendor prices the work".
+     */
+    expect(entry!.amount.amount).toBe(168_000);
+    expect(entry!.kind).toBe("earning");
+    expect(entry!.status).toBe("pending");
+    expect(entry!.clearsAt).toBeInstanceOf(Date);
+    // Traceable to an invoice rather than an order line — the other provenance.
+    expect(String(entry!.invoiceId)).toBe(INVOICE);
+    expect(String(entry!.quoteId)).toBe(QUOTE);
+    expect(entry!.orderId).toBeUndefined();
+  });
+
+  it("splits a deposit and a balance in proportion, without double-paying", async () => {
+    await quoteFixture({ paymentTerms: "deposit_balance", depositBasisPoints: 4000 });
+    await invoiceFixture(INVOICE, 120_000, "deposit");
+    await invoiceFixture(BALANCE_INVOICE, 180_000, "balance");
+
+    await ledger.recordCustomWorkEarning({ invoiceId: INVOICE, quoteId: QUOTE });
+    await ledger.recordCustomWorkEarning({ invoiceId: BALANCE_INVOICE, quoteId: QUOTE });
+
+    const entries = await ledgerModels.LedgerEntry.find({ vendorId: VENDOR })
+      .sort({ createdAt: 1 })
+      .lean();
+    expect(entries).toHaveLength(2);
+
+    // 40% of 240,000 = 96,000, then 70% of that = 67,200. The balance takes the remaining 60%.
+    expect(entries[0]!.amount.amount).toBe(67_200);
+    expect(entries[1]!.amount.amount).toBe(100_800);
+
+    // And the two together are exactly the single-invoice figure — no pence lost or invented.
+    expect(entries[0]!.amount.amount + entries[1]!.amount.amount).toBe(168_000);
+  });
+
+  it("is idempotent, because a webhook retries", async () => {
+    await quoteFixture();
+    await invoiceFixture(INVOICE, 300_000);
+
+    expect(
+      (await ledger.recordCustomWorkEarning({ invoiceId: INVOICE, quoteId: QUOTE })).written,
+    ).toBe(true);
+    // The unique `{invoiceId, kind}` index, doing the same job the order-line index does for a
+    // retried fulfilment. Not an error — the earning is already there.
+    expect(
+      (await ledger.recordCustomWorkEarning({ invoiceId: INVOICE, quoteId: QUOTE })).written,
+    ).toBe(false);
+
+    expect(await ledgerModels.LedgerEntry.countDocuments({ vendorId: VENDOR })).toBe(1);
+  });
+
+  it("writes nothing for a first-party quote", async () => {
+    await quoteFixture({
+      vendorId: undefined,
+      vendorAmount: undefined,
+      vendorCommissionBasisPoints: undefined,
+    });
+    await invoiceFixture(INVOICE, 300_000);
+
+    // Every quote raised before this ticket looks like this, and it is not an error.
+    const result = await ledger.recordCustomWorkEarning({ invoiceId: INVOICE, quoteId: QUOTE });
+    expect(result.written).toBe(false);
+    expect(await ledgerModels.LedgerEntry.countDocuments({})).toBe(0);
+  });
+
+  it("shows up in the vendor's own balance and entries", async () => {
+    await quoteFixture();
+    await invoiceFixture(INVOICE, 300_000);
+    await ledger.recordCustomWorkEarning({ invoiceId: INVOICE, quoteId: QUOTE });
+
+    // One balance per currency — `money.ts` refuses cross-currency arithmetic, so there is no
+    // single total to report.
+    const [balance] = await ledger.balanceFor({ vendorId: VENDOR });
+    expect(balance!.currency).toBe("GBP");
+    expect(balance!.pending).toBe(168_000);
+
+    // The invoice reference is joined for display, for the same reason the order reference is: a
+    // figure a vendor cannot trace to anything is a number they have to take on trust.
+    const [row] = await ledger.listEntries({ vendorId: VENDOR });
+    expect(row!.invoiceReference).toMatch(/^INV-2026-/);
+    expect(row!.orderReference).toBeUndefined();
   });
 });

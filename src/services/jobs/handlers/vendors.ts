@@ -118,6 +118,42 @@ export function registerVendorJobs(): void {
    * are **surfaced at warning level** for a person rather than left to a sweep that cannot
    * decide anything. For a manual payout the person *is* the provider.
    */
+  /**
+   * Vendor ticket 13 — an unanswered customer question.
+   *
+   * Escalation **adds** staff and leaves the vendor in the thread: the person who can actually fix
+   * the software is still the person who wrote it, and a sweep that reassigned the thread away
+   * from them would make the escalation the problem.
+   *
+   * `escalate()` is idempotent on the follow-up side — one open follow-up per vendor — so a
+   * thread that stays overdue does not accumulate a queue item per hour. The `escalatedAt`
+   * filter in `overdueThreads` is what stops it being re-escalated at all.
+   */
+  defineJob("escalate-overdue-vendor-threads", async () => {
+    const { escalate, overdueThreads } = await import("@/services/vendors/support-service");
+    const threads = await overdueThreads();
+
+    for (const thread of threads) {
+      await escalate(String(thread._id), { type: "system" });
+
+      log.warn("A vendor support thread passed its response target", {
+        code: "vendor_support.overdue",
+        conversationId: String(thread._id),
+        vendorId: String(thread.vendorId ?? ""),
+        // The due date, not the customer's question: a log line is not the place for either
+        // party's words.
+        dueAt: thread.responseDueAt?.toISOString(),
+      });
+    }
+
+    if (threads.length > 0) {
+      log.info("Overdue vendor threads escalated", {
+        code: "vendor_support.escalated",
+        count: threads.length,
+      });
+    }
+  });
+
   defineJob("reconcile-sending-payouts", async () => {
     const { checked, resolved, stuck } = await reconcileSending();
 

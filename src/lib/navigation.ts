@@ -57,6 +57,22 @@ export interface NavItem {
    * `role: "owner"` mean two things.
    */
   requiresVendor?: true;
+  /**
+   * Vendor **owner** only — vendor ticket 03.
+   *
+   * A fourth predicate rather than a value folded into `requiresVendor`, because the two answer
+   * different questions ("do you sell here" and "is this account yours") and a `member` invited
+   * to help with products must not be shown a link to the payout account.
+   */
+  requiresVendorOwner?: true;
+  /**
+   * Drawn only for somebody who is **not** a vendor.
+   *
+   * Exactly one item uses this: the way in. "Sell your software" has to be visible to a customer
+   * who might want to — that entry point was missing entirely — and has to disappear the moment
+   * they are one, because by then it points at a page they have already read.
+   */
+  hiddenForVendor?: true;
   /** Matches child routes too — `/dashboard/orders/ORD-1` highlights Orders. */
   matchNested?: boolean;
 }
@@ -123,26 +139,113 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
   },
   {
     /*
-     * Vendor ticket 01. Drawn only for a user who has a vendor, which is why the
-     * whole section disappears rather than showing a "become a vendor" teaser:
-     * `prune` drops a section once its last item goes, and the marketplace's own
-     * footer is where somebody discovers they could sell here.
+     * The vendor workspace, in the shell — vendor tickets 01 through 13.
      *
-     * One item, not four. Products, earnings and the storefront belong in this
-     * group and arrive with vendor tickets 04, 08 and 11 — `typedRoutes` will not
-     * compile a link to a route nobody has built, which is the rule doing its job.
+     * ## Why every screen is here rather than behind one "Selling" link
      *
-     * Team is deliberately absent even though the route exists: a one-person
-     * vendor must not be walked through a team model, so it lives behind Settings.
+     * It started as a single item, with the intention that the rest would arrive with the tickets
+     * that built them. They did — nine screens by ticket 13 — and the inner `<aside>` nav that
+     * grew alongside them became a second navigation for the same section, one level down and
+     * invisible until you were already inside it. A vendor's most common journey is *between*
+     * those screens (a review, then a payout, then a product), and a nav you have to arrive
+     * somewhere to see does not serve it.
+     *
+     * So the group lives here and the inner aside is gone. One nav, one place, and the section
+     * disappears wholesale for a non-vendor because `prune` drops a section once its last item
+     * does.
+     *
+     * ## The one item a non-vendor sees
+     *
+     * "Sell your software" — the entry point that was missing. `/sell` existed, explained the
+     * whole thing well, and was linked from nowhere at all; the only screen offering "Apply to
+     * sell" was `/dashboard/selling`, whose nav item required already being a vendor. A closed
+     * loop: the door worked and nothing led to it.
+     *
+     * ## Team is still deliberately absent
+     *
+     * The route exists and is reachable from vendor settings. A one-person vendor — the common
+     * case — must not be walked through a team model to sell one script, and `navigation.test.ts`
+     * asserts it stays unlinked.
      */
-    title: "Selling",
+    title: "Vendor",
     items: [
       {
-        label: "Selling",
+        label: "Sell your software",
+        href: "/sell",
+        icon: "store",
+        hiddenForVendor: true,
+      },
+      {
+        label: "Vendor dashboard",
         href: "/dashboard/selling",
         icon: "store",
+        // Deliberately **not** `matchNested`: every screen below has its own item now, and a
+        // nested match would light two of them at once.
+        requiresVendor: true,
+      },
+      {
+        label: "Products",
+        href: "/dashboard/selling/products",
+        icon: "package",
         matchNested: true,
         requiresVendor: true,
+      },
+      {
+        // Vendor ticket 14 — customization work a vendor has been asked to price. Above Earnings
+        // because it is something waiting on them, and §102 puts what needs doing before any figure.
+        label: "Requests",
+        href: "/dashboard/selling/requests",
+        icon: "clipboard",
+        matchNested: true,
+        requiresVendor: true,
+      },
+      {
+        label: "Earnings",
+        href: "/dashboard/selling/earnings",
+        icon: "banknote",
+        requiresVendor: true,
+      },
+      {
+        label: "Payouts",
+        href: "/dashboard/selling/payouts",
+        icon: "card",
+        matchNested: true,
+        requiresVendor: true,
+      },
+      {
+        // A preview, and the only storefront link a vendor can always follow — the public
+        // `/vendors/[slug]` is 404 until they are verified with something published, so linking
+        // *that* from the nav would put a not-found page in the sidebar of every new vendor.
+        label: "Storefront",
+        href: "/dashboard/selling/storefront",
+        icon: "globe",
+        requiresVendor: true,
+      },
+      {
+        label: "Reviews",
+        href: "/dashboard/selling/reviews",
+        icon: "star",
+        requiresVendor: true,
+      },
+      {
+        label: "Support",
+        href: "/dashboard/selling/support",
+        icon: "messages",
+        requiresVendor: true,
+      },
+      {
+        label: "Verification",
+        href: "/dashboard/selling/verification",
+        icon: "checklist",
+        requiresVendor: true,
+      },
+      {
+        // Owner-only: it holds the payout account and the agreement, which is the one capability
+        // the two-role model exists to separate. A `member` who saw this link would reach a 403.
+        label: "Vendor settings",
+        href: "/dashboard/selling/settings",
+        icon: "settings",
+        requiresVendorOwner: true,
       },
     ],
   },
@@ -280,6 +383,29 @@ export const STAFF_NAV: readonly NavSection[] = [
         icon: "checklist",
         permission: "product.review",
         matchNested: true,
+      },
+      {
+        /*
+         * Vendor ticket 13. A dispute is the one thing where **both** parties are waiting
+         * on us, so it gets its own queue rather than living inside the vendor screen —
+         * a queue you have to open a vendor to find is a queue nobody works.
+         */
+        label: "Disputes",
+        href: "/staff/disputes",
+        icon: "scale",
+        permission: "vendor.review",
+      },
+      {
+        /*
+         * Vendor ticket 10. Here rather than in `ADMIN_NAV` for the same reason as
+         * Vendors above, plus one specific to this permission: `content_manager` holds
+         * `review.moderate` and reaches **zero** admin screens, so an admin entry would
+         * be an item they can see and a shell they cannot enter.
+         */
+        label: "Reviews",
+        href: "/staff/reviews",
+        icon: "star",
+        permission: "review.moderate",
       },
     ],
   },
@@ -476,21 +602,29 @@ function permitted(item: NavItem, held: ReadonlySet<Permission>): boolean {
 /**
  * The customer shell's navigation for one viewer.
  *
- * `isVendor` is a second, orthogonal predicate rather than a widened role: the
- * same person is a buyer with an organisation role *and* possibly a seller, and
- * conflating the two would make `role` mean two things. Defaulting it to `false`
- * keeps every existing caller and every existing test valid — an item without
- * `requiresVendor` is unaffected either way.
+ * `isVendor` and `isVendorOwner` are predicates *orthogonal* to the organisation role rather than
+ * values folded into it: the same person is a buyer with a role, possibly a seller, and possibly
+ * the seller's account holder. Conflating any two of those would make one field mean two things.
+ *
+ * Both default to `false`, which keeps every existing caller valid — an item with none of the three
+ * vendor flags is unaffected either way.
+ *
+ * `isVendorOwner` does **not** imply `isVendor` automatically: the caller passes what it knows, and
+ * an owner is a vendor by definition, so the layout passes both from the same context rather than
+ * this function inferring one from the other.
  */
 export function customerNavFor(
   role: OrganizationRole,
-  options: { isVendor?: boolean } = {},
+  options: { isVendor?: boolean; isVendorOwner?: boolean } = {},
 ): NavSection[] {
   return prune(
     CUSTOMER_NAV,
     (item) =>
       (!item.organizationRoles || item.organizationRoles.includes(role)) &&
-      (!item.requiresVendor || options.isVendor === true),
+      (!item.requiresVendor || options.isVendor === true) &&
+      (!item.requiresVendorOwner || options.isVendorOwner === true) &&
+      // The way in, hidden once you are through it.
+      (!item.hiddenForVendor || options.isVendor !== true),
   );
 }
 
@@ -571,7 +705,15 @@ export const DEFERRED_MODULES: readonly string[] = [
   "renewals",
   "sandboxes",
   "compare",
-  "reviews",
+  /*
+   * `"reviews"` was here and is now gone — vendor ticket 10.
+   *
+   * It was deferred with the rest of §6's "if introduced" list, and this test correctly
+   * failed the moment `/staff/reviews` appeared in the nav. Removing the entry is the fix
+   * rather than an exception, because the list means "post-MVP module with no route", and
+   * reviews now have both a route and a reason: a marketplace where a rating decides a
+   * purchase needs them, and `01-mvp-todo.md` records the un-deferral.
+   */
 ];
 
 /** Every nav item across every surface — for tests and for ticket 26's audit. */

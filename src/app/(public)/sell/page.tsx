@@ -71,6 +71,10 @@ export default function Page() {
           */}
           <Link href="/dashboard/selling/apply">Apply to sell</Link>
         </Button>
+        <Button asChild variant="outline">
+          {/* The terms, before applying rather than as a checkbox somebody clicks past. */}
+          <Link href="/terms/vendor">Read the vendor agreement</Link>
+        </Button>
         <p className="text-subtle text-[12.5px]">
           You&rsquo;ll need an Innovatrix account. Signing up is free.
         </p>

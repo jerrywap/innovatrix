@@ -43,14 +43,26 @@ const KIND_LABELS: Record<VendorDocumentKind, string> = {
  * Action body: there is a body limit a phone photo clears without trying, and
  * proxying puts the file through this process's memory for no benefit.
  *
- * ## CORS: checked, not assumed
+ * ## CORS: measured, and the numbers are worth keeping
  *
- * Ticket 05 recorded that bucket CORS was unset, which would kill the preflight
- * for the `PUT` below — and that is why product media took a URL instead of an
- * upload. It is **no longer true**: a real `OPTIONS` against a signed
- * `vendor-document` URL from `http://127.0.0.1:3000` returns `200` with
- * `access-control-allow-origin`, the same finding `createMediaUploadAction`
- * records for its own scope. `npm run storage:probe` covers the server half so the
+ * Ticket 05 recorded that bucket CORS was unset, which would kill the preflight for the `PUT`
+ * below — and that is why product media took a URL instead of an upload. It is **no longer true**,
+ * and the measurement was repeated in full on 2026-08-17 after an upload failed with
+ * `Failed to fetch`:
+ *
+ * - `OPTIONS` on a freshly signed `vendor-document` URL, from both `http://127.0.0.1:3000` and
+ *   `http://localhost:3000` → `200`, `access-control-allow-origin: *`,
+ *   `access-control-allow-methods: GET, PUT, POST, DELETE, HEAD`,
+ *   `access-control-allow-headers: content-type`.
+ * - A real `PUT` with `Origin` and `Content-Type` set, browser header set and all → `200`, with
+ *   `access-control-allow-origin` on the response.
+ * - The whole round trip server-side — mint, `PUT`, `confirmUpload` including the magic-byte
+ *   sniff → all green against the live bucket.
+ *
+ * So a `Failed to fetch` here is **not** the bucket and not the signature: it is the request never
+ * leaving the browser. An extension, a VPN or a proxy blocking the storage host produces exactly
+ * that, with no response for us to inspect — which is why the `catch` below names those causes
+ * instead of repeating the browser's message. `npm run storage:probe` covers the server half so the
  * answer can be re-established rather than argued about.
  *
  * ## What still does not work
@@ -84,27 +96,61 @@ export function DocumentUpload({
 
     const contentType = file.type || "application/octet-stream";
 
-    const ticket = await requestDocumentUploadAction({
-      level,
-      kind,
-      filename: file.name,
-      contentType,
-      sizeBytes: file.size,
-    });
-
-    if (!ticket.ok) {
-      setBusy(false);
-      setError(ticket.error);
-      return;
-    }
-
+    /*
+     * The whole round trip is inside the `try` — the mint included.
+     *
+     * It was outside, and a failure there was unrecoverable in the worst way: the rejection was
+     * unhandled (the caller does `void upload(file)`), so `busy` stayed true, the spinner spun for
+     * ever and no message appeared. Four of the five upload components in this codebase shared
+     * that shape — this is the one that had somebody stuck in it, and the other three
+     * (`requests/attachments`, `products/media-upload`, `payments/evidence-upload`) were fixed
+     * with it.
+     */
     try {
+      const ticket = await requestDocumentUploadAction({
+        level,
+        kind,
+        filename: file.name,
+        contentType,
+        sizeBytes: file.size,
+      });
+
+      if (!ticket.ok) throw new Error(ticket.error);
+
+      /*
+       * A cross-origin `PUT` straight to storage, and **the one place a browser can fail in a way
+       * the server never sees**.
+       *
+       * `fetch` rejects with `TypeError: Failed to fetch` when the request never completed at all
+       * — a blocked request, no network, a refused preflight. Surfacing that message verbatim is
+       * what a vendor was shown, and it tells them nothing they can act on: they cannot tell it
+       * apart from a bug in us, and "try again" does not fix any of its causes.
+       *
+       * So the two cases are separated. A *response* with a bad status is ours to explain (an
+       * expired ticket, a size mismatch). No response at all is theirs to look at, and the message
+       * says where.
+       */
       const response = await fetch(ticket.data.url, {
         method: "PUT",
         headers: ticket.data.headers,
         body: file,
+      }).catch(() => {
+        throw new Error(
+          "The file never reached our storage. Something between this browser and it blocked " +
+            "the request — usually an extension, a VPN or a corporate proxy. Try a private " +
+            "window with extensions off, or a different network.",
+        );
       });
-      if (!response.ok) throw new Error(`Upload refused (${response.status}).`);
+
+      if (!response.ok) {
+        // 403 on a presigned PUT is nearly always the five-minute ticket expiring, which is worth
+        // saying rather than leaving as a number.
+        throw new Error(
+          response.status === 403
+            ? "That upload link had expired. Choose the file again — the link is only valid for a few minutes."
+            : `Our storage refused the file (${response.status}). Nothing was saved.`,
+        );
+      }
 
       // Recorded only after the bytes landed, so a record never points at an
       // object that does not exist.

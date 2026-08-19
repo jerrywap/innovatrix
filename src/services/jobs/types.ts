@@ -78,6 +78,16 @@ export interface JobPayloadMap {
 
   /** Vendor ticket 09 — payouts stuck in `sending`, the outbound stuck-payment sweep. */
   "reconcile-sending-payouts": Record<string, never>;
+
+  /**
+   * Vendor ticket 13 — support threads the vendor has not answered within the SLA.
+   *
+   * Escalates them, which adds staff *without* removing the vendor, and creates the follow-up
+   * that stops an unanswered customer question from sitting unread. Reuses ticket 20's
+   * `FollowUp` and its existing daily reminder sweep rather than adding a second reminder
+   * system.
+   */
+  "escalate-overdue-vendor-threads": Record<string, never>;
 }
 
 /*

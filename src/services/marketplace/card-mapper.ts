@@ -26,6 +26,9 @@ export interface RawCard {
   /** Vendor ticket 04 — denormalised onto `Product` and projected, never looked up. */
   vendorSlug?: string;
   vendorName?: string;
+  /** Vendor ticket 10 — two integers, projected; the average is derived below. */
+  ratingSum?: number;
+  ratingCount?: number;
 }
 
 export function toCard(
@@ -76,6 +79,17 @@ export function toCard(
     // query per row. Both or neither — a name with no slug could not be linked later.
     ...(row.vendorName && row.vendorSlug
       ? { vendor: { slug: row.vendorSlug, name: row.vendorName } }
+      : {}),
+    // Vendor ticket 10. Derived here from two integers rather than read as a stored float —
+    // one rounding, in one place, and nothing in the database that can disagree with the
+    // reviews behind it.
+    ...(row.ratingCount && row.ratingSum
+      ? {
+          rating: {
+            average: Math.round((row.ratingSum / row.ratingCount) * 10) / 10,
+            count: row.ratingCount,
+          },
+        }
       : {}),
   };
 }

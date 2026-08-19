@@ -15,6 +15,7 @@ import {
 } from "./section-form";
 import { RichTextEditor } from "./rich-text-editor";
 import type { AdminProductView } from "@/services/catalog/product-view";
+import { SLUG_INPUT_ATTRS } from "@/validators/common";
 
 /**
  * Name, summary and description — §42 step 1.
@@ -115,8 +116,9 @@ function SlugForm({ product }: { product: AdminProductView }) {
               name="slug"
               defaultValue={product.slug}
               onChange={(event) => setDirty(event.target.value !== product.slug)}
-              pattern="[a-z0-9]+(-[a-z0-9]+)*"
-              maxLength={80}
+              // Pattern, length bounds and the message the browser shows, from the one place
+              // that mirrors `slugSchema`.
+              {...SLUG_INPUT_ATTRS}
               className="font-mono"
             />
           </label>

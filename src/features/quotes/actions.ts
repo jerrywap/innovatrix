@@ -56,6 +56,15 @@ const draftSchema = z.object({
   estimatedStart: z.string().trim().optional(),
   estimatedDurationDays: z.coerce.number().int().min(1).max(3650).optional(),
   expiresAt: z.string().trim().min(1, "Pick an expiry date"),
+  /**
+   * Vendor ticket 14 — the brief this quote prices, when there is one.
+   *
+   * The **only** vendor field the form posts. The vendor, their figure and the commission rate are
+   * all read from the brief server-side; a form carrying the amount would let its sender decide what
+   * a vendor is owed, and "only staff can reach this action" is not the same as "this input is
+   * trustworthy" — the same distinction `assertOrgAccess` exists for.
+   */
+  briefId: objectIdSchema.optional(),
 });
 
 /** One line per entry, blanks dropped — §51 wants these as lists, not prose. */
@@ -104,9 +113,31 @@ export async function saveQuoteDraftAction(
       });
     }
 
+    /*
+     * Vendor ticket 14. **Only the brief id comes from the form.**
+     *
+     * The vendor, their price and the commission rate are all resolved server-side from it. A form
+     * that posted the amount and the rate would let a client choose what a vendor is owed, and the
+     * fact that only staff can reach this action does not make that acceptable — it is the same
+     * reason `assertOrgAccess` exists to *check* a claimed scope rather than to supply one.
+     */
+    const vendor = input.briefId
+      ? await (async () => {
+          const { quotableBrief } = await import("@/services/vendors/brief-service");
+          const brief = await quotableBrief(input.briefId!);
+          return {
+            vendorId: brief.vendorId,
+            briefId: brief.briefId,
+            amount: brief.amount,
+            commissionBasisPoints: brief.commissionBasisPoints,
+          };
+        })()
+      : undefined;
+
     const draft = await quotes.createDraft(
       {
         requestId: input.requestId,
+        ...(vendor ? { vendor } : {}),
         organizationId: input.organizationId,
         title: input.title,
         ...(input.scope ? { scope: input.scope } : {}),

@@ -490,6 +490,15 @@ export interface EntitlementDoc {
   updatesUntil?: Date;
   supportUntil?: Date;
   status: EntitlementStatus;
+  /**
+   * When the customer told us not to ask for a review again — vendor ticket 10.
+   *
+   * On the entitlement rather than on the user, because the ask is per purchase: somebody
+   * who does not want to review one product may happily review the next. Permanent by
+   * design — "ask me later" is a mechanism for asking four times, and the fourth is the one
+   * they remember.
+   */
+  reviewPromptDismissedAt?: Date;
 }
 
 const entitlementSchema = new Schema<EntitlementDoc>(
@@ -507,6 +516,7 @@ const entitlementSchema = new Schema<EntitlementDoc>(
     // The version bought stays downloadable forever, even past updatesUntil
     // (ticket 14).
     purchasedVersionId: { type: Schema.Types.ObjectId, ref: "ProductVersion" },
+    reviewPromptDismissedAt: Date,
     updatesUntil: Date,
     supportUntil: Date,
     status: { type: String, enum: ENTITLEMENT_STATUSES, default: "active", index: true },

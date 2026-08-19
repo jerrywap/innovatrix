@@ -46,26 +46,48 @@ export function useEvidenceUpload() {
     setUploading(true);
     setError(null);
 
-    const ticket = await createEvidenceUploadAction({
-      draftId,
-      filename: file.name,
-      contentType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-    });
-
-    if (!ticket.ok) {
-      setUploading(false);
-      setError(ticket.error);
-      return;
-    }
-
+    /*
+     * The mint is inside the `try` — it was outside, which is a hang rather than an error.
+     *
+     * `!ticket.ok` was handled; the action call **rejecting** was not, so a network failure
+     * reaching the server left `uploading` true for ever with nothing shown. Same shape as the
+     * other three upload components, all fixed together.
+     */
     try {
+      const ticket = await createEvidenceUploadAction({
+        draftId,
+        filename: file.name,
+        contentType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      });
+
+      if (!ticket.ok) throw new Error(ticket.error);
+
+      /*
+       * A bank receipt is the most sensitive thing a staff member uploads, and this is the one
+       * step the server never sees fail: `fetch` rejects with `TypeError: Failed to fetch` when
+       * nothing completed at all. A bad *status* is ours to explain; no response is theirs to look
+       * at. The bucket's CORS is measured and correct (see `vendors/components/document-upload`),
+       * so a blocked request here is an extension, a VPN or a proxy.
+       */
       const response = await fetch(ticket.data.uploadUrl, {
         method: "PUT",
         headers: ticket.data.headers,
         body: file,
+      }).catch(() => {
+        throw new Error(
+          "The file never reached our storage. Something between this browser and it blocked the " +
+            "request — usually an extension, a VPN or a corporate proxy.",
+        );
       });
-      if (!response.ok) throw new Error(`S3 refused the upload (${response.status}).`);
+
+      if (!response.ok) {
+        throw new Error(
+          response.status === 403
+            ? "That upload link had expired. Choose the file again — it is only valid for a few minutes."
+            : `Our storage refused the file (${response.status}). Nothing was saved.`,
+        );
+      }
 
       setEvidence({
         key: ticket.data.key,

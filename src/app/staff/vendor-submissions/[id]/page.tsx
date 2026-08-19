@@ -11,6 +11,7 @@ import { toStaffReviewNotes } from "@/services/catalog/product-view";
 import { readinessFor } from "@/services/catalog/product-service";
 import { ReadinessGaps } from "@/features/products/components/readiness-gaps";
 import { ReviewDecision } from "@/features/products/components/review-decision";
+import { alreadyApproved } from "@/services/catalog/review-service";
 
 export const metadata: Metadata = { title: "Submission" };
 
@@ -97,7 +98,17 @@ export default async function Page({ params }: PageProps<"/staff/vendor-submissi
 
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-[15.5px] tracking-[-0.02em]">Decide</h2>
-        <ReviewDecision productId={String(product._id)} status={product.status} />
+        {/*
+          `decided` and not just the status, because `internal_review` means two different
+          things: a reviewer has picked it up, or a reviewer has approved it. The service
+          refuses a second approval either way — this stops us drawing a form whose only
+          possible outcome is that refusal.
+        */}
+        <ReviewDecision
+          productId={String(product._id)}
+          status={product.status}
+          decided={alreadyApproved(product)}
+        />
       </section>
 
       {notes.length > 0 && (

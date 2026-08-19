@@ -57,7 +57,14 @@ export function AgreementNotice({
       </p>
 
       <p className="text-[13px]">
-        <a href="/terms" className="underline underline-offset-4">
+        {/* The vendor agreement, not `/terms` — which is the buyer's document and says nothing
+            about selling. This link pointed there until the page existed. */}
+        <a
+          href="/terms/vendor"
+          target="_blank"
+          rel="noopener"
+          className="underline underline-offset-4"
+        >
           Read the agreement
         </a>
       </p>

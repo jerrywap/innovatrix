@@ -3,7 +3,7 @@ import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import { PRODUCT_VERSION_TRANSITIONS, assertTransition } from "@/lib/db/states";
 import { Product, type ProductVersionDoc } from "@/lib/db/models/catalog";
-import type { ProductVersionStatus } from "@/lib/db/enums";
+import type { DeliveryMethod, ProductVersionStatus } from "@/lib/db/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { isEmptyDocument, type RichTextDocument } from "@/lib/rich-text/schema";
 import { compareSemver, isSemver, sortByVersionDesc, supersedes } from "@/lib/semver";
@@ -193,51 +193,106 @@ export async function releaseVersion(
   assertTransition("productVersion", PRODUCT_VERSION_TRANSITIONS, version.status, "released");
 
   /*
-   * Vendor ticket 06: a version cannot reach `released` while its artefact is missing or
-   * unverified, whichever delivery method was used.
+   * The product says which artefact path is in force, so it is loaded before the gate
+   * rather than after the release for the notification's sake.
    *
-   * The mirror and pull methods fetch in a job, so there is a window where the source is
-   * recorded and the bytes are not here yet. Releasing inside that window would put a
-   * download in front of entitled customers that resolves to nothing — and
-   * `ProductVersionReleased` would have already told them it was ready.
+   * **The gate must not read a source belonging to a method the product no longer uses.**
+   * A vendor tried the repository method, the fetch 404'd, they switched back to `archive`
+   * and uploaded a package — and release refused for ever with "We could not fetch the
+   * artefact: that URL answered 404". They could not act on it either: `DeliverySource`
+   * only renders for the two remote methods, so under `archive` the failed source is not
+   * on the screen at all. An invisible record of an abandoned attempt was blocking the
+   * method that had nothing to do with it, and the picker promises that switching "needs
+   * no migration".
    *
-   * Checked *before* the package count so the message names the real cause: "still
-   * fetching" and "you never gave us a file" are different problems with different
-   * answers.
+   * Scoping the gate to the method in force is the honest fix rather than clearing the
+   * source on a switch: a vendor who switches away and back keeps the URL and the sealed
+   * token they cannot retype.
    */
-  /*
-   * `version.artefactSource && …` is **wrong here**, and it cost a test to find out.
-   *
-   * Mongoose materialises an unset *nested path* as `{}`, and the `status` default then
-   * fills in `"pending"` — so every archive-method version, which has no source at all,
-   * arrives looking like one mid-fetch and could never be released. `OrderDoc.discount`
-   * carries the same warning for the same reason.
-   *
-   * The honest condition is whether a source names somewhere to fetch **from**.
-   */
-  const source = version.artefactSource;
-  const hasRemoteSource = Boolean(source?.url || source?.repositoryUrl);
-  if (source && hasRemoteSource && source.status !== "stored") {
-    throw new ValidationError(
-      source.status === "failed"
-        ? `We could not fetch the artefact for ${version.version}: ${source.failureReason ?? "the fetch failed"}`
-        : `We are still fetching the artefact for ${version.version}. Release it once that finishes.`,
-      {
-        artefactSource: [
-          source.status === "failed"
-            ? "Fix the source or the checksum and try again."
-            : "The fetch is queued or in progress.",
-        ],
-      },
-    );
+  const product = await Product.findById(version.productId)
+    .select({ name: 1, deliveryMethod: 1 })
+    .lean<{ name: string; deliveryMethod?: DeliveryMethod }>();
+
+  // Absent means `archive` — the default, and what every first-party product uses.
+  const method = product?.deliveryMethod ?? "archive";
+  const fetchesRemotely = method === "vendor_hosted" || method === "repository";
+
+  if (fetchesRemotely) {
+    /*
+     * Vendor ticket 06: a version cannot reach `released` while its artefact is missing or
+     * unverified.
+     *
+     * Both remote methods fetch in a job, so there is a window where the source is recorded
+     * and the bytes are not here yet. Releasing inside that window would put a download in
+     * front of entitled customers that resolves to nothing — and `ProductVersionReleased`
+     * would already have told them it was ready.
+     *
+     * Checked *before* the package count so the message names the real cause: "still
+     * fetching" and "you never told us where to fetch from" are different problems with
+     * different answers.
+     */
+    /*
+     * `version.artefactSource && …` is **wrong as a presence check**, and it cost a test to
+     * find out. Mongoose materialises an unset *nested path* as `{}`, and the `status`
+     * default then fills in `"pending"` — so a version with no source at all arrives
+     * looking like one mid-fetch. `OrderDoc.discount` carries the same warning for the same
+     * reason. The honest condition is whether a source names somewhere to fetch **from**.
+     */
+    const source = version.artefactSource;
+    const hasRemoteSource = Boolean(source?.url || source?.repositoryUrl);
+
+    if (!hasRemoteSource) {
+      // Under a remote method there is no upload control, so "upload an application
+      // package" — what this used to fall through to — named an action the screen does not
+      // offer.
+      throw new ValidationError(
+        `Version ${version.version} has nowhere to fetch from. ` +
+          (method === "repository"
+            ? "Give us the repository and tag, and we will pull that tag once."
+            : "Give us the package URL and its SHA-256, and we will fetch it once."),
+        { artefactSource: ["Fill this in, then release once the fetch finishes."] },
+      );
+    }
+
+    if (source && source.status !== "stored") {
+      throw new ValidationError(
+        source.status === "failed"
+          ? `We could not fetch the artefact for ${version.version}: ${source.failureReason ?? "the fetch failed"}`
+          : `We are still fetching the artefact for ${version.version}. Release it once that finishes.`,
+        {
+          artefactSource: [
+            source.status === "failed"
+              ? "Fix the source or the checksum and try again."
+              : "The fetch is queued or in progress.",
+          ],
+        },
+      );
+    }
   }
 
+  /*
+   * The invariant that holds for every method: released means downloadable. A remote fetch
+   * ends by writing exactly this file (`artefact-service.ts`), so a `stored` source with no
+   * package is an inconsistency rather than something the vendor did — hence the second
+   * wording, which does not tell them to upload something the screen cannot upload.
+   */
   const packages = await productFiles.countByKind(versionId, "application_package");
   if (packages === 0) {
     throw new ValidationError(
-      `Version ${version.version} has no application package. Upload one before releasing — ` +
-        `a released version with nothing to download looks available and is not.`,
-      { files: ["Upload an application package first."] },
+      fetchesRemotely
+        ? `Version ${version.version} has nothing to download yet. The fetch has not produced ` +
+            `a package — retry it, and tell us if it keeps happening.`
+        : `Version ${version.version} has no application package. Upload one before releasing — ` +
+            `a released version with nothing to download looks available and is not.`,
+      {
+        files: [
+          fetchesRemotely
+            ? "Retry the fetch."
+            : // The uploader's kind selector defaults to "Application package"; a file filed
+              // as documentation or a setup guide does not satisfy this.
+              "Upload a file whose kind is “Application package”.",
+        ],
+      },
     );
   }
 
@@ -272,12 +327,9 @@ export async function releaseVersion(
    *
    * Emitted after the audit and outside any transaction: a notification
    * failing must not un-release a version, and the version is genuinely
-   * released whether or not anybody was told.
+   * released whether or not anybody was told. `product` was loaded for the
+   * delivery-method gate above, so this is not a second read.
    */
-  const product = await Product.findById(version.productId)
-    .select({ name: 1 })
-    .lean<{ name: string }>();
-
   await emit("ProductVersionReleased", {
     productId: String(version.productId),
     productName: product?.name ?? "Your software",

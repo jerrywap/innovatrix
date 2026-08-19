@@ -159,3 +159,45 @@ engine; the seam is `scanStatus` and the checks here are structural.
 - [x] `ProductVersionReleased` fires only after the artefact is in place, and entitled owners are notified once.
 - [x] Switching a product's delivery method leaves every previously released version downloadable, and needs no migration.
 - [x] A delivery method whose path is not yet built is not selectable — all three are built, so all three are offered by a vendor.
+
+## Implementation notes — 2026-08-17
+
+### The release gate has to know which method is in force
+
+Reported: a vendor on the **archive** method uploaded a file and got *"We could not fetch the
+artefact for 1.0.0: That URL answered 404. Fix the source or the checksum and try again."*
+
+Both statements were true of data that no longer applied. They had tried the repository method
+earlier, the pull 404'd, and they switched back to `archive` — which the picker says needs no
+migration, and it does not. But `releaseVersion` gated on *any* `artefactSource` naming somewhere
+to fetch from, without asking whether the product still fetches. So a record of an abandoned
+attempt blocked the method that had nothing to do with it.
+
+It was unfixable from the screen, too, which is what made it a trap rather than a nuisance:
+`DeliverySource` renders only for the two remote methods, so under `archive` the failed source is
+not drawn anywhere. The vendor was told to fix something they could not see, about a method they
+were not using.
+
+The gate now reads `product.deliveryMethod` — the single authority on which artefact path is in
+force — and only consults the source for `vendor_hosted` and `repository`. **Not** by clearing the
+source on a switch: a vendor who switches away and back would lose the URL and the sealed token
+they cannot retype, and the invisible-data problem would simply move.
+
+Two message fixes came with it, both cases where the refusal named the wrong action:
+
+- A remote-method version with **no source at all** fell through to "upload an application
+  package", which names a control neither remote method has. It now says there is nowhere to fetch
+  from, and asks for the repository and tag or the URL and checksum by name.
+- A remote-method version whose fetch stored nothing is told to retry the fetch rather than to
+  upload, because the fetch is what writes that file.
+
+The archive-method case had a test, and it was passing while testing the opposite thing — the
+fixture product is `vendor_hosted`, so "leaves an archive-method version alone" never set the
+method. It sets it now, and two cases were added: the stale-source regression, and the
+no-source-under-a-remote-method message.
+
+**A file's `kind` is load-bearing and easy to get wrong.** The gate counts
+`kind: "application_package"`; a file uploaded as *Documentation* or *Setup guide* does not satisfy
+it, however plainly it is the release. The uploader defaults to Application package, so this only
+bites a vendor who changed the selector — but the refusal now names the kind rather than saying
+"upload one" at somebody who already did.

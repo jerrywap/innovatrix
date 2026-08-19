@@ -62,6 +62,13 @@ export interface ProductCard {
    * called Innovatrix is noise.
    */
   vendor?: { slug: string; name: string };
+  /**
+   * The rating, derived from the cached sum and count — vendor ticket 10.
+   *
+   * Absent when nobody has reviewed it. A card for an unreviewed product shows no stars at
+   * all rather than an empty five, because zero stars reads as "everybody hated it".
+   */
+  rating?: { average: number; count: number };
 }
 
 export interface MarketplaceResult {

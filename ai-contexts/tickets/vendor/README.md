@@ -44,6 +44,7 @@ convention:
 | 11 | [Vendor storefront](11-vendor-storefront.md) | vendor 04, 10; tickets 08, 27 | M |
 | 12 | [Vendor analytics & lifecycle](12-vendor-analytics-and-lifecycle.md) | vendor 08, 09, 10 | M |
 | 13 | [Vendor support & disputes](13-vendor-support-and-disputes.md) | vendor 04, 12; tickets 13, 21 | M |
+| 14 | [Vendor-directed customization](14-vendor-directed-customization.md) | vendor 04, 05, 07, 08, 13; tickets 17, 19, 21, 22 | L |
 
 Demoable milestones: **03** (a developer can apply, be verified, and sign in) →
 **06** (a vendor's product is on sale and downloadable) → **09** (the vendor is
@@ -94,6 +95,16 @@ there is a second party, and are re-opened here. None blocks vendor tickets
 | V10 | Does the vendor set **licence terms**, or take the platform's? | vendor 04 | Platform's defaults (main decision #4); no per-vendor licence text at launch |
 | V11 | Is vendor onboarding **open or invite-only** at launch? | vendor 01 | Invite-only, with an application form behind it |
 
+Four more were opened and **answered** by vendor ticket 14 on 2026-08-17, since none of V1–V11
+covered custom work on a vendor's product:
+
+| # | Question | Decision |
+|---|----------|----------|
+| W1 | Who prices a customization of a vendor's product | The **vendor**, with commission on custom revenue |
+| W2 | Does the vendor see who asked | **No** — mediated; requirements and product only |
+| W3 | Who sees the request first | **Staff**, who triage before it reaches the vendor |
+| W4 | How mediation is enforced | **Two threads with staff relaying** — structural, not a visibility flag |
+
 ## What these tickets deliberately leave out
 
 Named here rather than discovered later. Each is discussed in the ticket it
@@ -105,6 +116,11 @@ would have belonged to.
 - **Automated payout transfers.** Vendor ticket 09 defines a `PayoutProvider`
   interface and ships one `manual` driver.
 - **A vendor-facing API or webhooks.** Nothing in the brief needs one.
+- ~~**Customization requests against a vendor's product.**~~ Added as vendor ticket 14 on
+  2026-08-17. It was never in this list, and that was the omission: a customer could always ask
+  for changes to any product, and once vendor ticket 04 gave products an owner, some of those
+  requests were about software the platform did not write. Tickets 17, 19 and 22 have no vendor
+  concept at all, so nothing caught it.
 - **Vendor-run promotions and discount codes.** Discounts stay platform-owned
   (ticket 06) because a vendor-funded discount changes the commission
   arithmetic, which is vendor ticket 07's decision to reopen, not to pre-empt.

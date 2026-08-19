@@ -301,6 +301,47 @@ export const CATALOG: Catalog = {
     },
   ],
 
+  /*
+   * Vendor ticket 14. **Everything a mediated boundary can get wrong is in a notification.**
+   *
+   * A title naming the customer, a body quoting their message, an href to a staff screen — each of
+   * them would undo the whole design, and an email is the one place the leak leaves the building.
+   * So the payload has no customer field to accidentally interpolate (see
+   * `CustomizationRoutedToVendor` in `events/index.ts`), the title names the *product*, and the href
+   * is the brief.
+   */
+  CustomizationRoutedToVendor: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "requests",
+      title: (p) => `A customer wants changes to ${p.productName}`,
+      body: () =>
+        "We have passed on what they asked for. Take a look and tell us what it would cost.",
+      href: (p) => `/dashboard/selling/requests/${p.briefId}`,
+    },
+  ],
+
+  VendorBriefAnswered: [
+    {
+      audience: { kind: "staff", permission: "request.view_all" },
+      category: "requests",
+      title: (p) => `${p.productName} — the vendor has priced it`,
+      href: (p) => `/staff/requests/${p.requestId}`,
+    },
+  ],
+
+  VendorBriefDeclined: [
+    {
+      audience: { kind: "staff", permission: "request.view_all" },
+      category: "requests",
+      title: (p) => `${p.productName} — the vendor declined`,
+      // Verbatim, and the reason `decline()` refuses without one: "no capacity until March" and
+      // "that would break every other install" need entirely different things said to the customer.
+      body: (p) => p.reason,
+      href: (p) => `/staff/requests/${p.requestId}`,
+    },
+  ],
+
   VendorVerified: [
     {
       audience: { kind: "vendor_member" },
@@ -334,6 +375,113 @@ export const CATALOG: Catalog = {
       body: (p) =>
         `${p.reason} New sales are paused. Customers who already bought from you keep their software and their downloads.`,
       href: () => `/dashboard/selling`,
+    },
+  ],
+
+  /* ── vendor ticket 13 ── */
+
+  VendorSupportThreadOpened: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "messages",
+      title: (p) => `A question about ${p.productName}`,
+      body: () =>
+        "You answer this one first — we are watching the thread rather than running it.",
+      href: () => `/dashboard/selling/support`,
+    },
+  ],
+
+  DisputeRaised: [
+    {
+      audience: { kind: "staff", permission: "vendor.review" },
+      category: "messages",
+      title: (p) => `Dispute raised by the ${p.raisedBy}`,
+      body: (p) => `Reason given: ${p.reason.replace(/_/g, " ")}.`,
+      href: () => `/staff/disputes`,
+    },
+    {
+      // The vendor hears too, whichever side raised it. A dispute they learn about when the
+      // outcome lands is one they will contest.
+      audience: { kind: "vendor_member" },
+      category: "messages",
+      title: () => "A dispute has been opened on one of your threads",
+      body: () =>
+        "Innovatrix will decide it. Add anything you want considered to the conversation — it " +
+        "is read before a decision is made.",
+      href: () => `/dashboard/selling/support`,
+    },
+  ],
+
+  DisputeResolved: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "messages",
+      title: () => "A dispute has been decided",
+      // The reason verbatim. A paraphrase of somebody else's decision is how an outcome gets
+      // re-argued.
+      body: (p) => p.reason,
+      href: () => `/dashboard/selling/support`,
+    },
+  ],
+
+  /* ── vendor ticket 12 ── */
+
+  VendorOffboarded: [
+    {
+      // Everybody holding an active entitlement to anything that vendor sold, once.
+      audience: { kind: "entitled_owners" },
+      category: "products",
+      title: (p) => `${p.displayName} has left Innovatrix`,
+      /*
+       * Says what **survives** first.
+       *
+       * The customer's question is "have I lost what I paid for", and the answer is no — so
+       * that is the first clause rather than a reassurance at the end. Silence here is how a
+       * customer discovers it by needing help, which is the worst moment.
+       */
+      body: () =>
+        "Everything you bought from them is still yours: your licence stays valid and your " +
+        "downloads keep working. Support for those products is now handled by Innovatrix.",
+      href: () => `/dashboard/software`,
+    },
+  ],
+
+  ProductEmergencyDelisted: [
+    {
+      audience: { kind: "staff", permission: "product.publish" },
+      category: "security",
+      title: (p) => `${p.productName} was pulled from sale`,
+      body: (p) => p.reason,
+      href: () => `/admin/products`,
+    },
+  ],
+
+  /* ── vendor ticket 10 ── */
+
+  ProductReviewPublished: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: (p) => `${p.rating}★ review of ${p.productName}`,
+      // Says what to do about it, because the useful reply is often to a *good* review and a
+      // vendor who only hears about the bad ones learns to dread this notification.
+      body: () =>
+        "You can reply publicly. A vendor's answer is often more useful to the next buyer " +
+        "than the review itself.",
+      href: () => `/dashboard/selling/reviews`,
+    },
+  ],
+
+  ProductReviewFlagged: [
+    {
+      // The queue audience — every staff member holding the permission. No vendor hears
+      // about this, deliberately: a seller told which reviews were reported learns which of
+      // their customers complained.
+      audience: { kind: "staff", permission: "review.moderate" },
+      category: "products",
+      title: () => "A review needs a look",
+      body: (p) => `It has been reported ${p.reportCount} times.`,
+      href: () => `/staff/reviews`,
     },
   ],
 

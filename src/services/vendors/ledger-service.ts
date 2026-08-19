@@ -1,6 +1,6 @@
 import "server-only";
-import type { ClientSession } from "mongoose";
-import { toObjectId } from "@/lib/db/base";
+import type { ClientSession, Types } from "mongoose";
+import { isDuplicateKeyError, toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import { LedgerEntry, type LedgerEntryDoc } from "@/lib/db/models/ledger";
 import { Order, type OrderDoc } from "@/lib/db/models/commerce";
@@ -114,6 +114,122 @@ export async function recordEarnings(
   await LedgerEntry.create(rows, session ? { session, ordered: true } : { ordered: true });
 
   return { written: rows.length };
+}
+
+/**
+ * A vendor's earning on **custom work** — vendor ticket 14.
+ *
+ * ## Why this is a second function and not a branch in `recordEarnings`
+ *
+ * That one takes an `OrderDoc` and reads `order.items`; custom work has no order and no line. It
+ * arrives as an `Invoice` against a `Quote`, and `InvoicePaid` never called into this module at all —
+ * so a vendor who scoped, priced and delivered a customization earned nothing, and no `LedgerEntry`
+ * shape could even have described it.
+ *
+ * ## The vendor's figure, not the customer's total
+ *
+ * `quote.vendorAmount` is what the vendor priced; `quote.total` is what the customer pays, which may
+ * be higher because staff added margin. The split is taken on the vendor's own number, so raising the
+ * price the customer sees cannot change what we owe — that is what "the vendor prices the work"
+ * promised, and computing from the total would quietly break it.
+ *
+ * The rate comes off the quote, snapshotted when it was issued. Re-resolving it here would let a
+ * renegotiated rate rewrite the arithmetic on work already agreed.
+ *
+ * ## Two invoices, two earnings
+ *
+ * A deposit and a balance invoice against one quote are **proportional parts** of it, so each records
+ * its own share — `invoiceShare` below. Recording the whole thing on the first invoice would pay a
+ * vendor in full for a deposit; recording it once per quote would either double-pay or drop half.
+ * The unique `{invoiceId, kind}` index is what makes a retried webhook harmless.
+ */
+export async function recordCustomWorkEarning(
+  input: { invoiceId: string; quoteId: string },
+  session?: ClientSession,
+): Promise<{ written: boolean }> {
+  await connectToDatabase();
+
+  const { Quote, Invoice } = await import("@/lib/db/models/billing");
+
+  const quote = await Quote.findById(toObjectId(input.quoteId))
+    .select({ vendorId: 1, vendorAmount: 1, vendorCommissionBasisPoints: 1, total: 1 })
+    .session(session ?? null)
+    .lean<{
+      vendorId?: Types.ObjectId;
+      vendorAmount?: { amount: number; currency: string };
+      vendorCommissionBasisPoints?: number;
+      total: { amount: number; currency: string };
+    }>();
+
+  // First-party work, or a quote raised before this ticket. Neither is an error.
+  if (
+    !quote?.vendorId ||
+    !quote.vendorAmount ||
+    quote.vendorCommissionBasisPoints === undefined
+  ) {
+    return { written: false };
+  }
+
+  const invoice = await Invoice.findById(toObjectId(input.invoiceId))
+    .select({ total: 1 })
+    .session(session ?? null)
+    .lean<{ total: { amount: number; currency: string } }>();
+  if (!invoice) return { written: false };
+
+  const vendorPrice = fromDocument(quote.vendorAmount)!;
+
+  /*
+   * The vendor's share of *this* invoice, in proportion to what it collects of the quote.
+   *
+   * Integer arithmetic through `money.ts` — a deposit of 40% on a £2,400 vendor price earns £960 of
+   * it, and the balance invoice earns the rest. Rounding is absorbed by the balance because it is
+   * computed as "the quote total minus what has already been recorded" nowhere: instead each invoice
+   * takes its own proportion, and the residual pence land wherever the division puts them. That is
+   * acceptable to a penny and honest about it; the alternative is tracking a running remainder, which
+   * is a second source of truth for the same figure.
+   */
+  const share = invoiceShare(vendorPrice, invoice.total.amount, quote.total.amount);
+  const { earning } = splitLineTotal(share, quote.vendorCommissionBasisPoints);
+
+  try {
+    await LedgerEntry.create(
+      [
+        {
+          vendorId: quote.vendorId,
+          kind: "earning" as const,
+          amount: toDocument(earning),
+          status: "pending" as const,
+          clearsAt: clearanceDate(),
+          invoiceId: toObjectId(input.invoiceId),
+          quoteId: toObjectId(input.quoteId),
+        },
+      ],
+      session ? { session, ordered: true } : { ordered: true },
+    );
+  } catch (error) {
+    // The unique `{invoiceId, kind}` index doing its job on a retried webhook. Not an error: the
+    // earning is already there, which is the outcome the caller wanted.
+    if (isDuplicateKeyError(error)) return { written: false };
+    throw error;
+  }
+
+  return { written: true };
+}
+
+/**
+ * How much of the vendor's price one invoice collects.
+ *
+ * `full` terms make this the whole figure and the multiplication a no-op. On deposit terms it is the
+ * same proportion of the vendor's price as the invoice is of the quote — which is the only split that
+ * does not require deciding whether the platform's margin comes out of the deposit or the balance.
+ */
+function invoiceShare(vendorPrice: Money, invoiceAmount: number, quoteTotal: number): Money {
+  if (quoteTotal <= 0 || invoiceAmount >= quoteTotal) return vendorPrice;
+
+  return money(
+    Math.round((vendorPrice.amount * invoiceAmount) / quoteTotal),
+    vendorPrice.currency as Parameters<typeof money>[1],
+  );
 }
 
 /**
@@ -315,6 +431,13 @@ export interface LedgerRow {
    * *page* stays theirs; this is the reference and nothing else.
    */
   orderReference?: string;
+  /** Custom work — vendor ticket 14. An earning with an invoice has no order line. */
+  invoiceId?: string;
+  /**
+   * The invoice's reference, for the same reason `orderReference` exists: a figure a vendor cannot
+   * trace to anything is a number they have to take on trust.
+   */
+  invoiceReference?: string;
   payoutId?: string;
   note?: string;
   createdAt: Date;
@@ -355,6 +478,30 @@ export async function listEntries(
     for (const order of orders) references.set(String(order._id), order.reference);
   }
 
+  /*
+   * The same join for custom work — vendor ticket 14.
+   *
+   * Without it a customization earning renders as an amount with no reference beside it, which is the
+   * column-of-unverifiable-numbers problem the order join exists to avoid, and worse for bespoke work
+   * because there is no product name to recognise it by. The invoice reference is the vendor's handle
+   * on it: it is what a staff conversation about the payment will cite.
+   */
+  const invoiceIds = [
+    ...new Set(
+      rows
+        .map((row) => row.invoiceId)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
+  if (invoiceIds.length > 0) {
+    const { Invoice } = await import("@/lib/db/models/billing");
+    const invoices = await Invoice.find({ _id: { $in: invoiceIds } })
+      .select({ reference: 1 })
+      .lean<Array<{ _id: unknown; reference: string }>>();
+    for (const invoice of invoices) references.set(String(invoice._id), invoice.reference);
+  }
+
   return rows.map((row) => ({
     id: String(row._id),
     kind: row.kind,
@@ -365,6 +512,10 @@ export async function listEntries(
     ...(row.orderLineId ? { orderLineId: row.orderLineId } : {}),
     ...(row.orderId && references.has(String(row.orderId))
       ? { orderReference: references.get(String(row.orderId))! }
+      : {}),
+    ...(row.invoiceId ? { invoiceId: String(row.invoiceId) } : {}),
+    ...(row.invoiceId && references.has(String(row.invoiceId))
+      ? { invoiceReference: references.get(String(row.invoiceId))! }
       : {}),
     ...(row.payoutId ? { payoutId: String(row.payoutId) } : {}),
     ...(row.note ? { note: row.note } : {}),

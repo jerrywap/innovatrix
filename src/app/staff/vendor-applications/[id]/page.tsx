@@ -17,6 +17,7 @@ import {
   VerificationDecision,
 } from "@/features/vendors/components/review-panel";
 import { VendorMoney } from "@/features/vendors/components/vendor-money";
+import { LifecyclePanel } from "@/features/vendors/components/lifecycle-panel";
 
 export const metadata: Metadata = { title: "Vendor" };
 
@@ -56,6 +57,8 @@ export default async function Page({ params }: PageProps<"/staff/vendor-applicat
     mayReadLedger,
     mayManageCommission,
     mayAdjust,
+    maySuspend,
+    mayOffboard,
   ] = await Promise.all([
     listDocuments(vendorId),
     listMembers(vendorId),
@@ -69,6 +72,10 @@ export default async function Page({ params }: PageProps<"/staff/vendor-applicat
     can("vendor.view_ledger"),
     can("vendor.manage_commission"),
     can("vendor.adjust_ledger"),
+    // Vendor ticket 12. Suspension is reversible and sits with the marketplace; offboarding is
+    // not, happens with money owed, and is `super_admin` only.
+    can("vendor.suspend"),
+    can("vendor.offboard"),
   ]);
 
   return (
@@ -222,6 +229,14 @@ export default async function Page({ params }: PageProps<"/staff/vendor-applicat
           />
         </Suspense>
       )}
+
+      <LifecyclePanel
+        vendorId={vendorId}
+        vendorName={vendor.displayName}
+        status={vendor.status}
+        canSuspend={maySuspend}
+        canOffboard={mayOffboard}
+      />
 
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-[15.5px] tracking-[-0.02em]">Who has access</h2>

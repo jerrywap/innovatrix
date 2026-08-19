@@ -64,6 +64,31 @@ const COLLECTED = [
       "What you asked for, what we quoted, and the messages exchanged about it. Attachments you upload are stored with the request they belong to.",
   },
   {
+    /*
+     * Vendor tickets 02 and 09. The three categories below are the most sensitive personal data
+     * the platform holds, and none of them was mentioned here — the inventory had drifted from a
+     * schema that gained identity documents, bank details and a public author name.
+     */
+    term: "If you apply to sell here",
+    detail:
+      "Your application: the name you trade under, a contact email, your country and what you build. Plus the identity documents you upload — a government ID and a proof of address — and any business documents. A person reads them; what they decided is kept along with a checksum of what they read, so the decision survives the document.",
+  },
+  {
+    term: "Your payout details, if you sell here",
+    detail:
+      "The account name, account number or IBAN, bank name and country you give us for payouts. Only your own account owner can see or change them, and everywhere else on the platform — including the statement attached to a payout — they appear masked to the last four characters.",
+  },
+  {
+    term: "Reviews you write",
+    detail:
+      "Your rating, your words, and which version you had. These are public. Your name is shortened before it is published — a first name and a last initial — because a full name on an indexable page is not something buying software should cost you. Your email address never appears.",
+  },
+  {
+    term: "Support threads about a purchase",
+    detail:
+      "What you asked a seller, what they answered, and anything a dispute records. A seller sees your question and their own notes to us; they never see our internal notes, and you never see either. Raising a dispute shares what you wrote with the seller, because they are entitled to answer it.",
+  },
+  {
     term: "Activity and audit records",
     detail:
       "Significant actions — a quote issued, a payment recorded, a permission changed — with who did them and when. Accepting a quote also records your IP address and browser, because acceptance is a commercial agreement and has to be evidenced.",

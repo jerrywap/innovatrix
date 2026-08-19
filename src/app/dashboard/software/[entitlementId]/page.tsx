@@ -1,12 +1,17 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { notFound } from "next/navigation";
 import { Download, KeyRound, Lock } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatBytes } from "@/lib/format-bytes";
-import { requireOrg } from "@/lib/auth/dal";
+import type { EntitlementStatus } from "@/lib/db/enums";
+import { requireOrg, requireUser } from "@/lib/auth/dal";
 import { getOwnedSoftware } from "@/services/entitlements/entitlement-service";
+import { ReviewForm } from "@/features/reviews/components/review-form";
+import { ReviewPrompt } from "@/features/reviews/components/review-prompt";
 
 export const metadata: Metadata = { title: "Software" };
 
@@ -83,6 +88,15 @@ export default async function Page({
         </Link>
       </div>
 
+      {/*
+        Vendor ticket 10. Here rather than on the product page, because this is the only screen
+        where the platform knows you own the thing — purchase-gating shows up as *where the form
+        is*, not as a button that refuses.
+      */}
+      <Suspense fallback={<Skeleton className="h-32 w-full rounded-xl" />}>
+        <ReviewInvitation entitlementId={owned.id} productName={owned.product.name} />
+      </Suspense>
+
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-[17px] tracking-[-0.02em]">Versions and downloads</h2>
 
@@ -158,5 +172,63 @@ export default async function Page({
         </ul>
       </section>
     </div>
+  );
+}
+
+/**
+ * The review ask, or the review you already wrote.
+ *
+ * Three states, and the third is the one that matters: a customer who has reviewed sees their
+ * own words with an edit form, because a review they cannot find is a review they will write
+ * again in a support email.
+ *
+ * The prompt's own conditions — after use, not yet dismissed, not already reviewed — live in
+ * `shouldPrompt`. This component decides only what to draw.
+ */
+async function ReviewInvitation({
+  entitlementId,
+  productName,
+}: {
+  entitlementId: string;
+  productName: string;
+}) {
+  const user = await requireUser();
+  const { Entitlement } = await import("@/lib/db/models/commerce");
+  const { findMine, shouldPrompt } = await import("@/services/reviews/review-service");
+
+  const [mine, entitlement] = await Promise.all([
+    findMine(entitlementId, user.id),
+    Entitlement.findById(entitlementId)
+      .select({ status: 1, createdAt: 1, reviewPromptDismissedAt: 1 })
+      .lean<{
+        _id: import("mongoose").Types.ObjectId;
+        status: EntitlementStatus;
+        createdAt?: Date;
+        reviewPromptDismissedAt?: Date;
+      }>(),
+  ]);
+
+  if (mine) {
+    return (
+      <ReviewForm
+        entitlementId={entitlementId}
+        productName={productName}
+        existing={{
+          id: String(mine._id),
+          rating: mine.rating,
+          ...(mine.title ? { title: mine.title } : {}),
+          body: mine.body,
+        }}
+      />
+    );
+  }
+
+  if (!entitlement) return null;
+  if (!(await shouldPrompt(entitlement, user.id))) return null;
+
+  return (
+    <ReviewPrompt entitlementId={entitlementId}>
+      <ReviewForm entitlementId={entitlementId} productName={productName} />
+    </ReviewPrompt>
   );
 }

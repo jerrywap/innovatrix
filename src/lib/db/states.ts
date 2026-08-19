@@ -51,6 +51,31 @@ export type TransitionMap<S extends string> = Readonly<Record<S, readonly S[]>>;
  * Who may take each edge is `PRODUCT_TRANSITION_RULES` below — this map is the
  * graph, not the authorisation.
  */
+/**
+ * The route to sale, in order — for showing somebody where they are on it.
+ *
+ * `PRODUCT_TRANSITIONS` is a graph and says nothing about direction: `internal_review`
+ * lists `testing` beside `changes_requested`, `draft` and `archived`, all four equal. That
+ * is right for deciding what is *legal* and useless for answering "so how do I publish
+ * this", which is what a reviewer asks after approving a submission — publication is three
+ * hops away and the screen offered no hint that it was ahead rather than missing.
+ *
+ * Display only. Nothing authorises against this list, and the graph stays the authority on
+ * what may be taken; `states.test.ts` checks that every consecutive pair here is a real
+ * edge, so the rail cannot draw a step the machine would refuse.
+ *
+ * `submitted` sits on it even though a first-party product skips it — the rail describes
+ * the longest route, and a vendor product does take every step.
+ */
+export const PRODUCT_PUBLICATION_PATH = [
+  "draft",
+  "submitted",
+  "internal_review",
+  "testing",
+  "ready",
+  "published",
+] as const satisfies readonly ProductStatus[];
+
 export const PRODUCT_TRANSITIONS: TransitionMap<ProductStatus> = {
   draft: ["submitted", "internal_review", "archived"],
   submitted: ["internal_review", "changes_requested", "draft", "archived"],

@@ -10,8 +10,14 @@ import {
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_CHANNELS,
   SUBJECT_TYPES,
+  DISPUTE_OUTCOMES,
+  DISPUTE_REASONS,
+  DISPUTE_STATUSES,
   type ActorType,
   type ConversationSubjectType,
+  type DisputeOutcome,
+  type DisputeReason,
+  type DisputeStatus,
   type DomainEventType,
   type MessageSenderType,
   type MessageVisibility,
@@ -42,6 +48,43 @@ export interface ConversationDoc {
   lastMessageAt?: Date;
   lastCustomerMessageAt?: Date;
   lastStaffMessageAt?: Date;
+  /**
+   * Which vendor answers this thread — vendor ticket 13.
+   *
+   * Present only on a `vendor_support` conversation, and it is what scopes a vendor's inbox: a
+   * vendor sees threads about their own products because this field is in the query, not
+   * because a component filtered a list.
+   */
+  vendorId?: Types.ObjectId;
+  /** The product being asked about, for the vendor's own list. */
+  productId?: Types.ObjectId;
+  /** When the vendor first answered — the SLA measurement, stamped once. */
+  firstVendorResponseAt?: Date;
+  /** The response target, set when the thread opens from the vendor's verification level. */
+  responseDueAt?: Date;
+  /** Staff joined, and the vendor stayed — vendor ticket 13's escalation. */
+  escalatedAt?: Date;
+  /**
+   * A dispute, as a **state on the thread** rather than a fourth subject type.
+   *
+   * The conversation is already there; splitting it would leave two records of one argument.
+   * Either party may raise one, which is why `raisedByType` exists at all — and why the
+   * resolution requires both an outcome and a reason, since a dispute that simply goes quiet is
+   * the failure mode this whole structure exists to prevent.
+   */
+  dispute?: {
+    status: DisputeStatus;
+    raisedByType: "customer" | "vendor";
+    raisedByUserId: Types.ObjectId;
+    reason: DisputeReason;
+    detail: string;
+    raisedAt: Date;
+    outcome?: DisputeOutcome;
+    /** Both parties read this verbatim. Required to close — see `resolveDispute`. */
+    outcomeReason?: string;
+    resolvedAt?: Date;
+    resolvedByUserId?: Types.ObjectId;
+  };
 }
 
 const conversationSchema = new Schema<ConversationDoc>(
@@ -60,9 +103,39 @@ const conversationSchema = new Schema<ConversationDoc>(
     // counters without scanning messages.
     lastCustomerMessageAt: Date,
     lastStaffMessageAt: Date,
+    // Vendor ticket 13. All absent on the request/order/quote threads that existed before.
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor" },
+    productId: { type: Schema.Types.ObjectId, ref: "Product" },
+    firstVendorResponseAt: Date,
+    responseDueAt: Date,
+    escalatedAt: Date,
+    dispute: {
+      type: new Schema(
+        {
+          status: { type: String, enum: DISPUTE_STATUSES, required: true, default: "open" },
+          raisedByType: { type: String, enum: ["customer", "vendor"], required: true },
+          raisedByUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+          reason: { type: String, enum: DISPUTE_REASONS, required: true },
+          detail: { type: String, required: true, trim: true, maxlength: 4000 },
+          raisedAt: { type: Date, required: true },
+          outcome: { type: String, enum: DISPUTE_OUTCOMES },
+          outcomeReason: { type: String, trim: true, maxlength: 2000 },
+          resolvedAt: Date,
+          resolvedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
+        },
+        { _id: false },
+      ),
+    },
   },
   schemaOptions({ collection: "conversations" }),
 );
+
+/** The vendor's own inbox, and the SLA sweep. */
+conversationSchema.index({ vendorId: 1, lastMessageAt: -1 });
+/** The dispute queue — open ones first, oldest first. */
+conversationSchema.index({ "dispute.status": 1, "dispute.raisedAt": 1 });
+/** Overdue threads, for the follow-up sweep. `{status, dueAt}`-shaped, like `FollowUp`. */
+conversationSchema.index({ responseDueAt: 1, firstVendorResponseAt: 1 });
 
 // One conversation per subject in the MVP (§38).
 conversationSchema.index({ subjectType: 1, subjectId: 1 }, { unique: true });

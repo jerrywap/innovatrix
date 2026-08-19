@@ -53,7 +53,7 @@ export function OptionsForm({
 
   return (
     <SectionForm action={action} productId={product.id} nextHref={nextHref}>
-      <FieldGroup title="Installation" description="How a customer can get this running (§48).">
+      <FieldGroup title="Installation" description="How a customer can get this running.">
         <div className="flex flex-col gap-2">
           <ToggleRow
             name="installation[selfInstall]"
@@ -78,7 +78,7 @@ export function OptionsForm({
 
       <FieldGroup
         title="Customization"
-        description="Whether this product can be adapted, and what the assistant should offer (§50)."
+        description="Whether this product can be adapted, and what the assistant should offer."
       >
         <div className="flex flex-col gap-2">
           <ToggleRow

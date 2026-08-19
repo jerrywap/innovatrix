@@ -54,6 +54,20 @@ export interface DraftInput {
   estimatedStart?: Date;
   estimatedDurationDays?: number;
   expiresAt: Date;
+  /**
+   * Vendor ticket 14 — custom work on somebody else's software.
+   *
+   * Carried through rather than derived here, because the caller has already read the brief to
+   * authorise the draft and this service has no business knowing what a brief is. Absent for every
+   * quote the platform writes for its own work, which is every quote that existed before the ticket.
+   */
+  vendor?: {
+    vendorId: string;
+    briefId: string;
+    /** The vendor's own figure, in minor units — the basis for what they are owed. */
+    amount: number;
+    commissionBasisPoints: number;
+  };
 }
 
 function priced(input: DraftInput): {
@@ -141,6 +155,26 @@ export async function createDraft(
             : {}),
           expiresAt: input.expiresAt,
           status: "draft",
+          /*
+           * Two numbers, and the vendor's is not the total.
+           *
+           * `vendorAmount` is what the vendor priced and the basis for their earning; the total is
+           * what the customer pays, which staff may set higher. Deriving the vendor's share from the
+           * total would mean a staff member raising the price silently raised what we owe — the
+           * opposite of what "the vendor prices the work" promised them.
+           *
+           * The rate is snapshotted here rather than read at payment, exactly as
+           * `OrderLine.commissionBasisPoints` is snapshotted at checkout: a rate change must not
+           * retroactively alter what is owed on work already quoted.
+           */
+          ...(input.vendor
+            ? {
+                vendorId: toObjectId(input.vendor.vendorId),
+                vendorBriefId: toObjectId(input.vendor.briefId),
+                vendorAmount: { amount: input.vendor.amount, currency: input.currency },
+                vendorCommissionBasisPoints: input.vendor.commissionBasisPoints,
+              }
+            : {}),
         },
       ],
       { session },

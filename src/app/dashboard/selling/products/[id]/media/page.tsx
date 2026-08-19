@@ -4,7 +4,10 @@ import { loadVendorWizardProduct } from "@/features/products/wizard";
 import { stepHref } from "@/features/products/steps";
 import { MediaForm } from "@/features/products/components/media-form";
 import { StepHeading } from "@/features/products/components/step-heading";
-import { saveVendorMediaAction } from "@/features/vendors/product-actions";
+import {
+  createVendorMediaUploadAction,
+  saveVendorMediaAction,
+} from "@/features/vendors/product-actions";
 
 export const metadata: Metadata = { title: "Media" };
 
@@ -26,10 +29,17 @@ export default async function Page({
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="media" />
+      {/*
+        Two actions, because the step does two things: saving the section and minting a presigned
+        PUT. The upload one was missing and the shared control fell back to the staff action, whose
+        `requirePermission("product.update")` refused every vendor with "This area is for Innovatrix
+        staff" — so this step could not upload at all.
+      */}
       <MediaForm
         product={product}
         nextHref={stepHref(product.id, "pricing", "vendor")}
         action={saveVendorMediaAction}
+        uploadAction={createVendorMediaUploadAction}
       />
     </div>
   );

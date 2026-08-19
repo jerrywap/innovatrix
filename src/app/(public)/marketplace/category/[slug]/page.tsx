@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getTaxonomyIndex, getTaxonomyTerm } from "@/services/marketplace";
 import { MarketplaceResults } from "@/features/marketplace/results-section";
+import { ResultsSkeleton } from "@/features/marketplace/components/results-skeleton";
 import { SearchBox } from "@/features/marketplace/components/search-box";
 
 /**
@@ -73,7 +74,9 @@ export default async function Page({
       </div>
 
       <div className="mt-8">
-        <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
+        {/* The shared silhouette, not a bare block: the same content resolved out of two
+            different shapes before, and only one of them matched the layout. */}
+        <Suspense fallback={<ResultsSkeleton />}>
           <MarketplaceResults
             searchParams={searchParams}
             basePath={`/marketplace/category/${slug}`}

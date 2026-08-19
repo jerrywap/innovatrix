@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
-import { MediaUpload } from "./media-upload";
+import { MediaUpload, type MediaUploadProps } from "./media-upload";
 import { Repeater } from "./repeater";
 import { saveMediaAction } from "../actions";
 import type { AdminProductView, MediaView } from "@/services/catalog/product-view";
@@ -43,10 +43,19 @@ export function MediaForm({
   product,
   nextHref,
   action = saveMediaAction,
+  uploadAction,
 }: {
   product: AdminProductView;
   nextHref: string;
   action?: SectionFormProps["action"];
+  /**
+   * The surface's presigned-PUT action — vendor ticket 04.
+   *
+   * Two props rather than one, because they are two different capabilities: `action` saves the
+   * section, `uploadAction` mints a signature for writing bytes into the bucket. The vendor
+   * surface passes both; staff pass neither and get the defaults.
+   */
+  uploadAction?: MediaUploadProps["uploadAction"];
 }) {
   return (
     <SectionForm action={action} productId={product.id} nextHref={nextHref}>
@@ -68,7 +77,12 @@ export function MediaForm({
           max={24}
           reorderable
           row={(media, index) => (
-            <MediaRow media={media} index={index} productId={product.id} />
+            <MediaRow
+              media={media}
+              index={index}
+              productId={product.id}
+              {...(uploadAction ? { uploadAction } : {})}
+            />
           )}
         />
       </FieldGroup>
@@ -87,10 +101,12 @@ function MediaRow({
   media,
   index,
   productId,
+  uploadAction,
 }: {
   media: MediaView;
   index: number;
   productId: string;
+  uploadAction?: MediaUploadProps["uploadAction"];
 }) {
   const [url, setUrl] = useState(media.url ?? "");
   const [storageKey, setStorageKey] = useState(media.storageKey ?? "");
@@ -135,6 +151,7 @@ function MediaRow({
 
           <MediaUpload
             productId={productId}
+            {...(uploadAction ? { uploadAction } : {})}
             // Present ⇒ overwrite that object. A wrong image corrected here
             // replaces the file rather than leaving it behind.
             {...(storageKey ? { replaceKey: storageKey } : {})}

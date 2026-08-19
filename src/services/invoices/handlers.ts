@@ -2,6 +2,7 @@ import "server-only";
 import { emit, on } from "@/lib/events";
 import { Quote, type QuoteDoc } from "@/lib/db/models/billing";
 import { CustomerRequest } from "@/lib/db/models/requests";
+import { log } from "@/lib/logger";
 import { connectToDatabase } from "@/lib/db/client";
 import { toObjectId } from "@/lib/db/base";
 import { transition } from "@/services/requests/request-service";
@@ -32,6 +33,7 @@ export function registerInvoiceHandlers(): void {
 
   on("InvoicePaid", async (payload) => {
     await convertRequest(payload);
+    await recordVendorEarning(payload);
   });
 }
 
@@ -84,5 +86,49 @@ async function convertRequest(payload: {
     organizationId: payload.organizationId,
     quoteId: payload.sourceId,
     invoiceId: payload.invoiceId,
+  });
+}
+
+/**
+ * A paid customization invoice earns the vendor their share — vendor ticket 14.
+ *
+ * ## Why it lives here and not in `recordEarnings`
+ *
+ * That function takes an `OrderDoc` and filters `order.items`. Custom work has no order and no line:
+ * it is an `Invoice` against a `Quote`, and `InvoicePaid` never touched the ledger at all — so a
+ * vendor who scoped, priced and delivered a customization earned nothing.
+ *
+ * ## Separate from `convertRequest`, and after it
+ *
+ * `convertRequest` only fires on the **first** invoice from a quote, because starting work is a
+ * once-per-quote event. The earning is the opposite: a deposit and a balance are two collections and
+ * each earns its proportion, so it must run on every paid invoice. Folding the two together would
+ * either pay a vendor in full for a deposit or drop the balance entirely.
+ *
+ * Failures are swallowed deliberately. The customer's money has arrived and the request has been
+ * converted; a ledger write that fails must not make the handler throw and retry the whole chain,
+ * because `convertRequest` is idempotent only by state check and the double-pay guard is the unique
+ * index rather than the retry count. A missing earning is recoverable by a staff adjustment and is
+ * visible in the ledger; a re-run conversion is not.
+ */
+async function recordVendorEarning(payload: {
+  invoiceId: string;
+  sourceType: string;
+  sourceId: string;
+}): Promise<void> {
+  if (payload.sourceType !== "quote") return;
+
+  const { recordCustomWorkEarning } = await import("@/services/vendors/ledger-service");
+
+  await recordCustomWorkEarning({
+    invoiceId: payload.invoiceId,
+    quoteId: payload.sourceId,
+  }).catch((error: unknown) => {
+    // `log.exception` rather than `log.error`: an `Error` through `JSON.stringify` serialises to
+    // `{}`, so the one field anybody wanted would be missing.
+    log.exception("ledger.custom_work_earning_failed", error, {
+      invoiceId: payload.invoiceId,
+      quoteId: payload.sourceId,
+    });
   });
 }

@@ -64,34 +64,76 @@ describe("navigation is filtered, not decorative", () => {
   });
 
   /**
-   * Vendor ticket 01. Being a vendor is orthogonal to an organisation role, so the
-   * Selling group must appear for a vendor in *every* role and for a non-vendor in
-   * none — including `owner`, whose organisation role says nothing about whether
-   * they sell here.
+   * Vendor ticket 01. Being a vendor is orthogonal to an organisation role, so the vendor
+   * workspace must appear for a vendor in *every* role and for a non-vendor in none — including
+   * `owner`, whose organisation role says nothing about whether they sell here.
    */
-  it("draws the Selling group only for a vendor, whatever their organisation role", () => {
+  it("draws the vendor workspace only for a vendor, whatever their organisation role", () => {
     for (const role of ORGANIZATION_ROLES) {
-      const asCustomer = customerNavFor(role).flatMap((s) => s.items.map((i) => i.label));
-      expect(asCustomer, `role: ${role}`).not.toContain("Selling");
+      const asCustomer = customerNavFor(role).flatMap((s) => s.items.map((i) => i.href));
+      expect(asCustomer, `role: ${role}`).not.toContain("/dashboard/selling");
 
       const asVendor = customerNavFor(role, { isVendor: true }).flatMap((s) =>
-        s.items.map((i) => i.label),
+        s.items.map((i) => i.href),
       );
-      expect(asVendor, `role: ${role}`).toContain("Selling");
+      expect(asVendor, `role: ${role}`).toContain("/dashboard/selling");
+      // And the screens below it, which is the change: nine items behind one link was a second
+      // navigation nobody could see until they were already inside the section.
+      expect(asVendor, `role: ${role}`).toContain("/dashboard/selling/earnings");
+      expect(asVendor, `role: ${role}`).toContain("/dashboard/selling/support");
     }
   });
 
   /**
-   * The whole section goes, not just the item — `prune` drops a section once its
-   * last item does. An empty "Selling" heading above nothing would read as a
-   * broken screen rather than as a feature the viewer does not have.
+   * The **entry point**, which is the thing that was missing entirely.
+   *
+   * `/sell` explained selling well and was linked from nowhere — not the nav, not the footer, not
+   * the sitemap — while the only screen offering "Apply to sell" required already being a vendor.
+   * A door that works and has nothing leading to it is the same as no door.
    */
-  it("drops the Selling section entirely rather than leaving an empty heading", () => {
-    const titles = customerNavFor("owner").map((s) => s.title);
-    expect(titles).not.toContain("Selling");
-    expect(customerNavFor("owner", { isVendor: true }).map((s) => s.title)).toContain(
-      "Selling",
+  it("offers a non-vendor the way in, and withdraws it once they are one", () => {
+    for (const role of ORGANIZATION_ROLES) {
+      const asCustomer = customerNavFor(role).flatMap((s) => s.items.map((i) => i.href));
+      expect(asCustomer, `role: ${role}`).toContain("/sell");
+
+      const asVendor = customerNavFor(role, { isVendor: true }).flatMap((s) =>
+        s.items.map((i) => i.href),
+      );
+      // Gone once they are through it: by then it points at a page they have read.
+      expect(asVendor, `role: ${role}`).not.toContain("/sell");
+    }
+  });
+
+  /**
+   * Owner-only, and the one capability the two-role model exists to separate: vendor settings
+   * holds the payout account. A `member` shown this link would reach a 403.
+   */
+  it("shows vendor settings to an owner and not to a member", () => {
+    const asMember = customerNavFor("owner", { isVendor: true }).flatMap((s) =>
+      s.items.map((i) => i.href),
     );
+    expect(asMember).not.toContain("/dashboard/selling/settings");
+
+    const asOwner = customerNavFor("owner", {
+      isVendor: true,
+      isVendorOwner: true,
+    }).flatMap((s) => s.items.map((i) => i.href));
+    expect(asOwner).toContain("/dashboard/selling/settings");
+  });
+
+  /**
+   * The section never disappears now, because the entry point lives in it — but its *contents*
+   * change completely. A non-vendor gets one item; a vendor gets the workspace and not the teaser.
+   */
+  it("keeps the Vendor section for everybody but changes what is in it", () => {
+    const asCustomer = customerNavFor("owner").find((s) => s.title === "Vendor");
+    expect(asCustomer?.items).toHaveLength(1);
+    expect(asCustomer?.items[0]?.href).toBe("/sell");
+
+    const asVendor = customerNavFor("owner", { isVendor: true }).find(
+      (s) => s.title === "Vendor",
+    );
+    expect(asVendor?.items.length ?? 0).toBeGreaterThan(1);
   });
 
   /**

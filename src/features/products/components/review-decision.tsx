@@ -31,18 +31,31 @@ import {
  * cannot happen without prose, "approve" can. One form would put the choice of what
  * happens inside a request body and make the required-ness conditional on it.
  */
-export function ReviewDecision({ productId, status }: { productId: string; status: string }) {
+export function ReviewDecision({
+  productId,
+  status,
+  /**
+   * Already approved — `internal_review` alone cannot tell us. That status means either
+   * "somebody claimed it" or "somebody approved it", and the two want different screens.
+   */
+  decided,
+}: {
+  productId: string;
+  status: string;
+  decided?: boolean;
+}) {
   const [claimState, claim] = useActionState(claimSubmissionAction, null);
   const claimFailed = claimState && !claimState.ok ? claimState : null;
 
   const canClaim = status === "submitted";
   const canDecide = status === "submitted" || status === "internal_review";
 
-  if (!canDecide) {
+  if (!canDecide || decided) {
     return (
       <p className="text-muted-foreground text-[13px]">
-        This is past the submission stage — it moves through the ordinary publishing pipeline
-        from here.
+        {decided
+          ? "Approved, and in our own pipeline now — testing, then the readiness gate, then publishing from the product’s admin screen."
+          : "This is past the submission stage — it moves through the ordinary publishing pipeline from here."}
       </p>
     );
   }
@@ -164,9 +177,11 @@ function Decision({
         </label>
         <Textarea id={`internal-${id}`} name="internalNote" rows={2} maxLength={4000} />
         {/* Said plainly, because the consequence of getting it wrong is a reviewer's
-            private assessment reaching the person it is about. */}
+            private assessment reaching the person it is about. The rule is §37; the
+            reviewer does not need the section number, and printing one in a hint is how
+            our internal shorthand ends up on somebody else's screen. */}
         <p className="text-subtle text-[12.5px]">
-          Never sent to the vendor and never in their payload — §37.
+          Never sent to the vendor, and not in anything they can load.
         </p>
       </div>
 

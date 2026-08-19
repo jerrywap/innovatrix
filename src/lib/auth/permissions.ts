@@ -88,6 +88,21 @@ export const PERMISSIONS = [
   "payout.approve",
   "payout.send",
 
+  /* Reviews (vendor ticket 10). One permission, not three: hiding and removing
+     are the same capability applied with different force, and whoever may do one
+     may do the other. Nobody may *edit* a review — not staff, not a vendor — so
+     there is no permission for it. */
+  "review.moderate",
+
+  /* Vendor lifecycle (vendor ticket 12). Separate from `vendor.review`, which
+     decides an *application*: suspending a live vendor unlists their catalogue and
+     offboarding ends the relationship, and neither is the same judgement as
+     admitting somebody in the first place. `product.publish` already covers an
+     emergency delisting — pulling one product from sale is the publish capability
+     used in the other direction. */
+  "vendor.suspend",
+  "vendor.offboard",
+
   /* Customers & organizations */
   "customer.view_all",
   "customer.update",
@@ -287,6 +302,10 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     "discount.manage",
     // Who sells here is the same commercial judgement as what gets published.
     "vendor.review",
+    // And who stops selling here. Offboarding is deliberately *not* granted with it —
+    // ending a relationship with outstanding money is a decision that should need a
+    // second person, and `super_admin` holds it.
+    "vendor.suspend",
     "vendor.verify",
     "vendor.view_documents",
     // What we take is a commercial decision, so the rate sits here. Moving money
@@ -296,6 +315,9 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // Read-only on payouts: a marketplace manager fielding "when do I get paid"
     // needs to see the answer, and needs no part in releasing it.
     "payout.view_all",
+    // Public, attacker-controlled text on pages we want indexed is a marketplace
+    // problem, so moderation sits with whoever owns the catalogue.
+    "review.moderate",
   ],
 
   finance: [
@@ -331,7 +353,13 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
 
   devops: ["system.manage_jobs", "audit.view", "settings.manage", "product.view_all"],
 
-  content_manager: ["product.view_all", "product.update", "taxonomy.manage"],
+  content_manager: [
+    "product.view_all",
+    "product.update",
+    "taxonomy.manage",
+    // Reading and moderating public copy is the job description.
+    "review.moderate",
+  ],
 };
 
 /* ────────────────────────────────────────────── resolution */
