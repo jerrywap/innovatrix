@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Brand } from "@/components/shell/brand";
+import { BRAND } from "@/config/brand";
 
 // TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
 // See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
@@ -19,12 +21,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <div className="bg-grid pointer-events-none absolute inset-x-0 top-0 h-[420px] opacity-40" />
 
       <header className="relative z-10 flex items-center justify-between px-5 py-5 lg:px-10">
-        <Link href="/" className="flex items-center gap-2.5">
-          <span className="bg-signal text-signal-contrast grid h-8 w-8 place-items-center rounded-xl text-[15px] font-bold">
-            I
-          </span>
-          <span className="text-[15px] font-semibold tracking-[-0.03em]">Innovatrix</span>
-        </Link>
+        {/*
+          `<Brand>` rather than a hand-rolled copy of it. This header carried its
+          own lockup until the rebrand, which is exactly the drift `brand.tsx`
+          claims to prevent — and it had drifted: a different mark, a different
+          size, and mixed case where the shells used caps.
+        */}
+        <Brand />
         <ThemeToggle />
       </header>
 
@@ -33,6 +36,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       </main>
 
       <footer className="text-subtle relative z-10 px-5 py-6 text-center text-[12.5px] lg:px-10">
+        {/* One of the two places the tagline appears — §7 asks for it selectively,
+            and someone signing up is meeting the brand rather than using it. */}
+        <p className="mb-3">{BRAND.tagline}</p>
         <Link href="/terms" className="hover:text-foreground transition">
           Terms
         </Link>

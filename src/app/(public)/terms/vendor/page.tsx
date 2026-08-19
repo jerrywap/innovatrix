@@ -4,11 +4,12 @@ import { TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { pageMetadata } from "@/lib/seo";
 import { VENDOR_AGREEMENT_VERSION } from "@/services/vendors/vendor-service";
+import { BRAND } from "@/config/brand";
 
 export const metadata: Metadata = pageMetadata({
   title: "Vendor agreement",
   description:
-    "The terms you accept when you sell your software on Innovatrix — commission, payouts, support, and what happens if the relationship ends.",
+    "The terms you accept when you sell your software on CoSetup — commission, payouts, support, and what happens if the relationship ends.",
   path: "/terms/vendor",
   type: "article",
 });
@@ -48,7 +49,7 @@ const SECTIONS: ReadonlyArray<{ heading: string; body: readonly string[] }> = [
   {
     heading: "Who sells to the customer",
     body: [
-      "Innovatrix is the seller of record. The customer buys from us, pays us, and is invoiced by us; you licence your software to them through us. That is why we can take payment, issue the licence key, handle the refund conversation and answer a chargeback — and why you never hold the customer's money.",
+      `${BRAND.legalName}, trading as ${BRAND.name}, is the seller of record. The customer buys from us, pays us, and is invoiced by us; you licence your software to them through us. That is why we can take payment, issue the licence key, handle the refund conversation and answer a chargeback — and why you never hold the customer's money.`,
       "You keep ownership of your software and its copyright. Nothing here transfers any of it. What you grant us is the right to list it, describe it, sell licences to it and deliver it to the people who buy.",
       "We are not your employer, your agent or your partner. You decide what you build, what it costs and when it changes.",
     ],

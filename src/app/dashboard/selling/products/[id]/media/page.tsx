@@ -32,7 +32,7 @@ export default async function Page({
       {/*
         Two actions, because the step does two things: saving the section and minting a presigned
         PUT. The upload one was missing and the shared control fell back to the staff action, whose
-        `requirePermission("product.update")` refused every vendor with "This area is for Innovatrix
+        `requirePermission("product.update")` refused every vendor with "This area is for CoSetup
         staff" — so this step could not upload at all.
       */}
       <MediaForm

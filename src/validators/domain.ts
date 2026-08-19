@@ -308,7 +308,7 @@ export const staffQueueQuerySchema = paginationSchema.extend({
   queue: z.enum([
     "new-custom-build",
     "new-customization",
-    "waiting-for-innovatrix",
+    "waiting-for-us",
     "waiting-for-customer",
     "quotes-awaiting-response",
     "overdue-followups",

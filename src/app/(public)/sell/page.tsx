@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { pageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
-  title: "Sell your software on Innovatrix",
+  title: "Sell your software",
   description:
-    "List your own software on the Innovatrix marketplace. We handle checkout, licensing and delivery; you keep building.",
+    "List your own software on the CoSetup marketplace. We handle checkout, licensing and delivery; you keep building.",
   path: "/sell",
 });
 
@@ -30,7 +30,7 @@ export default function Page() {
           For developers
         </p>
         <h1 className="font-display text-[30px] leading-[1.1] tracking-[-0.03em]">
-          Sell your software on Innovatrix
+          Sell your software on CoSetup
         </h1>
         <p className="text-muted-foreground text-[15px] leading-relaxed">
           You wrote it. We handle the checkout, the licence keys, the delivery and the invoices,
@@ -76,7 +76,7 @@ export default function Page() {
           <Link href="/terms/vendor">Read the vendor agreement</Link>
         </Button>
         <p className="text-subtle text-[12.5px]">
-          You&rsquo;ll need an Innovatrix account. Signing up is free.
+          You&rsquo;ll need an CoSetup account. Signing up is free.
         </p>
       </div>
     </div>

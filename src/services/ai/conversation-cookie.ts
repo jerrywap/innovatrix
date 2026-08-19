@@ -7,7 +7,7 @@
  * fails at build; duplicating the string in two files fails later and quieter,
  * when one of them is renamed.
  */
-export const CONVERSATION_COOKIE = "innovatrix_conv";
+export const CONVERSATION_COOKIE = "cosetup_conv";
 
 /** Thirty days — long enough to come back to an interview after a weekend. */
 export const CONVERSATION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;

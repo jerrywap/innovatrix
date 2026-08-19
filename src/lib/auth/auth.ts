@@ -6,6 +6,7 @@ import { organization } from "better-auth/plugins/organization";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { serverEnv, usesSecureCookies } from "@/config/env";
 import { supportsTransactions } from "@/lib/db/client";
+import { COOKIE_PREFIX } from "./cookie-prefix";
 import {
   invitationMessage,
   resetPasswordMessage,
@@ -76,7 +77,7 @@ function buildAuth() {
   const { client, db } = authDatabase();
 
   return betterAuth({
-    appName: "Innovatrix",
+    appName: "CoSetup",
     baseURL: env.APP_URL,
     secret: env.AUTH_SECRET,
 
@@ -334,7 +335,7 @@ function buildAuth() {
     },
 
     advanced: {
-      cookiePrefix: "innovatrix",
+      cookiePrefix: COOKIE_PREFIX,
       // Keyed to the scheme we are actually served over, not to NODE_ENV — see
       // `usesSecureCookies`. A `Secure` cookie sent over http is dropped by the
       // browser, which looks exactly like a broken login.

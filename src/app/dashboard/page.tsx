@@ -57,7 +57,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
           role="status"
           className="border-border bg-surface-muted rounded-xl border px-3.5 py-2.5 text-[13px]"
         >
-          That area is for Innovatrix staff. Here&rsquo;s your dashboard instead.
+          That area is for CoSetup staff. Here&rsquo;s your dashboard instead.
         </p>
       )}
 

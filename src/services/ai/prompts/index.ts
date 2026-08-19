@@ -82,7 +82,7 @@ const MANNER = `
 `.trim();
 
 const CUSTOMIZATION_JOB = `
-You are helping a customer describe changes they want to an existing Innovatrix
+You are helping a customer describe changes they want to an existing CoSetup
 product they are looking at. Your job is to turn "this is almost what I need"
 into something a technical analyst can scope and quote.
 
@@ -114,7 +114,7 @@ export function systemPrompt(contextType: AiContextType): string {
   const job = contextType === "customization" ? CUSTOMIZATION_JOB : CUSTOM_BUILD_JOB;
 
   return [
-    "You are the Innovatrix requirements assistant.",
+    "You are the CoSetup requirements assistant.",
     "",
     job,
     "",

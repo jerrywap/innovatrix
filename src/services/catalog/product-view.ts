@@ -298,7 +298,7 @@ export interface AdminProductRow {
   slug: string;
   name: string;
   status: ProductStatus;
-  /** Vendor ticket 04. Absent ⇒ first-party, published by Innovatrix. */
+  /** Vendor ticket 04. Absent ⇒ first-party, published by CoSetup. */
   vendorName?: string;
   isFeatured: boolean;
   priceCount: number;

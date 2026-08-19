@@ -31,7 +31,7 @@ export function JsonLd({ data }: { data: Record<string, unknown> }) {
  *
  * Both are `@id`-anchored on the origin so the product pages' `seller` can
  * refer to the same entity rather than declaring a second one with the same
- * name — two Organizations called Innovatrix is worse than none.
+ * name — two Organizations called CoSetup is worse than none.
  */
 export function SiteJsonLd({ origin }: { origin: string }) {
   const name = publicEnv.NEXT_PUBLIC_APP_NAME;

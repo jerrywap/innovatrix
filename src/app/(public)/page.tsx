@@ -16,17 +16,17 @@ import { getPublishedProductCount, getRail, getTaxonomyIndex } from "@/services/
  * no canonical, no Open Graph and no Twitter card on the single most-linked URL
  * on the site. A shared link rendered as a bare hostname.
  *
- * The title is written out rather than left to the `%s · Innovatrix` template,
- * because on the home page that template would produce "Innovatrix · Innovatrix".
+ * The title is written out rather than left to the `%s · CoSetup` template,
+ * because on the home page that template would produce "CoSetup · CoSetup".
  */
 export const metadata: Metadata = {
   ...pageMetadata({
-    title: "Innovatrix",
+    title: "CoSetup",
     description:
       "Buy software that already exists, have it adapted to how you work, or commission it outright — then have it installed, supported and maintained.",
     path: "/",
   }),
-  title: { absolute: "Innovatrix — Find, customise, build and run your software" },
+  title: { absolute: "CoSetup — Software, set up for you" },
 };
 
 /* ────────────────────────────────────────────────────────── data */
@@ -217,17 +217,24 @@ function Hero() {
               </span>
             </div>
 
+            {/*
+              §8's marketplace triad, verbatim. The line this replaced was
+              "Find it. Change it. Build it." — which is three ways of describing
+              acquisition and stops at the moment the software exists. "Run it"
+              is the half of the proposition §25 says must not read as an add-on,
+              and it is the half the name is about.
+            */}
             <h1 className="mt-7 text-[clamp(2.75rem,8.5vw,5.75rem)] leading-[0.9] font-semibold tracking-[-0.045em]">
               Find it.
               <br />
-              Change it.
+              Build it.
               <br />
-              <span className="text-signal-text">Build it.</span>
+              <span className="text-signal-text">Run it.</span>
             </h1>
 
             <p className="text-muted-foreground mt-7 max-w-[46ch] text-[17px] leading-[1.65] lg:text-[18.5px]">
               Most companies don’t need a folder of code. They need the software found, adapted,
-              delivered, installed and kept alive. Innovatrix is the one system that does all of
+              delivered, installed and kept alive. CoSetup is the one system that does all of
               it.
             </p>
 
@@ -589,7 +596,7 @@ function Assistant() {
           </h2>
           <p className="text-muted-foreground mt-6 max-w-[46ch] text-[16.5px] leading-[1.65]">
             No forty-field brief. A conversation that asks one sensible question at a time, then
-            hands you a structured requirement document you can edit before anyone at Innovatrix
+            hands you a structured requirement document you can edit before anyone at CoSetup
             reads it.
           </p>
 
@@ -670,7 +677,7 @@ function Assistant() {
                   Assumed — confirm or remove
                 </div>
                 <div className="mt-2.5 flex flex-wrap gap-1.5">
-                  {["Stripe payments", "Hosting by Innovatrix"].map((t) => (
+                  {["Stripe payments", "Hosting by CoSetup"].map((t) => (
                     <span
                       key={t}
                       className="border-signal/50 bg-signal-soft text-signal-text rounded-full border border-dashed px-3 py-1.5 text-[12.5px]"
@@ -684,7 +691,7 @@ function Assistant() {
 
             <div className="border-border flex flex-wrap gap-2 border-t p-5 lg:px-7">
               <button className="bg-foreground text-background rounded-full px-5 py-2.5 text-[13.5px] font-medium transition hover:opacity-90">
-                Submit to Innovatrix
+                Submit to CoSetup
               </button>
               <button className="border-border hover:border-border-strong rounded-full border px-5 py-2.5 text-[13.5px] font-medium transition">
                 Keep talking

@@ -142,7 +142,7 @@ export function ReviewPanel({
           className="font-display flex items-center gap-2 text-[16px] tracking-[-0.02em] focus-visible:outline-none"
         >
           <CheckCircle2 className="size-4 text-[var(--signal)]" aria-hidden />
-          Sent to Innovatrix
+          Sent to CoSetup
         </h2>
         <p className="text-muted-foreground text-[13.5px]">
           We have it. Your reference is{" "}
@@ -370,7 +370,7 @@ function Submit() {
   return (
     <Button type="submit" disabled={pending} className="w-fit">
       {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
-      Send this to Innovatrix
+      Send this to CoSetup
     </Button>
   );
 }

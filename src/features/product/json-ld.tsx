@@ -121,7 +121,7 @@ export function ProductJsonLd({
             /*
              * The **actual** seller — vendor ticket 11.
              *
-             * This said `name: "Innovatrix"` unconditionally, which became a false statement
+             * This said `name: "CoSetup"` unconditionally, which became a false statement
              * in machine-readable structured data the moment a vendor product was published —
              * and structured data is the one place a false statement is read literally.
              *
@@ -137,7 +137,7 @@ export function ProductJsonLd({
                   name: product.vendor.name,
                   url: `${origin}/vendors/${product.vendor.slug}`,
                 }
-              : { "@type": "Organization", name: "Innovatrix" },
+              : { "@type": "Organization", name: "CoSetup" },
           },
         }
       : {}),

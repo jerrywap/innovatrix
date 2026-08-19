@@ -58,8 +58,8 @@ export interface ProductCard {
    * the rule working: the link arrives with the page it points at. The slug is here so
    * that page needs no second query when it does.
    *
-   * First-party products carry nothing at all, because "by Innovatrix" on a platform
-   * called Innovatrix is noise.
+   * First-party products carry nothing at all, because "by CoSetup" on a platform
+   * called CoSetup is noise.
    */
   vendor?: { slug: string; name: string };
   /**

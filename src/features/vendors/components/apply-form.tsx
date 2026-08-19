@@ -120,7 +120,7 @@ export function ApplyForm({
               rel="noopener"
               className="underline underline-offset-4"
             >
-              Innovatrix vendor agreement
+              CoSetup vendor agreement
             </a>{" "}
             <span className="text-subtle font-mono text-[11px]">({agreementVersion})</span>, and
             I confirm I own or am licensed to distribute everything I list.

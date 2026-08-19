@@ -15,7 +15,7 @@ import { writeAuditLog, type AuditActor } from "@/services/audit";
 /**
  * Vendor support and disputes — vendor ticket 13.
  *
- * With one seller, support was a conversation between a customer and Innovatrix. With vendors
+ * With one seller, support was a conversation between a customer and CoSetup. With vendors
  * there are three parties, and "who answers this" needs an answer before the first customer asks.
  * The answer: **the vendor answers first**, staff observe, and either party can pull staff in.
  *
@@ -106,7 +106,7 @@ export async function openThread(
   if (!product?.vendorId) {
     // A first-party product: the existing support path already covers it, and pretending there
     // is a vendor to route to would send the question nowhere.
-    throw new ValidationError("That product is supported by Innovatrix directly.", {
+    throw new ValidationError("That product is supported by CoSetup directly.", {
       entitlementId: ["Use your usual support channel for this one."],
     });
   }
@@ -507,7 +507,7 @@ export async function overdueThreads(limit = 200): Promise<ConversationDoc[]> {
 /**
  * A customer asks for a refund through the thread.
  *
- * **The platform decides, not the vendor.** Innovatrix is merchant of record and took the payment
+ * **The platform decides, not the vendor.** CoSetup is merchant of record and took the payment
  * (decision **V4**), so a vendor cannot approve or refuse a refund of money they never held — and
  * this function deliberately has no vendor-facing counterpart. What a vendor can do is say what
  * they think, in the thread, which staff read before deciding.
@@ -539,7 +539,7 @@ export async function requestRefund(
 export function assertNotVendorRefund(actor: AuditActor): void {
   if (actor.type === "vendor") {
     throw new ForbiddenError(
-      "A vendor cannot approve or refuse a refund — Innovatrix took the payment and decides. " +
+      "A vendor cannot approve or refuse a refund — CoSetup took the payment and decides. " +
         "Say what you think in the thread and staff will read it.",
     );
   }

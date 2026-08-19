@@ -50,10 +50,9 @@ export async function generateMetadata({
   if (!vendor) return { title: "Not found" };
 
   return pageMetadata({
-    title: `${vendor.displayName} on Innovatrix`,
+    title: `${vendor.displayName} on CoSetup`,
     description:
-      vendor.summary ??
-      `Software from ${vendor.displayName}, sold and supported on Innovatrix.`,
+      vendor.summary ?? `Software from ${vendor.displayName}, sold and supported on CoSetup.`,
     path: `/vendors/${slug}`,
     type: "website",
   });
@@ -137,7 +136,7 @@ function crumbsFor(storefront: VendorProfile): Crumb[] {
  * The vendor as an `Organization`.
  *
  * Distinct from the site-wide `Organization` node in the public layout, which describes
- * Innovatrix and is unchanged. This one describes the seller, and it is the node a product's
+ * CoSetup and is unchanged. This one describes the seller, and it is the node a product's
  * `seller` reference is consistent with.
  *
  * `dangerouslySetInnerHTML` for the same reason `ProductJsonLd` needs it: a `<script>`'s

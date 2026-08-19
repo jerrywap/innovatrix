@@ -44,7 +44,7 @@ import { formatDateTime } from "@/lib/dates";
 export type QueueKey =
   | "new-custom-build"
   | "new-customization"
-  | "waiting-for-innovatrix"
+  | "waiting-for-us"
   | "waiting-for-customer"
   | "technical-review"
   | "unassigned"
@@ -92,7 +92,13 @@ export const QUEUES: readonly QueueDefinition[] = [
     sort: { createdAt: 1 },
   },
   {
-    key: "waiting-for-innovatrix",
+    /*
+     * `waiting-for-us`, not `waiting-for-cosetup`. This is a URL path segment, and
+     * a brand name in a URL is a thing to rename again next time — "us" is what
+     * the label already says and needs no maintenance. The stored `waitingOn`
+     * value below is a different matter: see the note on it in `requests.ts`.
+     */
+    key: "waiting-for-us",
     label: "Waiting on us",
     description: "The customer has done their part.",
     filter: () => ({ waitingOn: "innovatrix", status: { $in: OPEN } }),

@@ -9,7 +9,7 @@ import { defaultStatements } from "better-auth/plugins/organization/access";
  * Better Auth's organization plugin.
  *
  * It is *not* the staff permission matrix. See `permissions.ts` — that one
- * governs what Innovatrix staff may do across the platform. The two systems are
+ * governs what CoSetup staff may do across the platform. The two systems are
  * kept separate on purpose:
  *
  * - They answer different questions ("may this customer invite someone to their

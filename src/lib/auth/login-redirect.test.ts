@@ -78,16 +78,14 @@ describe("session cookie names", () => {
     // `useSecureCookies` picks one from `APP_URL`. Clearing only the spelling we
     // expect leaves the other in place, and the loop with it.
     const names = sessionCookieNames();
-    expect(names).toContain("innovatrix.session_token");
-    expect(names).toContain("__Secure-innovatrix.session_token");
+    expect(names).toContain("cosetup.session_token");
+    expect(names).toContain("__Secure-cosetup.session_token");
   });
 
   it("recognises a session cookie by shape, either spelling", () => {
-    expect(hasSessionCookie({ getAll: () => [{ name: "innovatrix.session_token" }] })).toBe(
-      true,
-    );
+    expect(hasSessionCookie({ getAll: () => [{ name: "cosetup.session_token" }] })).toBe(true);
     expect(
-      hasSessionCookie({ getAll: () => [{ name: "__Secure-innovatrix.session_data" }] }),
+      hasSessionCookie({ getAll: () => [{ name: "__Secure-cosetup.session_data" }] }),
     ).toBe(true);
   });
 
@@ -95,13 +93,25 @@ describe("session cookie names", () => {
     // A cart or a conversation key must not make the DAL think there is a stale
     // session to clear — that would send a signed-out visitor through the
     // clearing route on every visit.
-    for (const name of ["innovatrix_cart", "innovatrix_conv", "innovatrix_currency"]) {
+    for (const name of ["cosetup_cart", "cosetup_conv", "cosetup_currency"]) {
       expect(hasSessionCookie({ getAll: () => [{ name }] }), name).toBe(false);
     }
   });
 
+  it("recognises the pre-rebrand prefix, so a stale one gets cleared", () => {
+    // Every visitor signed in before the CoSetup rename is carrying an
+    // `innovatrix.*` cookie Better Auth will never accept again. If this returns
+    // false the proxy stops seeing it, nothing ever clears it, and the visitor
+    // keeps a dead credential in their jar for good.
+    expect(hasSessionCookie({ getAll: () => [{ name: "innovatrix.session_token" }] })).toBe(
+      true,
+    );
+    expect(sessionCookieNames()).toContain("innovatrix.session_token");
+  });
+
   it("deletes what is present and reports how many", () => {
-    const present = new Set(["innovatrix.session_token", "innovatrix.session_data"]);
+    // One current, one legacy — both must go.
+    const present = new Set(["cosetup.session_token", "innovatrix.session_data"]);
     const cleared = clearSessionCookies({
       has: (name) => present.has(name),
       delete: (name) => present.delete(name),

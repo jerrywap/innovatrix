@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { BRAND } from "./brand";
 
 /**
  * Server environment — spec §88 ("never expose server secrets to browser code").
@@ -44,7 +45,7 @@ const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
   /* ── Core ─────────────────────────────────────────────── */
-  APP_URL: z.url("APP_URL must be an absolute URL, e.g. https://innovatrix.com"),
+  APP_URL: z.url(`APP_URL must be an absolute URL, e.g. ${BRAND.url}`),
 
   /* ── Database (ticket 01) ─────────────────────────────── */
   MONGODB_URI: z
@@ -154,11 +155,11 @@ const serverSchema = z.object({
    */
   OPENROUTER_MODEL: z.string().default("google/gemini-3.7-flash"),
   OPENROUTER_SITE_URL: optionalShaped(z.url()),
-  OPENROUTER_APP_NAME: z.string().default("Innovatrix"),
+  OPENROUTER_APP_NAME: z.string().default(BRAND.name),
 
   /* ── Email (ticket 24) ────────────────────────────────── */
   RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.email().default("no-reply@innovatrix.com"),
+  EMAIL_FROM: z.email().default(`no-reply@${BRAND.domain}`),
 
   /*
    * SMTP — the first transport that actually delivers.

@@ -48,7 +48,7 @@ export default async function Page() {
     <div className="flex flex-col gap-8">
       <PageHeader
         title="Vendors"
-        description="Applications to sell on Innovatrix, and the vendors already here."
+        description="Applications to sell on CoSetup, and the vendors already here."
       />
 
       <section className="flex flex-col gap-3">

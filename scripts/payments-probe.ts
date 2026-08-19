@@ -125,7 +125,7 @@ async function main() {
         payment: { _id: new Types.ObjectId(), reference, subjectType: "order" },
         amount: { amount: 50_000, currency },
         customer: { email: "probe@example.com", organizationId: String(new Types.ObjectId()) },
-        description: `Innovatrix probe ${reference}`,
+        description: `CoSetup probe ${reference}`,
         returnUrl: "http://localhost:3000/checkout/processing?order=PROBE",
         metadata: {},
       });

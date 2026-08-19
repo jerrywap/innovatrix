@@ -384,7 +384,7 @@ describe("Vendor B is refused Vendor A's products", () => {
    * Absence of an owner must not read as "mine" — the case that caught a real leak.
    *
    * A dev server whose registered schema predated `Product.vendorId` dropped the filter
-   * under `strictQuery` and served a vendor an Innovatrix product's edit form. Both
+   * under `strictQuery` and served a vendor an CoSetup product's edit form. Both
    * halves are asserted: the list, and the **single-document read** the wizard uses,
    * because it was the second that leaked while the first looked fine.
    */

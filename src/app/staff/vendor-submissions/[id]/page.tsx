@@ -12,6 +12,7 @@ import { readinessFor } from "@/services/catalog/product-service";
 import { ReadinessGaps } from "@/features/products/components/readiness-gaps";
 import { ReviewDecision } from "@/features/products/components/review-decision";
 import { alreadyApproved } from "@/services/catalog/review-service";
+import { BRAND } from "@/config/brand";
 
 export const metadata: Metadata = { title: "Submission" };
 
@@ -54,7 +55,7 @@ export default async function Page({ params }: PageProps<"/staff/vendor-submissi
 
       <section className="flex flex-col gap-3">
         <dl className="border-border grid gap-x-8 gap-y-3 rounded-xl border p-5 text-[13px] sm:grid-cols-2">
-          <Row label="Seller">{product.vendorName ?? "Innovatrix"}</Row>
+          <Row label="Seller">{product.vendorName ?? BRAND.name}</Row>
           <Row label="Submitted">
             {latestSubmission ? formatDateTime(latestSubmission.at) : "—"}
           </Row>

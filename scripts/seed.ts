@@ -17,6 +17,7 @@ import { checkCharacter } from "../src/lib/licence-key";
 import { fromDecimal } from "../src/lib/money";
 import { formatReference } from "../src/lib/references";
 import { syncAllIndexes } from "./sync-indexes";
+import { BRAND } from "../src/config/brand";
 
 async function main() {
   const uri = process.env.MONGODB_URI;
@@ -197,7 +198,7 @@ async function main() {
     // Not a real archive — enough of one that a browser saves it and a checksum
     // means something.
     const body = Buffer.from(
-      `Innovatrix development placeholder for ${slug} v1.0.0.\n` +
+      `CoSetup development placeholder for ${slug} v1.0.0.\n` +
         "Not a real release artefact — seeded so the download path is exercisable.\n",
       "utf8",
     );
@@ -853,7 +854,7 @@ async function main() {
         currencyRouting: [],
         offlineEnabled: true,
         offlineInstructions:
-          "Pay by bank transfer to Innovatrix Ltd, sort code 00-00-00, account 00000000. " +
+          `Pay by bank transfer to ${BRAND.legalName}, sort code 00-00-00, account 00000000. ` +
           "Quote your order reference so we can match the payment. Nothing is released " +
           "until the transfer arrives.",
       },

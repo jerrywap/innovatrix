@@ -76,7 +76,7 @@ async function Earnings({ vendorId, kind }: { vendorId: string; kind?: LedgerEnt
           You keep {formatVendorShare(view.rate.basisPoints)}
         </p>
         <p className="text-muted-foreground mt-1 text-[13px]">
-          Innovatrix takes {view.rate.label} of the price after any discount and before tax
+          CoSetup takes {view.rate.label} of the price after any discount and before tax
           {view.rate.source === "vendor"
             ? " — this is a rate agreed with you, not our standard one."
             : "."}{" "}

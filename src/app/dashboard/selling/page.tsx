@@ -39,7 +39,7 @@ export default async function Page() {
       <div className="flex flex-col gap-6">
         <PageHeader
           title="Selling"
-          description="List your own software on the Innovatrix marketplace."
+          description="List your own software on the CoSetup marketplace."
         />
         <EmptyState
           icon={Store}
@@ -62,7 +62,7 @@ export default async function Page() {
       <div className="flex max-w-2xl flex-col gap-6">
         <PageHeader
           title={vendor.displayName}
-          description="Your application to sell on Innovatrix."
+          description="Your application to sell on CoSetup."
           actions={<StatusBadge status={vendor.status} />}
         />
 

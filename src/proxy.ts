@@ -3,6 +3,7 @@ import { getSessionCookie } from "better-auth/cookies";
 import { nanoid } from "nanoid";
 import { RECENTLY_VIEWED_COOKIE } from "@/config/storefront";
 import { REQUEST_ID_HEADER } from "@/config/observability";
+import { COOKIE_PREFIX } from "@/lib/auth/cookie-prefix";
 import { CONVERSATION_COOKIE, conversationCookie } from "@/services/ai/conversation-cookie";
 import {
   pushRecentlyViewed,
@@ -92,7 +93,7 @@ function withRequestId(request: NextRequest, id: string): Headers {
 
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
-  const hasSessionCookie = Boolean(getSessionCookie(request, { cookiePrefix: "innovatrix" }));
+  const hasSessionCookie = Boolean(getSessionCookie(request, { cookiePrefix: COOKIE_PREFIX }));
   const id = requestId(request);
 
   if (!hasSessionCookie && PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))) {

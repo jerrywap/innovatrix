@@ -468,7 +468,7 @@ export const requireStaff = cache(async (): Promise<StaffContext> => {
   if (!session) redirect(await loginDestination());
 
   if (!session.user.isStaff) {
-    throw new ForbiddenError("This area is for Innovatrix staff.");
+    throw new ForbiddenError("This area is for CoSetup staff.");
   }
 
   await connectToDatabase();

@@ -37,7 +37,7 @@ let auth: ReturnType<typeof buildTestAuth>;
  */
 function buildTestAuth(database: Db, mongoClient: MongoClient) {
   return betterAuth({
-    appName: "Innovatrix (test)",
+    appName: "CoSetup (test)",
     baseURL: "http://localhost:3000",
     secret: "test-secret-that-is-definitely-long-enough-000",
     database: mongodbAdapter(database, { client: mongoClient, transaction: true }),

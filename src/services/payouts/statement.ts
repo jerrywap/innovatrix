@@ -46,7 +46,7 @@ export interface StatementLine {
   productName?: string;
   /** What the customer paid for the line, net of discount and before tax. */
   gross?: Money;
-  /** What Innovatrix kept. */
+  /** What CoSetup kept. */
   commission?: Money;
   /** What the vendor earned — the figure this payout settles. */
   net: Money;

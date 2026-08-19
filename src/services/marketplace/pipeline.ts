@@ -84,7 +84,7 @@ const CARD_PROJECTION = {
    * "no unbounded reads" applies to `n` small reads as much as to one large one.
    *
    * Absent on a first-party product, which is how the card knows to render no
-   * attribution at all: "by Innovatrix" on a platform called Innovatrix is noise.
+   * attribution at all: "by CoSetup" on a platform called CoSetup is noise.
    */
   vendorSlug: 1,
   vendorName: 1,

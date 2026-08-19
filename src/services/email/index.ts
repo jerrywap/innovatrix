@@ -231,7 +231,7 @@ export function verifyEmailMessage(to: string, url: string): EmailMessage {
     kind: "verify-email",
     subject: "Confirm your email address",
     text: [
-      "Welcome to Innovatrix.",
+      "Welcome to CoSetup.",
       "",
       "Confirm your email address to finish setting up your account:",
       url,
@@ -268,7 +268,7 @@ export function invitationMessage(input: {
     kind: "organization-invitation",
     subject: `${input.inviterName} invited you to ${input.organizationName}`,
     text: [
-      `${input.inviterName} has invited you to join ${input.organizationName} on Innovatrix.`,
+      `${input.inviterName} has invited you to join ${input.organizationName} on CoSetup.`,
       "",
       input.url,
       "",
@@ -302,11 +302,11 @@ export function vendorInvitationMessage(input: {
     kind: "organization-invitation",
     subject: `${input.inviterName} invited you to sell as ${input.vendorName}`,
     text: [
-      `${input.inviterName} has invited you to join ${input.vendorName} on Innovatrix, ` +
+      `${input.inviterName} has invited you to join ${input.vendorName} on CoSetup, ` +
         `as ${input.role === "owner" ? "an owner" : "a team member"}.`,
       "",
       "Accepting gives you access to that vendor's products and listings. You'll " +
-        "need a confirmed email address on your Innovatrix account first.",
+        "need a confirmed email address on your CoSetup account first.",
       "",
       input.url,
       "",

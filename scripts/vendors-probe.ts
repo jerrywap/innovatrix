@@ -208,7 +208,7 @@ async function main() {
    *
    * The case that actually caught a real leak: absence of `vendorId` must not read as
    * "mine". A dev server whose schema predated the field dropped the filter under
-   * `strictQuery` and served a vendor an Innovatrix product's edit form, so this is
+   * `strictQuery` and served a vendor an CoSetup product's edit form, so this is
    * checked against the live database rather than assumed from the type.
    */
   const firstParty = await Product.findOne({ vendorId: { $exists: false } })

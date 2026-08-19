@@ -68,7 +68,7 @@ export function StorefrontBody({
               {vendor.identityVerified && (
                 <span className="flex items-center gap-1.5 text-[var(--signal)]">
                   <BadgeCheck className="size-4" aria-hidden />
-                  Identity verified by Innovatrix
+                  Identity verified by CoSetup
                 </span>
               )}
               <span className="text-subtle flex items-center gap-1.5">

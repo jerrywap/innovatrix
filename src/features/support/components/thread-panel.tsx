@@ -56,7 +56,7 @@ export function VendorThreadPanel({
 
       {hasOpenDispute && (
         <p className="text-subtle text-[12.5px]">
-          A dispute is open on this thread. Innovatrix decides it — anything you add to the
+          A dispute is open on this thread. CoSetup decides it — anything you add to the
           conversation is read before a decision is made.
         </p>
       )}
@@ -103,7 +103,7 @@ function ReplyForm({
         <label className="flex items-center gap-1.5">
           <input type="radio" name="audience" value="vendor" />
           <EyeOff className="size-3" aria-hidden />
-          Note for Innovatrix only
+          Note for CoSetup only
         </label>
       </fieldset>
 
@@ -146,8 +146,8 @@ function DisputeForm({
       <input type="hidden" name="conversationId" value={conversationId} />
 
       <p className="text-[13px]">
-        Raising a dispute brings Innovatrix in to decide it. Both you and the customer can see
-        that it is open and what it says.
+        Raising a dispute brings CoSetup in to decide it. Both you and the customer can see that
+        it is open and what it says.
       </p>
 
       <label className="flex max-w-64 flex-col gap-1.5">
