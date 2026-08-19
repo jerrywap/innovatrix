@@ -31,7 +31,7 @@ env:
 
 jobs:
   # ── the fast gate ──────────────────────────────────────────
-  # Lint, types and 545 unit tests in about a minute. Everything below is
+  # Lint, types and 709 unit tests in about a minute. Everything below is
   # slower, so failing here first is the difference between a two-minute answer
   # and a ten-minute one.
   check:
