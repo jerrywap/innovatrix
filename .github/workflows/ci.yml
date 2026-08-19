@@ -85,6 +85,39 @@ jobs:
     name: Build · secret scan
     runs-on: ubuntu-latest
     needs: check
+
+    # Alone among these jobs, `next build` needs a database. `generateStaticParams`
+    # and `sitemap.ts` both read the catalogue during the "collecting page data"
+    # pass, so an unreachable mongo fails the build outright rather than
+    # degrading — which is what happened on this workflow's first run.
+    #
+    # An *empty* database is enough, so nothing is seeded: every call site already
+    # treats "no rows" as a reason to skip prerendering rather than to fail, and
+    # Cache Components only insists the param list be non-empty. Measured rather
+    # than assumed — a build against an empty database exits 0.
+    #
+    # This job runs on the VM, not in a container, so the service is reachable on
+    # the runner's loopback through the port mapping. A containerised job would
+    # have to address it as `mongo:27017` instead.
+    services:
+      mongo:
+        image: mongo:8
+        ports: ["27017:27017"]
+        # The image ships no healthcheck of its own, so without this GitHub waits
+        # only for the *container* to start and the build can beat mongod to its
+        # first socket.
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Overrides the workflow-level URI deliberately. The build only reads, so a
+    # standalone is sufficient; `replicaSet=rs0` would leave the driver waiting
+    # for a primary that a single standalone never elects.
+    env:
+      MONGODB_URI: mongodb://localhost:27017/innovatrix
+
     steps:
       - uses: actions/checkout@v4
 
