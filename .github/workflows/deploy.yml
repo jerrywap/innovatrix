@@ -46,6 +46,47 @@ jobs:
 
             cd /home/cosetup/htdocs/cosetup.net
 
+            # Find pm2 before touching anything, so a shell that cannot see it
+            # fails with the server untouched rather than half-deployed. Not
+            # hypothetical: the first green CI reached here, got through
+            # `git reset --hard`, `npm ci` and `npm run build`, then died on
+            # `pm2: command not found` — leaving new code and a new `.next` on
+            # disk with the old process still serving it.
+            #
+            # `ssh host "bash -s"` is neither a login nor an interactive shell,
+            # so no profile is read, and Ubuntu's ~/.bashrc — where nvm appends
+            # its snippet — returns early when non-interactive. `node` and `npm`
+            # resolve here anyway because they sit on the default PATH; pm2 does
+            # not. So source nvm explicitly, then fall back to the usual places.
+            export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+            if [ -s "$NVM_DIR/nvm.sh" ]; then
+              # nvm.sh reads unset variables of its own, which `set -u` treats
+              # as fatal.
+              set +u
+              . "$NVM_DIR/nvm.sh" > /dev/null
+              set -u
+            fi
+
+            PM2="$(command -v pm2 || true)"
+            if [ -z "$PM2" ]; then
+              for candidate in "$HOME"/.nvm/versions/node/*/bin/pm2 \
+                               "$(npm prefix -g 2> /dev/null)/bin/pm2" \
+                               /usr/local/bin/pm2 \
+                               /usr/bin/pm2; do
+                if [ -x "$candidate" ]; then
+                  PM2="$candidate"
+                  break
+                fi
+              done
+            fi
+
+            if [ -z "$PM2" ]; then
+              echo "pm2 not found — nothing has been deployed." >&2
+              echo "PATH=$PATH" >&2
+              exit 1
+            fi
+
+            echo "==> Using pm2 at $PM2"
             echo "==> Deploying $DEPLOY_SHA"
 
             git fetch origin main
@@ -58,10 +99,10 @@ jobs:
             npm run build
 
             echo "==> Reloading application"
-            pm2 reload cosetup --update-env
+            "$PM2" reload cosetup --update-env
 
             echo "==> Saving PM2 process list"
-            pm2 save
+            "$PM2" save
 
             echo "==> Waiting for application"
             sleep 5
