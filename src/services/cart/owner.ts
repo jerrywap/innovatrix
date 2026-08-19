@@ -29,7 +29,7 @@ import { usesSecureCookies } from "@/config/env";
  * same one ticket 09's recently-viewed cookie got wrong.
  */
 
-export const CART_COOKIE = "innovatrix_cart";
+export const CART_COOKIE = "cosetup_cart";
 const CART_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
 export function guestKey(id: string): string {

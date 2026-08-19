@@ -31,7 +31,7 @@ type Action = (
  * us. This one does not, and its absence is the mediation: **there is no customer on this thread**.
  * A vendor cannot address the buyer, cannot see the buyer's messages, and cannot see who they are.
  * Offering a control that says "the customer will read this" would be a lie about where the message
- * goes, and offering one that says "only Innovatrix reads this" would imply the other option exists.
+ * goes, and offering one that says "only CoSetup reads this" would imply the other option exists.
  *
  * So the copy says what is true: staff read it, and staff decide what the customer is told.
  */

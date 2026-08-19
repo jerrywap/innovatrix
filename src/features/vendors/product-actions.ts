@@ -474,7 +474,7 @@ function parseDescription(value: unknown): RichTextDocument | undefined {
  *
  * `MediaUpload` hard-imported `createMediaUploadAction`, which begins
  * `requirePermission("product.update")`. On the vendor surface that refuses with **"This area is
- * for Innovatrix staff"** — so the media step of the vendor wizard could not upload anything at
+ * for CoSetup staff"** — so the media step of the vendor wizard could not upload anything at
  * all. Every other step had been parameterised by passing its action in; the upload inside the
  * media row had been missed, because it is one level below the form that takes the prop.
  *

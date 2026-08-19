@@ -354,7 +354,7 @@ export interface ProductDoc {
   /**
    * Who sells this — vendor ticket 04.
    *
-   * **Absent means first-party**, published by Innovatrix, and that is the only
+   * **Absent means first-party**, published by CoSetup, and that is the only
    * meaning absence carries. Optional rather than required because the seeded
    * products and everything the platform sells itself have no vendor and must keep
    * working untouched; there is no house `Vendor` row and no sentinel.
@@ -484,6 +484,14 @@ export interface ProductDoc {
     typicalTurnaround?: string;
     suggestedAreas: string[];
   };
+  /**
+   * `innovatrixInstall` keeps its name. It is a **stored field** on every product
+   * document and the key in the wizard's POST body, so the CoSetup rebrand would
+   * have to migrate the collection and accept a window where both spellings are
+   * live — §20's "internal identifiers only where safe and beneficial", and this
+   * is neither. Nothing renders it: the label a customer reads is
+   * "We install it for you", which was always brand-free.
+   */
   installation: {
     selfInstall: boolean;
     innovatrixInstall: boolean;

@@ -21,6 +21,7 @@ import { toAdminProductRow, type AdminProductRow } from "@/services/catalog/prod
 import { ReadinessGaps } from "@/features/products/components/readiness-gaps";
 import type { Readiness } from "@/services/catalog/readiness";
 import { cn } from "@/lib/utils";
+import { BRAND } from "@/config/brand";
 
 export const metadata: Metadata = { title: "Products" };
 
@@ -153,12 +154,12 @@ function columns(readiness: Map<string, Readiness>): Array<Column<AdminProductRo
       key: "vendorName",
       header: "Seller",
       secondary: true,
-      // "Innovatrix" rather than a dash for a first-party product: on this screen the
+      // "CoSetup" rather than a dash for a first-party product: on this screen the
       // distinction between "we sell this" and "somebody else does" is the point, and
       // an empty cell reads as missing data.
       cell: (row) => (
         <span className="text-muted-foreground text-[12.5px]">
-          {row.vendorName ?? "Innovatrix"}
+          {row.vendorName ?? BRAND.name}
         </span>
       ),
     },

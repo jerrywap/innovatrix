@@ -1,4 +1,5 @@
 import type { EmailMessage } from "@/services/email";
+import { BRAND } from "@/config/brand";
 
 /**
  * The notification email — §69.
@@ -53,7 +54,7 @@ export function notificationEmail(input: {
   category: string;
 }): EmailMessage {
   const greeting = input.name ? `Hi ${input.name},` : "Hello,";
-  const label = CATEGORY_LABEL[input.category] ?? "Innovatrix";
+  const label = CATEGORY_LABEL[input.category] ?? BRAND.name;
 
   const text = [
     greeting,
@@ -63,7 +64,7 @@ export function notificationEmail(input: {
     "",
     input.url,
     "",
-    "— Innovatrix",
+    "— CoSetup",
     "",
     // Only where it applies. A payment receipt has no unsubscribe because it
     // is not a preference — §69, and the screen says the same thing.
@@ -102,7 +103,7 @@ function html(
 <p style="margin:0 0 16px;font-size:14px;">${escape(greeting)}</p>
 <h1 style="margin:0 0 12px;font-size:19px;line-height:1.35;font-weight:600;">${escape(input.title)}</h1>
 ${input.body ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#4a4a45;">${escape(input.body)}</p>` : ""}
-<a href="${escape(input.url)}" style="display:inline-block;background:#1a1a18;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:999px;font-size:14px;">Open in Innovatrix</a>
+<a href="${escape(input.url)}" style="display:inline-block;background:#1a1a18;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:999px;font-size:14px;">Open in CoSetup</a>
 <p style="margin:24px 0 0;font-size:12px;color:#8a8a82;">${
     isEssential(input.category)
       ? "You receive this because it concerns money or your account security."

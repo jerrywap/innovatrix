@@ -109,8 +109,8 @@ export function ProductCardTile({
           on the vendor name would navigate to the product instead, which is the most annoying
           possible outcome for somebody who deliberately aimed at the maker's name.
 
-          Absent for a first-party product, deliberately — "by Innovatrix" on a platform called
-          Innovatrix tells a buyer nothing.
+          Absent for a first-party product, deliberately — "by CoSetup" on a platform called
+          CoSetup tells a buyer nothing.
         */}
         {card.vendor && (
           <p className="text-subtle pointer-events-auto relative z-10 w-fit text-[12px]">

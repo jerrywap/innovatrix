@@ -1,7 +1,7 @@
 import { Archivo, JetBrains_Mono } from "next/font/google";
 
 /**
- * Innovatrix typefaces — the Meridian direction.
+ * CoSetup typefaces — the Meridian direction.
  *
  * Archivo: a grotesque that holds up at display sizes with tight tracking, and
  * stays legible at 13px in a dense staff table. JetBrains Mono carries labels,

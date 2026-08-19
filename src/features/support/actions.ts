@@ -22,7 +22,7 @@ import * as support from "@/services/vendors/support-service";
  * | vendor (any active member) | reply, raise a dispute, escalate |
  * | staff | reply (including internally), escalate, **resolve** |
  *
- * A vendor cannot resolve a dispute and cannot decide a refund — Innovatrix took the payment and
+ * A vendor cannot resolve a dispute and cannot decide a refund — CoSetup took the payment and
  * decides (decision **V4**). There is no action here that would let them, which is a stronger
  * guarantee than a permission they happen not to hold.
  */

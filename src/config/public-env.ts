@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BRAND } from "./brand";
 
 /**
  * Client-safe configuration.
@@ -11,7 +12,7 @@ import { z } from "zod";
  */
 const publicSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.url().default("http://localhost:3000"),
-  NEXT_PUBLIC_APP_NAME: z.string().default("Innovatrix"),
+  NEXT_PUBLIC_APP_NAME: z.string().default(BRAND.name),
   NEXT_PUBLIC_DEFAULT_CURRENCY: z.enum(["GBP", "USD", "EUR", "NGN"]).default("GBP"),
   NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
 });

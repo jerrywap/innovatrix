@@ -12,6 +12,7 @@ import { emit } from "@/lib/events";
 import { Vendor } from "@/lib/db/models/vendors";
 import { VENDOR_AGREEMENT_VERSION } from "@/services/vendors/vendor-service";
 import * as productService from "./product-service";
+import { BRAND } from "@/config/brand";
 
 /**
  * Submission and review — vendor ticket 05.
@@ -133,7 +134,7 @@ export async function submit(
   await emit("ProductSubmitted", {
     productId: input.productId,
     productName: updated.name,
-    vendorName: updated.vendorName ?? "Innovatrix",
+    vendorName: updated.vendorName ?? BRAND.name,
     isResubmission: product.reviewNotes.length > 0,
   });
 
@@ -434,7 +435,7 @@ export async function listSubmissions(limit = 100): Promise<SubmissionRow[]> {
       slug: product.slug,
       // First-party products go through this queue too when staff use the submission
       // path; naming the platform is more honest than an empty cell.
-      vendorName: product.vendorName ?? "Innovatrix",
+      vendorName: product.vendorName ?? BRAND.name,
       status: product.status,
       ...(latest ? { submittedAt: latest.at } : {}),
       resubmission: submissions.length > 1,
@@ -469,7 +470,7 @@ export async function countAwaitingReview(): Promise<number> {
 async function assertAgreementCurrent(scope: VendorScope): Promise<void> {
   const vendorId = scope.vendorId?.trim();
   // No vendor scope means a first-party product, submitted by staff. There is no agreement
-  // between Innovatrix and itself.
+  // between CoSetup and itself.
   if (!vendorId) return;
 
   const vendor = await Vendor.findById(vendorId)

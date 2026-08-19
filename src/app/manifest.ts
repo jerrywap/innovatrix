@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { publicEnv } from "@/config/public-env";
+import { BRAND } from "@/config/brand";
 
 /**
  * The web app manifest — §93.
@@ -16,7 +17,7 @@ import { publicEnv } from "@/config/public-env";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: `${publicEnv.NEXT_PUBLIC_APP_NAME} — find, customise, build and run your software`,
+    name: `${publicEnv.NEXT_PUBLIC_APP_NAME} — ${BRAND.tagline.replace(/\.$/, "")}`,
     short_name: publicEnv.NEXT_PUBLIC_APP_NAME,
     description:
       "Buy software that already exists, have it adapted to how you work, or commission it outright.",

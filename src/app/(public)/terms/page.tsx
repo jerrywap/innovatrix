@@ -3,6 +3,7 @@ import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { pageMetadata } from "@/lib/seo";
+import { BRAND } from "@/config/brand";
 
 export const metadata: Metadata = pageMetadata({
   title: "Terms",
@@ -32,6 +33,20 @@ export const metadata: Metadata = pageMetadata({
  */
 
 const SECTIONS = [
+  {
+    /*
+     * Added with the CoSetup rebrand, because the rebrand is what made it
+     * necessary: the brand and the company are now different names, and a
+     * customer signing up to a licence is entitled to know which one is on the
+     * other side of it. §29's "clear ownership" is the rule, and a terms page
+     * that never names its counterparty fails it however accurate the rest is.
+     */
+    heading: "Who you are buying from",
+    body: [
+      `${BRAND.name} is a trading name of ${BRAND.legalName}. When you buy software or commission work here, your contract is with ${BRAND.legalName}, and that is the name that appears on your invoice and on the account you pay into.`,
+      `${BRAND.legalName} is the seller of record for everything sold here, including software listed by third-party vendors. You buy from us and we invoice you; the vendor licenses their software to you through us. That is why a refund conversation, a licence key or a chargeback is ours to answer rather than theirs.`,
+    ],
+  },
   {
     heading: "What you are buying",
     body: [

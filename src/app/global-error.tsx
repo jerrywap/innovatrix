@@ -26,7 +26,7 @@ export default function GlobalError({
       >
         <div style={{ textAlign: "center", maxWidth: 420, padding: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>
-            Innovatrix is temporarily unavailable
+            CoSetup is temporarily unavailable
           </h1>
           <p style={{ marginTop: 12, fontSize: 14, lineHeight: 1.6, opacity: 0.65 }}>
             We’ve been notified. Please try again in a moment.

@@ -30,12 +30,14 @@ import { describe, expect, it } from "vitest";
 
 const ROOTS = ["app", "features", "components"].map((dir) => join(process.cwd(), "src", dir));
 
-/**
- * `/concepts` is a design scratchpad — three unbuilt directions argued in spec terms for
- * an internal audience, and rewriting its argument to drop the references would leave it
- * unable to make its point. It is not linked from anywhere and ships no user journey.
+/*
+ * There is no exemption list, and there should not be one.
+ *
+ * `/concepts` used to be exempt — five unbuilt landing-page directions that argued
+ * their case in spec terms for an internal audience. It was deleted with the CoSetup
+ * rebrand, because the brand sheet answered the question it existed to ask, and the
+ * exemption went with it. Anything shipping a user journey has no claim on one.
  */
-const EXEMPT = /(^|\/)concepts\//;
 
 function sourceFiles(dir: string): string[] {
   const found: string[] = [];
@@ -68,7 +70,6 @@ describe("internal spec references stay in the comments", () => {
     for (const root of ROOTS) {
       for (const file of sourceFiles(root)) {
         const relativePath = relative(process.cwd(), file);
-        if (EXEMPT.test(relativePath.replaceAll("\\", "/"))) continue;
 
         const code = withoutComments(readFileSync(file, "utf8"));
         if (!code.includes("§")) continue;

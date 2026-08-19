@@ -101,20 +101,20 @@ const COOKIES = [
     detail: "Keeps you signed in. Removed when you sign out.",
   },
   {
-    name: "innovatrix_conv",
+    name: "cosetup_conv",
     detail:
       "A random identifier that lets a signed-out visitor return to an assistant conversation. It identifies the conversation, not you, and expires after 30 days.",
   },
   {
-    name: "innovatrix_cart",
+    name: "cosetup_cart",
     detail: "Keeps a basket attached to you before you sign in.",
   },
   {
-    name: "innovatrix_currency",
+    name: "cosetup_currency",
     detail: "Remembers which currency you chose. Set only when you choose one.",
   },
   {
-    name: "innovatrix_rv",
+    name: "cosetup_rv",
     detail: "The products you recently looked at, so we can show them again.",
   },
 ];
@@ -152,6 +152,44 @@ export default function Page() {
             <div key={item.term} className="flex flex-col gap-1 p-5 sm:flex-row sm:gap-6">
               <dt className="font-display w-full text-[14px] tracking-[-0.02em] sm:w-56 sm:shrink-0">
                 {item.term}
+              </dt>
+              <dd className="text-muted-foreground text-[13.5px] leading-relaxed">
+                {item.detail}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      {/*
+        `COOKIES` was declared here and never rendered — the list existed, named
+        every cookie honestly, and no visitor could read it. Found while renaming
+        the cookies for the CoSetup rebrand, which is the only reason anyone
+        looked at it: lint had it as an unused variable, which reads as dead code
+        rather than as a missing section.
+
+        Worth having for its own sake, not only for tidiness. This page's own
+        opening paragraph promises to set out "honestly what the platform stores",
+        and four of the five things it stores are cookies.
+      */}
+      <section className="mt-16 flex flex-col gap-6">
+        <div>
+          <div className="text-subtle font-mono text-[10px] tracking-[0.2em] uppercase">
+            Cookies
+          </div>
+          <h2 className="font-display mt-3 max-w-[28ch] text-[clamp(1.4rem,3vw,2rem)] leading-[1.05] font-semibold tracking-[-0.03em]">
+            Five, and every one of them does a job you asked for.
+          </h2>
+          <p className="text-muted-foreground mt-3 max-w-[62ch] text-[13.5px] leading-relaxed">
+            None of these track you across other websites, and none are used for advertising.
+          </p>
+        </div>
+
+        <dl className="border-border divide-border bg-surface divide-y overflow-hidden rounded-[22px] border">
+          {COOKIES.map((item) => (
+            <div key={item.name} className="flex flex-col gap-1 p-5 sm:flex-row sm:gap-6">
+              <dt className="w-full font-mono text-[12.5px] sm:w-56 sm:shrink-0">
+                {item.name}
               </dt>
               <dd className="text-muted-foreground text-[13.5px] leading-relaxed">
                 {item.detail}

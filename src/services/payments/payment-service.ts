@@ -94,7 +94,7 @@ export async function initiatePaymentForOrder(input: {
       ...(input.customerName ? { name: input.customerName } : {}),
       organizationId: input.organizationId,
     },
-    description: `Innovatrix order ${order.reference}`,
+    description: `CoSetup order ${order.reference}`,
     returnUrl,
     metadata: { order_reference: order.reference },
   });
@@ -273,7 +273,7 @@ export async function initiatePaymentForInvoice(input: {
       ...(input.customerName ? { name: input.customerName } : {}),
       organizationId: input.organizationId,
     },
-    description: `Innovatrix invoice ${invoice.reference}`,
+    description: `CoSetup invoice ${invoice.reference}`,
     returnUrl,
     metadata: { invoice_reference: invoice.reference },
   });

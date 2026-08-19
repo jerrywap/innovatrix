@@ -406,7 +406,7 @@ export const CATALOG: Catalog = {
       category: "messages",
       title: () => "A dispute has been opened on one of your threads",
       body: () =>
-        "Innovatrix will decide it. Add anything you want considered to the conversation — it " +
+        "CoSetup will decide it. Add anything you want considered to the conversation — it " +
         "is read before a decision is made.",
       href: () => `/dashboard/selling/support`,
     },
@@ -431,7 +431,7 @@ export const CATALOG: Catalog = {
       // Everybody holding an active entitlement to anything that vendor sold, once.
       audience: { kind: "entitled_owners" },
       category: "products",
-      title: (p) => `${p.displayName} has left Innovatrix`,
+      title: (p) => `${p.displayName} has left CoSetup`,
       /*
        * Says what **survives** first.
        *
@@ -441,7 +441,7 @@ export const CATALOG: Catalog = {
        */
       body: () =>
         "Everything you bought from them is still yours: your licence stays valid and your " +
-        "downloads keep working. Support for those products is now handled by Innovatrix.",
+        "downloads keep working. Support for those products is now handled by CoSetup.",
       href: () => `/dashboard/software`,
     },
   ],

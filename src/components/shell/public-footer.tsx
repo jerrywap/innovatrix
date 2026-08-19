@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Brand } from "./brand";
+import { BRAND } from "@/config/brand";
 
 /**
  * Marketing footer.
@@ -83,14 +84,17 @@ export function PublicFooter() {
         </div>
 
         {/*
-          `/concepts` used to be linked here, on every public page. It is an
-          internal design gallery — `noindex`, five alternative versions of the
-          product, and its own footnotes say the numbers in it are illustrative.
-          A customer following it from the footer found invented statistics
-          presented as ours. The route stays; the invitation does not.
+          The legal name, not the brand. They are different names now, and the
+          copyright line is one of the four places §20's "customer-visible
+          branding becomes CoSetup" does *not* apply — see `config/brand.ts`.
+
+          (`/concepts` used to be linked from here: an internal design gallery of
+          five alternative products whose own footnotes admitted its numbers were
+          invented. The link went first, the route went with the rebrand.)
         */}
         <div className="text-subtle flex flex-col gap-3 pt-6 font-mono text-[10px] tracking-[0.14em] uppercase sm:flex-row sm:justify-between">
-          <span>© 2026 Innovatrix Ltd</span>
+          <span>© 2026 {BRAND.legalName}</span>
+          <span>{BRAND.domain}</span>
         </div>
       </div>
     </footer>

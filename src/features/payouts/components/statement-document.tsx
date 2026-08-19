@@ -2,6 +2,7 @@ import { MoneyDisplay } from "@/components/money-display";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDateTime, formatDay } from "@/lib/dates";
 import type { Statement } from "@/services/payouts/statement";
+import { BRAND } from "@/config/brand";
 
 /**
  * The self-billed statement — vendor ticket 09, and the thing that prints.
@@ -17,10 +18,14 @@ import type { Statement } from "@/services/payouts/statement";
  *
  * ## It says who issued it
  *
- * "Issued by Innovatrix on behalf of {vendor}" is on its face, because the platform is merchant
- * of record and the vendor never invoiced the customer. A document that looked like a vendor
- * invoice would misrepresent who charged whom — which matters to a tax authority rather than
- * only to us.
+ * "Issued by {legal entity} on behalf of {vendor}" is on its face, because the platform is
+ * merchant of record and the vendor never invoiced the customer. A document that looked like a
+ * vendor invoice would misrepresent who charged whom — which matters to a tax authority rather
+ * than only to us.
+ *
+ * The **legal** name, not the brand, and this is the one place that distinction is not
+ * pedantry: a self-billed statement is a tax document, and the entity that took the customer's
+ * money is what a tax authority needs to see. `BRAND.name` appears on the rest of the site.
  */
 export function StatementDocument({ statement }: { statement: Statement }) {
   return (
@@ -34,8 +39,9 @@ export function StatementDocument({ statement }: { statement: Statement }) {
             {statement.vendor.displayName}
           </h1>
           <p className="text-muted-foreground mt-1 text-[13px]">
-            Issued by Innovatrix on behalf of {statement.vendor.displayName}, who did not
-            invoice the customer — Innovatrix is the seller of record.
+            Issued by {BRAND.legalName} (trading as {BRAND.name}) on behalf of{" "}
+            {statement.vendor.displayName}, who did not invoice the customer — {BRAND.legalName}{" "}
+            is the seller of record.
           </p>
         </div>
         <div className="text-right">

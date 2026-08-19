@@ -8,7 +8,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ─────────────────────────────────────────────────────────────
-   Innovatrix — Meridian
+   CoSetup — Meridian
    Editorial and structural, but warm. Paper and ink, not grey and blue.
    Every colour is declared in both themes; nothing is defined only inside
    a dark block, or the light theme inherits a hole.
@@ -58,8 +58,21 @@
   --border-strong: rgb(20 19 15 / 0.2);
 
   /* ── Meridian: brand ──
-     `signal` is the fill; `signal-text` is the accessible variant for small
-     type — the fill colour alone doesn't clear AA on paper. */
+     **`--signal` is the canonical CoSetup orange.** One token, and everything
+     else here is derived from its RGB triple rather than picked alongside it:
+     `signal-text` is the accessible variant for small type (the fill alone
+     doesn't clear AA on paper), `signal-soft` and `ring` are the same colour at
+     10% and 40%.
+
+     The brand guide gives #F4511E–#F15A24 and also says to derive the production
+     colour from the existing tokens. Those pull slightly apart — this is a shade
+     darker than that range — and the existing token wins, because the darkness is
+     not an accident: it is what let `signal-text` reach 4.5:1, and sampling the
+     brand sheet's own swatch measures #d55a25, which is nearer to this than to
+     either end of the stated range.
+
+     Change it and `signal-text` has to be re-measured against the muted surface
+     in both themes, not merely nudged. */
   --signal: #e0521f;
   --signal-text: #b8431a;
   --signal-contrast: #ffffff;

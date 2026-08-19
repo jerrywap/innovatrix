@@ -7,7 +7,7 @@ import { VENDOR_AGREEMENT_VERSION } from "@/services/vendors/vendor-service";
 import { ApplyForm } from "@/features/vendors/components/apply-form";
 import { ResendVerification } from "@/features/auth/components/resend-verification";
 
-export const metadata: Metadata = { title: "Sell on Innovatrix" };
+export const metadata: Metadata = { title: "Sell on CoSetup" };
 
 /**
  * Applying to become a vendor — vendor ticket 01.
@@ -78,7 +78,7 @@ export default async function Page() {
   return (
     <div className="flex max-w-2xl flex-col gap-6">
       <PageHeader
-        title="Sell on Innovatrix"
+        title="Sell on CoSetup"
         description="Tell us who you are and what you build. Somebody reads every application."
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Sell" }]}
       />

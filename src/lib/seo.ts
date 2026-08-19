@@ -40,6 +40,17 @@ export function pageMetadata({
 }: PageSeo): Metadata {
   const site = publicEnv.NEXT_PUBLIC_APP_NAME;
 
+  /*
+   * The home page passes the site's own name as its title, and appending the
+   * site to that produced "CoSetup · CoSetup" on the most-shared URL on the
+   * site. It read "Innovatrix · Innovatrix" for the whole of ticket 27 — the
+   * root layout's `%s · CoSetup` template has a comment warning about exactly
+   * this and the page works around it with `title.absolute`, but that only
+   * covers `title`; these two are written out separately, three lines below,
+   * precisely because Next does not thread the template through them.
+   */
+  const social = title === site ? site : `${title} · ${site}`;
+
   return {
     title,
     description,
@@ -54,14 +65,14 @@ export function pageMetadata({
       // The template in the root layout applies to `title` but **not** to
       // `openGraph.title` — Next does not thread it through, so a shared card
       // would read "Pricing" with no clue whose. Written out here instead.
-      title: `${title} · ${site}`,
+      title: social,
       description,
     },
     twitter: {
       // `summary_large_image` without an image renders as a bare summary, so
       // this is honest rather than aspirational until there are OG images.
       card: "summary",
-      title: `${title} · ${site}`,
+      title: social,
       description,
     },
   };

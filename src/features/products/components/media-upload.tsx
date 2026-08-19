@@ -38,7 +38,7 @@ type Phase =
  *
  * It was a hard import of the staff action, which begins
  * `requirePermission("product.update")` — so on the vendor surface the media step refused with
- * "This area is for Innovatrix staff" and no screenshot could be uploaded at all. Vendor ticket 04
+ * "This area is for CoSetup staff" and no screenshot could be uploaded at all. Vendor ticket 04
  * parameterised the wizard by passing each surface's action in; this control sits one level below
  * the form that receives it and was missed.
  *

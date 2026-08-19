@@ -114,7 +114,7 @@ const ANONYMOUS_BY_DESIGN: Record<string, string> = {
   "auth/actions.ts:setActiveOrganizationAction": "membership is re-read by requireOrg",
 
   // §71: the AI doors are open to somebody who has not signed up yet — that is
-  // the acquisition funnel. Ownership is the `innovatrix.conversation` cookie,
+  // the acquisition funnel. Ownership is the `cosetup_conv` cookie,
   // passed into `getConversation()` as scope rather than trusted from input.
   "requirements/actions.ts:startConversationAction": "anonymous AI conversation",
   "requirements/actions.ts:abandonConversationAction": "anonymous AI conversation",

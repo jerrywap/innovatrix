@@ -6,6 +6,7 @@ import { Landmark, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { saveOfflineInstructionsAction } from "../actions";
+import { BRAND } from "@/config/brand";
 
 /**
  * Bank details, shown to customers who choose to pay by transfer.
@@ -60,9 +61,7 @@ export function OfflineSettings({
           defaultValue={instructions}
           rows={6}
           maxLength={2000}
-          placeholder={
-            "Account name: Innovatrix Ltd\nSort code: 00-00-00\nAccount number: 12345678"
-          }
+          placeholder={`Account name: ${BRAND.legalName}\nSort code: 00-00-00\nAccount number: 12345678`}
           className="border-border bg-background rounded-lg border px-3 py-2 font-mono text-[12.5px]"
         />
         <span className="text-subtle text-[12px]">

@@ -33,10 +33,7 @@ export default async function Page() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <PageHeader
-        title="Commission"
-        description="What Innovatrix keeps on a third-party sale."
-      />
+      <PageHeader title="Commission" description="What CoSetup keeps on a third-party sale." />
       <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
         <Rate />
       </Suspense>

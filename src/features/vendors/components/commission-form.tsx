@@ -35,7 +35,7 @@ export function PlatformCommissionForm({ percent }: { percent: number }) {
       </h2>
 
       <p className="text-muted-foreground text-[13px]">
-        What Innovatrix keeps on a third-party sale, taken on the price after any discount and
+        What CoSetup keeps on a third-party sale, taken on the price after any discount and
         before tax. It applies to every vendor without a rate of their own.
       </p>
 

@@ -545,7 +545,7 @@ describe("the commission rate is snapshotted onto the line", () => {
   /**
    * An **add-on** on a vendor's product is still the platform's revenue.
    *
-   * Installation and branding are work Innovatrix does; a vendor who wants paid services
+   * Installation and branding are work CoSetup does; a vendor who wants paid services
    * around their product is a different feature. The line therefore carries no vendor and no
    * rate, so no earning is ever written for it — asserted rather than left to the comment on
    * `buildOrderLines`.

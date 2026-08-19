@@ -135,7 +135,7 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
               
               Above the summary and linked, because a buyer weighing a third-party product asks
               who is behind it *before* reading what it does. Nothing at all for a first-party
-              product: "by Innovatrix" on a platform called Innovatrix is noise.
+              product: "by CoSetup" on a platform called CoSetup is noise.
             */}
             {product.vendor && (
               <p className="text-[13.5px]">

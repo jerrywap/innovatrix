@@ -8,7 +8,7 @@ import type { ProductStatus } from "@/lib/db/enums";
 /**
  * Products.
  *
- * Not org-scoped: a product belongs to Innovatrix or to a **vendor**, never to a
+ * Not org-scoped: a product belongs to CoSetup or to a **vendor**, never to a
  * customer, so this extends `BaseRepository` rather than `OrgScopedRepository`.
  * Vendor ownership arrives as a *second* axis — `findScoped` / `updateScoped`
  * below — rather than as a base filter, because staff read across every vendor and

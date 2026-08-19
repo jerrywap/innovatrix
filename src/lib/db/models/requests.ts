@@ -262,6 +262,14 @@ export interface CustomerRequestDoc {
   budgetRange?: { min?: number; max?: number; currency?: string };
   desiredTimeline?: string;
   submittedAt?: Date;
+  /**
+   * `"innovatrix"` is deliberate, and deliberately not renamed by the CoSetup
+   * rebrand: it is a **stored value**, written to every open request since
+   * ticket 19, and §20 puts historical database values outside a rename. Making
+   * it `"cosetup"` is a migration over `customerRequests` plus a period where
+   * both spellings are live, in exchange for a string no user ever sees — the
+   * queue that reads it is labelled "Waiting on us".
+   */
   waitingOn?: "customer" | "innovatrix";
 }
 

@@ -17,8 +17,8 @@ export const instant = false;
 
 export const metadata: Metadata = {
   title: {
-    default: "Innovatrix — Find, customise, build and run your software",
-    template: "%s · Innovatrix",
+    default: "CoSetup — Software, set up for you",
+    template: "%s · CoSetup",
   },
   description:
     "A software acquisition and delivery platform. Buy what already exists, have it adapted, or commission it outright — then have it installed, supported and maintained.",

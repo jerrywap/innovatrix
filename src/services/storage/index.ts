@@ -337,7 +337,7 @@ export async function deleteObjects(keys: readonly string[]): Promise<number> {
  * The raw builders in `keys.ts` all take a `root`, which is the environment
  * prefix everything is confined to — `innovatrix/{env}/`. That parameter is
  * exactly the sort of thing a caller gets wrong once, quietly, and the
- * consequence is not a bug in Innovatrix: this bucket is **shared with other
+ * consequence is not a bug in CoSetup: this bucket is **shared with other
  * live applications**, including regulated PII under `kyc/`. A wrong root is a
  * write outside our prefix.
  *

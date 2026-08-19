@@ -6,7 +6,7 @@ import { isCurrencyCode, type CurrencyCode } from "@/lib/money";
  * Distinct from `CURRENCIES` in `lib/money.ts`, and the distinction matters.
  * That registry describes every currency the *money type* can represent
  * (eight, including JPY with its zero exponent). This list is the commercial
- * decision about which ones Innovatrix offers, which is a smaller set and
+ * decision about which ones CoSetup offers, which is a smaller set and
  * changes for entirely different reasons.
  *
  * It lives in code rather than the database or the environment because adding a
@@ -35,10 +35,10 @@ export const DEFAULT_CURRENCY: StorefrontCurrency = "GBP";
  * not an edge case — and varying the response on a request header poisons any
  * shared cache.
  */
-export const CURRENCY_COOKIE = "innovatrix_currency";
+export const CURRENCY_COOKIE = "cosetup_currency";
 
 /** Recently-viewed products (§6). Slugs, so nothing internal leaves the server. */
-export const RECENTLY_VIEWED_COOKIE = "innovatrix_rv";
+export const RECENTLY_VIEWED_COOKIE = "cosetup_rv";
 export const RECENTLY_VIEWED_LIMIT = 8;
 
 export function isStorefrontCurrency(value: unknown): value is StorefrontCurrency {
