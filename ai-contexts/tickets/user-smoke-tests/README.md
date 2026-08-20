@@ -175,7 +175,10 @@ timestamps; the rule was honoured in the component nobody imported and broken in
 everybody copied. `typedRoutes` was meant to make a link to a missing route a compile error;
 two `as Route` casts turned it off exactly where it would have helped. The project already
 knows the answer — `theme-tokens.test.ts` and `loading-boundaries.test.ts` exist for this
-reason. Smoke tickets 06 and 07 should each leave an enforcement behind them.
+reason. Smoke ticket 07 left `dates.enforcement.test.ts` behind it and ticket 12 left
+`login-redirect.test.ts`, which discharges this theme. The enforcement set is now **closed**
+at fourteen — see `## Testing` in `AGENTS.md`. Read the paragraph above as a finding from
+this run, not as a standing instruction to the next one.
 
 **Scaffolding that was never filled in still looks finished.** Four legal and marketing
 stubs, two empty dashboard screens and a decorative search box all render cleanly, carry

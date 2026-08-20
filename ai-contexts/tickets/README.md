@@ -3,6 +3,11 @@
 Read `../00-techinical.md` for product context and `../01-mvp-todo.md` for the bucket list, ordering and
 architectural rules. Every ticket maps back to a section of that todo.
 
+**`## Live verification` is a ticket artefact.** Six tickets (23–28) carry one and it is always
+the same thing: a probe driven against the real dev database, printing what actually happened —
+the evidence a suite cannot give. It is not a place to paste test counts, and a change smaller
+than a ticket does not get one. What "done" means for those is `## Testing` in `AGENTS.md`.
+
 | # | Ticket | Depends on | Size |
 |---|--------|-----------|:----:|
 | 00 | [Project foundation & conventions](00-project-foundation.md) | — | M |

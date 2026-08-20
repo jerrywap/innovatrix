@@ -12,6 +12,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 Established in ticket 04. These are the rules a feature screen is expected to
 follow; deviating is fine when you can say why, in a comment, at the deviation.
+`## Testing` at the end is the exception — it is not about a screen, it is about
+how much of the suite a change owes, and the answer is usually less than it looks.
 
 ## Authorization
 
@@ -151,3 +153,122 @@ rather than replacing it.
 `typedRoutes` is on: a link to a route that doesn't exist is a compile error.
 That is deliberate — it is what keeps post-MVP modules out of the navigation.
 Don't add a route just to satisfy a link.
+
+## Testing
+
+The two halves of the suite are not the same price. `npm run test:unit` is **710
+tests across 45 files in 5.3s**. `npm run test:integration` is **566 tests across
+26 files in 414s** locally — nearly seven minutes, at 35% CPU, because every file
+queues behind one shared mongod. CI runs those same files in **48s** on parallel
+workers. So the slow half is slow *for you specifically*.
+
+That asymmetry is the rule: **the default altitude is the unit project**, and an
+integration test is earned by something a unit test cannot reach — not by
+preference, and not by thoroughness.
+
+| Reach for | When what you are checking is |
+|---|---|
+| unit | a pure function, a Zod schema, a view model's shape, a transition edge, a permission decision, an error mapping, a registry agreeing with itself |
+| integration | a **transaction** — an abort must actually roll back; a **real index** — uniqueness, a text search, an explain; a **cross-collection invariant**; or **tenancy scoping** — that the filter is on the query and not merely in the caller |
+| neither | the list below |
+
+If you cannot name which of those four an integration test is for, it is a unit
+test wearing 129 lines of preamble. Each of the 26 integration files carries its
+own copy of that preamble — `resetModules`, nine `stubEnv` calls, a unique
+database name, dynamic `import()`, `connectToDatabase()`, `syncIndexes()`, and a
+hand-written `afterEach` deleting its collections one by one — 3,363 lines in
+total, a fifth of the suite, running before the first assertion in it. Writing
+the 27th copy is the expensive decision; the test inside it is nearly free by
+comparison. A shared harness and `src/test/factories/` are the structural fix and
+are still absent — ticket 28 names both.
+
+### What needs no new test
+
+Generously meant, and not a shortcut — many of the last thirty commits shipped a
+fix with zero test lines, and the ones that did add tests ran 0.2–0.47 lines of
+test per line of source, not the other way round.
+
+- **Copy, wording and content** — including error text, empty states, metadata.
+- **A page that only composes existing view models.** The view models are already
+  covered; asserting that the page called them is mocking our own code.
+- **Plumbing a field through** repository → view model → component, when that
+  field's own rules are asserted somewhere already.
+- **Tailwind, spacing, layout, a token swap.** No assertion would have caught it
+  and none will hold it — that is what `theme-tokens.test.ts` is for.
+- **A fix an existing test already covers.** Run it red, fix, run it green, and
+  say which test. That is a test, and it is one you did not have to write.
+- **A rename, a move, an extraction** where `npm run typecheck` carries the
+  correctness.
+
+Where the honest answer is "no test would have caught this", write that sentence
+instead of writing the test.
+
+### The enforcement set is closed
+
+Fourteen tests here do not check behaviour, they hold a convention that has a
+copy-paste failure mode. They are the ones to **satisfy**, and they keep earning
+it — `dates.enforcement.test.ts` caught a call site its own migration had missed;
+`login-redirect.test.ts` exists because a redirect loop was fixed in the DAL and
+survived, since `app/dashboard/layout.tsx` had its own `redirect("/login")`;
+`action-guards.test.ts` caught `/api/auth/stale-session` the moment it appeared
+and made its anonymity a written reason rather than an omission.
+
+| What it holds | Tests |
+|---|---|
+| guards and routing | `src/lib/auth/action-guards.test.ts`, `src/lib/auth/login-redirect.test.ts`, `src/app/loading-boundaries.test.ts`, `src/lib/navigation.test.ts`, `src/app/sitemap.test.ts` |
+| registries in agreement | `src/lib/db/states.test.ts`, `src/lib/events/events.test.ts`, `src/components/components.test.ts`, `src/lib/db/schema-paths.test.ts` |
+| a convention with a copy-paste failure mode | `src/app/theme-tokens.test.ts`, `src/lib/dates.enforcement.test.ts`, `src/app/internal-shorthand.test.ts` |
+| a screen's contract | `src/features/product/product-page.test.ts`, `src/features/requirements/openers.test.ts` |
+
+The set is **closed at fourteen**. A change satisfies the ones that exist and does
+not leave a fifteenth behind.
+
+That is a cost decision, not a claim that prose would have done instead — the
+`dates.enforcement.test.ts` docstring is the standing evidence that it would not,
+since the rule it enforces was already written in this file and the codebase
+disagreed with it in nineteen places. But each of these walks the filesystem on
+every unit run, and each is a second copy of a convention that then has to be
+kept in agreement with the first. Fourteen is worth it; a fifteenth added
+unprompted, on the way past, is how a small change becomes a large one. If a
+change genuinely wants one, say so and let it be decided — don't build it as a
+side effect.
+
+### The registry fan-out — one pass, not seven red tests
+
+A new state, or a state change that emits, touches seven places guarded by
+assertions in four different suites. Discovering them one failure at a time costs
+five runs. Do them together:
+
+| # | File | Edit |
+|---|---|---|
+| 1 | `src/lib/db/enums.ts` | the state, in its `*_STATUSES` array |
+| 2 | `src/lib/db/states.ts` | the edges, in the `*_TRANSITIONS` map |
+| 3 | `src/lib/db/states.ts` | for product and request only: the parallel `*_TRANSITION_RULES` map — permission and actor per edge. `states.test.ts` checks the two cover each other |
+| 4 | `src/components/status-badge.tsx` | a `STATUS_TONES` entry. Without one the state renders neutral grey; `assertEveryStatusHasATone()` in `components.test.ts` refuses it |
+| 5 | `src/lib/db/enums.ts` | `DOMAIN_EVENTS`, if the change emits |
+| 6 | `src/lib/events/index.ts` | the matching `DomainEventMap` entry. `events.test.ts` checks both directions — an enum name with no payload type fails, and a payload type with no enum name fails |
+| 7 | `src/services/notifications/catalog.ts` | a `CATALOG` row, if anyone should be told. Optional by design — plenty of events notify nobody |
+
+Then `npm run db:docs`, which regenerates `STATES.md` from the maps.
+
+Nine transition maps and two parallel rules maps in 677 lines is a cost worth
+collapsing one day. Until then this table is cheaper than rediscovering it.
+
+### Done, for anything smaller than a ticket
+
+| Run | When |
+|---|---|
+| `npx vitest run <path>` | the test files covering what you changed — always |
+| `npm run typecheck` | always. `typedRoutes` and the `as const` enums catch most of what a test would |
+| `npm run test:unit` | if you touched `lib/`, `services/` or a registry. 5.3s, so there is no excuse not to |
+
+That is the inner loop. **`npm test` and `npm run verify` are CI's job, not
+yours** — CI does lint, types, both projects and a production build in **3m11s**
+wall clock and already gates the branch. Seven minutes spent locally buys a
+number CI is about to produce anyway.
+
+**No `## Live verification` block, and no test counts, for a fix.** That block is
+a ticket artefact, and specifically a *probe against the running system* —
+evidence a suite cannot produce, which is why `jobs:probe` and `notify-probe`
+exist. Pasting `N files · M tests · Xs` into a fix's summary reads as rigour, is
+stale by the next commit, and teaches the next change to produce one too.

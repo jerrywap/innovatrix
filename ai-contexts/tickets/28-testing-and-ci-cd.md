@@ -174,6 +174,11 @@ already answering an out-of-date question.
 
 ### Not done, and named
 
+A record of what this ticket did not do, so it is not mistaken for complete. It is
+not a backlog to pick from unprompted — the webhook fixture suite and
+`src/test/factories/` are each a ticket's worth of work, and appending them to an
+unrelated change is how a small fix becomes a large one.
+
 - **The webhook fixture suite.** The ticket calls it "the highest-value
   integration suite in the project" and it is still absent.
   `signatures.test.ts` covers the signature layer well — it generates real

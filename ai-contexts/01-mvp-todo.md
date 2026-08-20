@@ -495,6 +495,7 @@ Ordered so that each block is independently demoable and nothing is blocked wait
 16. **26 Security hardening & audit** — schedule a dedicated pass, don't leave it as cleanup.
 17. **27 SEO, performance, observability**.
 18. **28 Testing & CI/CD** — write tests alongside each phase; this ticket is the harness and the gate.
+    (Altitude and scope per change: `## Testing` in `AGENTS.md`.)
 
 ---
 

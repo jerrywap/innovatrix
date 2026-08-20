@@ -356,8 +356,8 @@ resolution found the right people.
 
 | | |
 |---|---|
-| `test:unit` | 545 tests, **~4s** — run this while working |
-| `test:integration` | 260 tests against one shared in-memory replica set, ~2min |
+| `test:unit` | the fast half — seconds. Run this while working |
+| `test:integration` | one shared in-memory replica set — minutes locally, parallelised in CI |
 | `test` | both |
 | `test:coverage` | with thresholds on `lib/`, `services/`, `config/` |
 | `lint` · `typecheck` · `format` | |
