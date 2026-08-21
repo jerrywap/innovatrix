@@ -1,4 +1,4 @@
-import type { ProductStatus, TestingChecklistStatus } from "@/lib/db/enums";
+import type { ProductCatalogue, ProductStatus, TestingChecklistStatus } from "@/lib/db/enums";
 
 /**
  * What is stopping this product going live — §46, §47.
@@ -25,7 +25,8 @@ export type ReadinessGapCode =
   | "testing_incomplete"
   | "testing_failed"
   | "no_description"
-  | "unbuyable_currency";
+  | "unbuyable_currency"
+  | "no_template_category";
 
 export interface ReadinessGap {
   code: ReadinessGapCode;
@@ -75,6 +76,16 @@ export interface ReadinessSnapshot {
    * `unbuyable_currency` below.
    */
   currenciesWithoutLicencePrice: readonly string[];
+  /** Which storefront it will appear in. */
+  catalogue: ProductCatalogue;
+  /**
+   * Categories on this product that its **own** catalogue permits.
+   *
+   * Counted by the caller rather than derived here, because scoping a term needs
+   * a database read and this function is pure — the same reason
+   * `hasReleasedVersionWithPackage` is handed in.
+   */
+  catalogueCategoryCount: number;
 }
 
 export interface Readiness {
@@ -93,6 +104,26 @@ export function computeReadiness(snapshot: ReadinessSnapshot): Readiness {
       code: "no_price",
       message: "Add at least one price",
       section: "pricing",
+    });
+  }
+
+  /*
+   * A template with no template category is unreachable.
+   *
+   * `/templates` browses by category — that is what the catalogue split is for —
+   * so a template carrying none appears only in the unfiltered grid and drops off
+   * it the moment anybody filters. The first readiness gap pointing at
+   * `classification`; `steps.ts` turns that into a link with no change.
+   *
+   * **Templates only, deliberately.** Scripts have been publishable without a
+   * category since ticket 06, and gating them now would retro-flag every
+   * published product in the admin list — a different decision, and not this one.
+   */
+  if (snapshot.catalogue === "template" && snapshot.catalogueCategoryCount === 0) {
+    gaps.push({
+      code: "no_template_category",
+      message: "Choose at least one template category",
+      section: "classification",
     });
   }
 

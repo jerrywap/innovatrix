@@ -12,10 +12,30 @@ const complete: ReadinessSnapshot = {
   hasReleasedVersionWithPackage: true,
   checklist: [{ status: "pass" }, { status: "pass" }],
   currenciesWithoutLicencePrice: [],
+  catalogue: "script",
+  catalogueCategoryCount: 1,
 };
 
 const codes = (snapshot: Partial<ReadinessSnapshot>) =>
   computeReadiness({ ...complete, ...snapshot }).gaps.map((gap) => gap.code);
+
+describe("the catalogue gate", () => {
+  it("refuses a template with no template category", () => {
+    // `/templates` browses by category, so one with none is only reachable from
+    // the unfiltered grid — and drops off it the moment anybody filters.
+    expect(codes({ catalogue: "template", catalogueCategoryCount: 0 })).toContain(
+      "no_template_category",
+    );
+  });
+
+  it("leaves a script with no category alone", () => {
+    // Publishable without one since ticket 06. Gating it now would retro-flag
+    // every published product, which is a different decision.
+    expect(codes({ catalogue: "script", catalogueCategoryCount: 0 })).not.toContain(
+      "no_template_category",
+    );
+  });
+});
 
 describe("computeReadiness", () => {
   it("finds nothing wrong with a complete product", () => {

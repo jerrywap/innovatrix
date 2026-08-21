@@ -1,6 +1,7 @@
 import { StateTransitionError } from "@/lib/errors";
 import type { Permission } from "@/lib/auth/permissions";
 import type {
+  AddonProvisioningStatus,
   InvoiceStatus,
   OrderStatus,
   PaymentStatus,
@@ -661,6 +662,23 @@ export function productPermissionsForTarget(to: ProductStatus): Permission[] {
   return [...permissions];
 }
 
+/**
+ * A paid plugin's handover — vendor-directed, delivered off-platform.
+ *
+ * One-way on purpose. `provided` is terminal because the key has left the
+ * building: a status that could go back to `pending` would claim an obligation
+ * is outstanding when the customer already has what they paid for. A mistake is
+ * corrected by saying so in the thread, not by rewinding the record.
+ *
+ * `cancelled` exists for the refund path, which reaches it from `pending` only —
+ * refunding a plugin already handed over is a conversation, not a state change.
+ */
+export const ADDON_PROVISIONING_TRANSITIONS: TransitionMap<AddonProvisioningStatus> = {
+  pending: ["provided", "cancelled"],
+  provided: [],
+  cancelled: [],
+};
+
 /** Registry so tooling (docs, tests, the staff UI) can enumerate every machine. */
 export const STATE_MACHINES = {
   product: PRODUCT_TRANSITIONS,
@@ -672,6 +690,7 @@ export const STATE_MACHINES = {
   invoice: INVOICE_TRANSITIONS,
   vendor: VENDOR_TRANSITIONS,
   payout: PAYOUT_TRANSITIONS,
+  addonProvisioning: ADDON_PROVISIONING_TRANSITIONS,
 } as const;
 
 export type StateMachineName = keyof typeof STATE_MACHINES;

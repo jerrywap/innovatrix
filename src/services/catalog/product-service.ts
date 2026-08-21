@@ -4,7 +4,7 @@ import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase, supportsTransactions } from "@/lib/db/client";
 import { PRODUCT_TRANSITIONS, assertTransition, productTransitionRule } from "@/lib/db/states";
 import { descriptionFields, type ProductDoc } from "@/lib/db/models/catalog";
-import type { ProductStatus } from "@/lib/db/enums";
+import type { ProductCatalogue, ProductStatus } from "@/lib/db/enums";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { vendorFilter, type VendorScope } from "@/lib/auth/scope";
 import type { Paginated } from "@/repositories/base";
@@ -16,7 +16,7 @@ import { productFiles } from "@/repositories/product-file.repository";
 import { productVersions } from "@/repositories/product-version.repository";
 import { statusChange, writeAuditLog, type AuditActor } from "@/services/audit";
 import { emit } from "@/lib/events";
-import { deriveFacets } from "./facets";
+import { assertTermsInCatalogue, deriveFacets } from "./facets";
 import {
   DEFAULT_TESTING_CHECKLIST,
   computeReadiness,
@@ -46,6 +46,17 @@ export interface CreateDraftInput {
    * row, and it has to re-derive facets and re-denormalise the name.
    */
   vendor?: { id: string; slug: string; name: string };
+  /**
+   * Which catalogue it starts in. Defaults to `script` — the overwhelming
+   * majority, and the same default the schema carries, so the two cannot
+   * disagree.
+   *
+   * Changeable afterwards on the classification step, which is where its
+   * categories are chosen too: moving a product between catalogues without
+   * revisiting its vocabulary is how it ends up in `template` with script
+   * categories.
+   */
+  catalogue?: ProductCatalogue;
 }
 
 /**
@@ -71,6 +82,7 @@ export async function createDraft(
       summary: input.summary,
       slug,
       status: "draft",
+      catalogue: input.catalogue ?? "script",
       ...descriptionFields(input.description),
       ...(input.vendor
         ? {
@@ -206,6 +218,7 @@ function setAndUnset(update: Record<string, unknown>): {
 export async function saveClassification(
   productId: string,
   input: {
+    catalogue: ProductCatalogue;
     categoryIds: string[];
     industryIds: string[];
     technologyIds: string[];
@@ -232,6 +245,17 @@ export async function saveClassification(
   const owner = await products.findScoped(productId, scope);
   if (!owner) throw new NotFoundError("product", { id: productId });
 
+  /*
+   * A term from the other catalogue is refused, not dropped.
+   *
+   * `deriveFacets` drops ids it cannot *resolve* — a term somebody deleted — and
+   * that is right, because there is nothing to say about it. This is a different
+   * case: the term exists and the human just chose it, and silently discarding a
+   * value somebody submitted is how a product ends up in a catalogue with no
+   * categories and nobody knowing why.
+   */
+  await assertTermsInCatalogue(input, input.catalogue);
+
   const facets = await deriveFacets({
     ...input,
     ...(owner.vendorSlug ? { vendorSlug: owner.vendorSlug } : {}),
@@ -241,6 +265,10 @@ export async function saveClassification(
     productId,
     "classification",
     {
+      // The catalogue and the terms move in the **same** `$set`. Two writes could
+      // leave a product in `template` carrying script categories, which is the one
+      // state that makes browsing wrong in both directions at once.
+      catalogue: input.catalogue,
       categoryIds: input.categoryIds.map((id) => toObjectId(id)),
       industryIds: input.industryIds.map((id) => toObjectId(id)),
       technologyIds: input.technologyIds.map((id) => toObjectId(id)),
@@ -369,6 +397,20 @@ function snapshotOf(
       ...(item.notes ? { notes: item.notes } : {}),
     })),
     currenciesWithoutLicencePrice: currenciesWithoutLicencePrice(product),
+    catalogue: product.catalogue ?? "script",
+    /*
+     * `categoryIds.length` **is** the catalogue-permitted count, without a second
+     * read.
+     *
+     * `saveClassification` refuses to store a term from the other catalogue, so a
+     * template's categories are already template-or-both by construction. Counting
+     * them here rather than re-resolving each term's scope keeps this snapshot one
+     * document and keeps the admin list from doing a taxonomy read per row.
+     *
+     * The invariant is enforced on the write path. If that check is ever removed,
+     * this count silently starts lying — which is why it is written down here.
+     */
+    catalogueCategoryCount: product.categoryIds.length,
   };
 }
 

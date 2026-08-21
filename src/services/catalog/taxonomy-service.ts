@@ -1,7 +1,7 @@
 import "server-only";
 import { connectToDatabase } from "@/lib/db/client";
 import type { TaxonomyDoc } from "@/lib/db/models/catalog";
-import type { TaxonomyKind } from "@/lib/db/enums";
+import type { TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import { products } from "@/repositories/product.repository";
@@ -29,6 +29,8 @@ const REDERIVE_BATCH = 200;
 
 export interface TaxonomyInput {
   kind: TaxonomyKind;
+  /** `both` unless stated — see `TAXONOMY_CATALOGUES`. */
+  catalogue?: TaxonomyCatalogue;
   name: string;
   slug?: string;
   description?: string;
@@ -50,6 +52,7 @@ export async function createTaxonomy(
 
   const created = await taxonomies.create({
     kind: input.kind,
+    catalogue: input.catalogue ?? "both",
     name: input.name.trim(),
     slug,
     ...(input.description ? { description: input.description } : {}),
@@ -93,6 +96,7 @@ export async function updateTaxonomy(
   if (input.icon !== undefined) update.icon = input.icon;
   if (input.sortOrder !== undefined) update.sortOrder = input.sortOrder;
   if (input.isActive !== undefined) update.isActive = input.isActive;
+  if (input.catalogue !== undefined) update.catalogue = input.catalogue;
 
   let slugChanged = false;
   if (input.slug !== undefined) {

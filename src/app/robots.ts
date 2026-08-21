@@ -40,6 +40,8 @@ export default function robots(): MetadataRoute.Robots {
           // Search results are `noindex` at the page level too; this saves the
           // crawler the round trip to find that out.
           "/marketplace?q=",
+          // Same reasoning, same page component, other catalogue.
+          "/templates?q=",
         ],
       },
     ],

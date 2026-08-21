@@ -1,5 +1,6 @@
 import { facetMatch, FACET_PREFIX } from "@/lib/db/models/catalog";
 import type { StorefrontCurrency } from "@/config/storefront";
+import { productCatalogueFilter, type CatalogueScope } from "@/config/catalogue";
 
 /**
  * The marketplace query, as one aggregation pipeline.
@@ -46,7 +47,27 @@ export interface MarketplaceQueryInput {
   vendor?: readonly string[];
   minPrice?: number;
   maxPrice?: number;
+  /**
+   * Free only. Derived from `activePrice`, not from a stored flag, so it is
+   * **per-currency correct**: a product priced at zero in USD and 5,000 in NGN
+   * is free to one viewer and not to another, which a boolean on the document
+   * could not express.
+   */
+  free?: boolean;
   customisable?: boolean;
+  /**
+   * Which catalogue's grid this is — **required**, with an explicit `"all"`.
+   *
+   * Not optional. Two callers legitimately want both (a vendor storefront, a
+   * saved list), and with an optional field "meant both" is indistinguishable
+   * from "forgot to pass it" — which on a public listing fails open. Required
+   * makes the choice a visible word at every call site and lets `tsc` find the
+   * next one.
+   *
+   * Comes from `options`, never from the query string: a catalogue is a surface,
+   * not a filter a visitor may flip.
+   */
+  catalogue: CatalogueScope;
   sort: MarketplaceSort;
   page: number;
   limit: number;
@@ -152,6 +173,11 @@ function primaryMatch(input: MarketplaceQueryInput): Record<string, unknown> {
      * empty database.
      */
     listingSuppressed: { $ne: true },
+    /*
+     * The catalogue split. `$in` rather than a negation, for an index reason the
+     * predicate itself explains — see `productCatalogueFilter`.
+     */
+    ...productCatalogueFilter(input.catalogue),
   };
 
   const facets = facetMatch({
@@ -221,13 +247,30 @@ function computedFields(input: MarketplaceQueryInput): Record<string, unknown> {
 
 function priceRangeStage(input: MarketplaceQueryInput): Record<string, unknown>[] {
   const bounds: Record<string, number> = {};
-  if (typeof input.minPrice === "number") bounds.$gte = input.minPrice;
-  if (typeof input.maxPrice === "number") bounds.$lte = input.maxPrice;
+
+  if (input.free === true) {
+    // "Free" is a bound on the same computed field, not a separate mechanism —
+    // and it wins over any numeric range, because a max price alongside "free
+    // only" is a contradiction the URL can express and the customer did not
+    // mean.
+    bounds.$lte = 0;
+  } else {
+    if (typeof input.minPrice === "number") bounds.$gte = input.minPrice;
+    if (typeof input.maxPrice === "number") bounds.$lte = input.maxPrice;
+  }
+
   if (Object.keys(bounds).length === 0) return [];
 
   // A product with no price in this currency is excluded by a price filter —
   // "under £500" cannot include "price unknown". That is different from the
   // unfiltered view, where it appears as "Price on request".
+  //
+  // The same bracketing is what makes `free` correct rather than nearly
+  // correct: `$addFields` writes an explicit `null` when there is no price in
+  // this currency (see the `$ifNull` above, verified against EUR), and BSON type
+  // bracketing means `{ $lte: 0 }` does not match `null`. So "not priced in NGN"
+  // is not reported as "free in NGN" — which would be the worst possible bug on
+  // a filter whose whole promise is the price.
   return [{ $match: { "activePrice.amount": bounds } }];
 }
 

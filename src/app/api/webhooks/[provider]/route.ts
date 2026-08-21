@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { PAYMENT_PROVIDERS, type PaymentProvider } from "@/lib/db/enums";
+import { DRIVERLESS_PROVIDERS, PAYMENT_PROVIDERS, type PaymentProvider } from "@/lib/db/enums";
 import { connectToDatabase } from "@/lib/db/client";
 import { log } from "@/lib/logger";
 import { alert, ALERTS } from "@/lib/alerts";
@@ -46,7 +46,13 @@ export async function POST(
 ): Promise<Response> {
   const { provider: raw } = await context.params;
 
-  if (!(PAYMENT_PROVIDERS as readonly string[]).includes(raw) || raw === "manual") {
+  // A driverless provider has nothing that could post here — `manual` is a bank
+  // transfer staff confirm, `free` is a £0 order settled in-process — so the
+  // route must 404 rather than reach `driverFor` and throw.
+  if (
+    !(PAYMENT_PROVIDERS as readonly string[]).includes(raw) ||
+    (DRIVERLESS_PROVIDERS as readonly string[]).includes(raw)
+  ) {
     return json({ error: "Unknown provider." }, 404);
   }
   const provider = raw as PaymentProvider;

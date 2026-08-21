@@ -315,6 +315,21 @@ async function buildOrderLines(priced: CartView): Promise<OrderItem[]> {
           }
         : {}),
       ...(addon ? { addonKey: addon.key, addonName: addon.name } : {}),
+      /*
+       * A plugin's handover starts as an obligation, stamped here rather than at
+       * fulfilment.
+       *
+       * Doing it at checkout keeps `processPaymentSucceeded` free of another
+       * write — and therefore of another way for a confirmed payment to abort.
+       * The line is not *actionable* until the order is paid, which the queue
+       * enforces with `paidAt`, not with the absence of this field.
+       *
+       * `quote_required` add-ons are excluded: they are a quote flow, and there
+       * is nothing to hand over until somebody has priced it.
+       */
+      ...(addon && addon.pricingType !== "quote_required"
+        ? { provisioning: { status: "pending" as const } }
+        : {}),
       ...(line.parentLineId ? { parentLineId: line.parentLineId } : {}),
       quantity: line.quantity,
       unitPrice: toMoneyDoc(line.unitPrice),
@@ -322,15 +337,23 @@ async function buildOrderLines(priced: CartView): Promise<OrderItem[]> {
       /*
        * Vendor ticket 07 — the snapshot, and the reason this field exists.
        *
-       * Absent on a first-party line, and on an **add-on** line whatever product it hangs
-       * off: an add-on is platform-delivered work (installation, branding), so the platform
-       * keeps it. A vendor who wants paid services around their product is a different
-       * feature and is not this one.
+       * Absent on a first-party line. Present on **every** line of a vendor's product,
+       * licence and add-on alike.
+       *
+       * That add-on clause used to read the other way, on the assumption that an add-on is
+       * always platform-delivered work — installation, branding — so the platform kept it.
+       * It closed with "a vendor who wants paid services around their product is a different
+       * feature and is not this one". This is that feature: an add-on is now also how a
+       * plugin is sold, the vendor prices it and the vendor hands it over, so the vendor
+       * earns on it at the same rate as their licence lines.
+       *
+       * Second consequence, relied on downstream: an add-on line now carries `vendorId`,
+       * which is what makes the provisioning queue an `$elemMatch` rather than a join.
        *
        * Written here and never re-read. A rate change must not rewrite what a vendor earned
        * last month.
        */
-      ...(product.vendorId && line.kind === "product_licence"
+      ...(product.vendorId
         ? {
             vendorId: product.vendorId,
             commissionBasisPoints: commissionByVendor.get(String(product.vendorId))!,

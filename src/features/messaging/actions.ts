@@ -191,5 +191,28 @@ async function assertSubjectBelongs(
     return;
   }
 
+  /*
+   * An **order** thread — where a paid plugin's key is handed over.
+   *
+   * `"order"` has been in `CONVERSATION_SUBJECT_TYPES` since ticket 02 and had no
+   * branch here, so nothing could post on one. Paid plugins are the first thing
+   * that needs it: a plugin ships no bytes, so the licence key or account details
+   * have to reach the customer somewhere, and this is the only channel that is
+   * already theirs and already audited.
+   *
+   * The same one-indexed-`exists` shape as the two above, so the scope rule does
+   * not acquire a special case: an order is org-scoped, and a customer can only
+   * talk about one they placed.
+   */
+  if (subjectType === "order") {
+    const { Order } = await import("@/lib/db/models/commerce");
+    const exists = await Order.exists({
+      _id: toObjectId(subjectId),
+      organizationId: toObjectId(organizationId),
+    });
+    if (!exists) throw new Error("No such order.");
+    return;
+  }
+
   throw new Error("Messaging isn't available on that yet.");
 }

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { MonitorPlay, Sparkles } from "lucide-react";
+import { FreeBadge } from "@/components/free-badge";
 import { MoneyDisplay } from "@/components/money-display";
 import { AddToCart } from "@/features/cart/components/add-to-cart";
 import { money } from "@/lib/money";
@@ -141,10 +142,14 @@ export function PurchasePanel({
                   <span className="flex items-baseline justify-between gap-2">
                     <span className="text-[13.5px] font-medium">{pkg.name}</span>
                     {price ? (
-                      <MoneyDisplay
-                        value={money(price.amount, currency)}
-                        className="text-[13.5px]"
-                      />
+                      price.amount === 0 ? (
+                        <FreeBadge size="compact" />
+                      ) : (
+                        <MoneyDisplay
+                          value={money(price.amount, currency)}
+                          className="text-[13.5px]"
+                        />
+                      )
                     ) : (
                       <span className="text-subtle text-[12px]">On request</span>
                     )}
@@ -190,10 +195,17 @@ export function PurchasePanel({
                   {addon.pricingType === "quote_required" ? (
                     "quoted"
                   ) : price ? (
-                    <>
-                      {addon.pricingType === "starting_from" ? "from " : "+"}
-                      <MoneyDisplay value={money(price.amount, currency)} compact />
-                    </>
+                    // A free plugin reads "Free", never "+£0.00" — the whole
+                    // point of a free tier is that it does not look like a
+                    // charge of nothing.
+                    price.amount === 0 ? (
+                      <FreeBadge size="compact" />
+                    ) : (
+                      <>
+                        {addon.pricingType === "starting_from" ? "from " : "+"}
+                        <MoneyDisplay value={money(price.amount, currency)} compact />
+                      </>
+                    )
                   ) : (
                     "—"
                   )}
@@ -208,10 +220,14 @@ export function PurchasePanel({
         <span className="text-[13px] font-medium">Total</span>
         {total !== undefined ? (
           <span className="flex items-baseline gap-1.5">
-            <MoneyDisplay
-              value={money(total, currency)}
-              className="font-display text-[22px] tracking-[-0.02em]"
-            />
+            {total === 0 ? (
+              <FreeBadge />
+            ) : (
+              <MoneyDisplay
+                value={money(total, currency)}
+                className="font-display text-[22px] tracking-[-0.02em]"
+              />
+            )}
             {quoteOnly && <span className="text-subtle text-[11.5px]">+ quoted items</span>}
           </span>
         ) : (

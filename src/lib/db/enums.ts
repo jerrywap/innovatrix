@@ -218,6 +218,41 @@ export const TAXONOMY_KINDS = values([
 export type TaxonomyKind = (typeof TAXONOMY_KINDS)[number];
 
 /**
+ * Which catalogue a product belongs to.
+ *
+ * Website templates — admin dashboards, ecommerce pages, corporate sites — browse,
+ * search and categorise separately from application scripts, and are intended to
+ * move to their own site later. That later move is the reason this is a
+ * first-class scalar rather than a `product_type` term: extracting a catalogue
+ * then is one query, and `product_type` stays free to say *what kind* of thing it
+ * is (admin panel, starter kit, plugin) **within** either catalogue.
+ *
+ * Deliberately **not** a taxonomy kind and **not** a facet dimension. A catalogue
+ * is a *surface* — which storefront you are standing in — not a filter you tick.
+ * Putting it in the `facets` array would make it one, and would put it behind the
+ * "1 filter" badge on every template page.
+ */
+export const PRODUCT_CATALOGUES = values(["script", "template"] as const);
+export type ProductCatalogue = (typeof PRODUCT_CATALOGUES)[number];
+
+/**
+ * Which catalogue a taxonomy term belongs to — and `both`, which most do.
+ *
+ * The reason this exists is the filter rail: it renders **every** term of a kind
+ * and only greys out the ones with no matches, deliberately ("never loses options
+ * as it narrows"). So without scoping the *vocabulary*, "Admin dashboards" would
+ * sit greyed-out in the script rail and "CRM" in the template one — each
+ * catalogue advertising the other's categories.
+ *
+ * `both` is the default because industries and technologies genuinely are shared:
+ * Healthcare is an industry either way, and Tailwind is a technology either way.
+ * Only `category` is really split, which is why this is a scope on terms rather
+ * than a second `category`-like kind.
+ */
+export const TAXONOMY_CATALOGUES = values(["script", "template", "both"] as const);
+export type TaxonomyCatalogue = (typeof TAXONOMY_CATALOGUES)[number];
+
+/**
  * §46 — products are not publicly purchasable the moment they are uploaded.
  *
  * `submitted` and `changes_requested` are vendor ticket 05's, and they sit at the
@@ -379,8 +414,40 @@ export const ORDER_STATUSES = values([
 ] as const);
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-export const PAYMENT_PROVIDERS = values(["stripe", "paystack", "paypal", "manual"] as const);
+export const PAYMENT_PROVIDERS = values([
+  "stripe",
+  "paystack",
+  "paypal",
+  "manual",
+  "free",
+] as const);
+
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
+
+/**
+ * Providers with no third party behind them, and therefore no driver.
+ *
+ * `manual` is a bank transfer staff confirm; `free` is a £0 order. Both reach
+ * `processPaymentSucceeded` by confirmation rather than by verification, so
+ * neither has a redirect, a webhook, or anything to verify against.
+ *
+ * **This is a safety boundary, not tidiness.** Anything in `DRIVERS`
+ * (`services/payments/registry.ts`) becomes selectable by
+ * `providersFor`/`resolveProvider`, which resolve by *currency* — so a `free`
+ * driver could be picked for a £299 order, and it would fulfil having taken no
+ * money. Keeping `free` out of `DRIVERS` makes that unrepresentable rather than
+ * merely unlikely; `settleFreeOrder` refusing a non-zero total is the second,
+ * independent lock.
+ *
+ * Declared here rather than in the payments service because the repository layer
+ * needs it too, and a repository importing a service inverts the layering.
+ */
+export const DRIVERLESS_PROVIDERS = ["manual", "free"] as const;
+export type DriverlessProvider = (typeof DRIVERLESS_PROVIDERS)[number];
+
+export function isDriverlessProvider(key: PaymentProvider): key is DriverlessProvider {
+  return (DRIVERLESS_PROVIDERS as readonly PaymentProvider[]).includes(key);
+}
 
 export const PAYMENT_STATUSES = values([
   "pending",
@@ -390,6 +457,30 @@ export const PAYMENT_STATUSES = values([
   "requires_review",
 ] as const);
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+/**
+ * A paid plugin's handover — an **add-on** order line, and only an add-on line.
+ *
+ * A plugin is sold as an add-on but delivered outside this platform: the vendor
+ * or an admin hands over a key, a licence code, or a premium account on a
+ * third-party API the script already talks to. So there is nothing to download
+ * and no entitlement to grant — what there is instead is an obligation, and this
+ * is what tracks it.
+ *
+ * `cancelled` is where a refund puts a line that was never handed over. There is
+ * no path back out of `provided`: un-providing a key that has already been sent
+ * does not un-send it.
+ *
+ * **Absence means "not tracked."** Every add-on line sold before this existed
+ * was an installation or a branding service done off-book, and inventing a
+ * `pending` for those retrospectively would open a task nobody is waiting for.
+ */
+export const ADDON_PROVISIONING_STATUSES = values([
+  "pending",
+  "provided",
+  "cancelled",
+] as const);
+export type AddonProvisioningStatus = (typeof ADDON_PROVISIONING_STATUSES)[number];
 
 export const PAYMENT_SUBJECT_TYPES = values(["order", "invoice"] as const);
 export type PaymentSubjectType = (typeof PAYMENT_SUBJECT_TYPES)[number];
@@ -686,6 +777,9 @@ export const DOMAIN_EVENTS = values([
   "CustomizationRoutedToVendor",
   "VendorBriefAnswered",
   "VendorBriefDeclined",
+  // Paid plugins — the handover a purchase creates an obligation for.
+  "AddonProvisioningRequested",
+  "AddonProvisioned",
 ] as const);
 export type DomainEventType = (typeof DOMAIN_EVENTS)[number];
 

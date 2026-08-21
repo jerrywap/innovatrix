@@ -68,9 +68,26 @@ export default async function Page({ params }: PageProps<"/admin/orders/[referen
                 className="flex items-baseline justify-between gap-3 px-4 py-2.5"
               >
                 <span className="min-w-0">
-                  <span className="block text-[13.5px]">{item.productName}</span>
+                  <span className="block text-[13.5px]">
+                    {item.addonName ?? item.productName}
+                  </span>
                   {item.licencePackageName && (
                     <span className="text-subtle text-[12px]">{item.licencePackageName}</span>
+                  )}
+                  {/*
+                    A plugin's handover. Shown for every tracked state, not only
+                    `pending`, because "was this ever sent" is the question staff
+                    are asked and a blank row does not answer it. The vendor's own
+                    lines are marked as theirs — staff should not quietly do a
+                    vendor's job without the vendor knowing it was taken off them.
+                  */}
+                  {item.provisioning && (
+                    <span className="mt-1 flex items-center gap-2">
+                      <StatusBadge status={item.provisioning.status} />
+                      <span className="text-subtle text-[11.5px]">
+                        {item.vendorId ? "the vendor hands this over" : "we hand this over"}
+                      </span>
+                    </span>
                   )}
                 </span>
                 <MoneyDisplay

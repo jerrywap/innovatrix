@@ -321,6 +321,44 @@ describe("add-ons and quantity", () => {
     expect(result.lines).toHaveLength(2);
     expect(result.totals.total.amount).toBe(29_999);
   });
+
+  it("refuses an add-on with no price in the cart's currency instead of charging zero", async () => {
+    // The leak this replaced: `addonPrice ?? 0` shipped a paid plugin for
+    // nothing whenever it had no row in the basket's currency. Now that an
+    // add-on can legitimately be free, zero has to mean zero.
+    const atlas = await product({
+      addons: [{ key: "stripe", name: "Stripe gateway" }], // no amount ⇒ no prices
+    });
+
+    await expect(
+      cartService.addItem(
+        OWNER,
+        { productId: String(atlas._id), addonKeys: ["stripe"] },
+        { currency: "GBP" },
+      ),
+    ).rejects.toThrow(/Stripe gateway isn't sold in GBP/);
+
+    // And it refused the whole call rather than adding the licence alone.
+    expect((await view()).lines).toHaveLength(0);
+  });
+
+  it("carries a genuinely free add-on at zero", async () => {
+    const atlas = await product({
+      addons: [{ key: "csv", name: "CSV export", amount: 0 }],
+    });
+    await cartService.addItem(
+      OWNER,
+      { productId: String(atlas._id), addonKeys: ["csv"] },
+      { currency: "GBP" },
+    );
+
+    const result = await view();
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[1]?.unitPrice.amount).toBe(0);
+    // Priced, not quoted — the distinction the basket now renders.
+    expect(result.lines[1]?.addonPricingType).toBe("fixed");
+    expect(result.totals.total.amount).toBe(29_999);
+  });
 });
 
 /* ────────────────────────────────────────────── discounts */

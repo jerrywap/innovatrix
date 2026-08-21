@@ -60,6 +60,9 @@ export default async function Page() {
       sort: "latest",
       page: 1,
       limit: MAX_LIMIT,
+      // `"all"`, matching the public storefront this previews — a vendor must see
+      // exactly what a visitor sees, or the preview is not one.
+      catalogue: "all",
     }),
   ]);
 

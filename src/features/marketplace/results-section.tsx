@@ -13,6 +13,7 @@ import { vendorNames } from "@/services/marketplace/storefront";
 import { FilterDrawer } from "./components/filter-drawer";
 import { FilterRail } from "./components/filter-rail";
 import { DiscoveryRails } from "./components/rails";
+import type { CatalogueScope } from "@/config/catalogue";
 import { Results } from "./components/results";
 
 /**
@@ -33,11 +34,22 @@ import { Results } from "./components/results";
 export async function MarketplaceResults({
   searchParams,
   basePath,
+  catalogue,
   forced,
   locked,
 }: {
   searchParams: Promise<RawSearchParams>;
   basePath: string;
+  /**
+   * Which catalogue's grid this is — **required**, so a new surface cannot forget
+   * it and quietly show both.
+   *
+   * A separate prop rather than part of `forced`, because it is not a *filter*: it
+   * never appears in the URL, never counts toward the drawer badge, and cannot be
+   * removed by the rail. `forced` is for a landing page pinning one of its own
+   * dimensions.
+   */
+  catalogue: CatalogueScope;
   /** A landing page's own term, which the rail cannot remove. */
   forced?: { category?: string[]; industry?: string[] };
   locked?: ReadonlyArray<"category" | "industry" | "technology" | "productType">;
@@ -51,12 +63,15 @@ export async function MarketplaceResults({
 
   const query = parseMarketplaceQuery(raw, {
     currency,
+    catalogue,
     ...(forced ? { forced } : {}),
   });
 
   const [result, taxonomy, vendorLabels] = await Promise.all([
     searchMarketplace(query),
-    getTaxonomyIndex(),
+    // Scoped, which is what stops one catalogue's rail advertising the other's
+    // categories greyed out at zero.
+    getTaxonomyIndex(catalogue),
     // Vendor ticket 11. Only for the slugs actually in the URL — a vendor is not a taxonomy,
     // so there is no index to read a name from, and listing every seller in the rail would be
     // a query on every render for a control nobody could scan.
@@ -136,7 +151,7 @@ export async function MarketplaceResults({
       <div className="hidden lg:block">{rail}</div>
 
       <div className="flex flex-col gap-12">
-        {isBrowsing && <DiscoveryRails />}
+        {isBrowsing && <DiscoveryRails catalogue={catalogue} />}
         <Results
           result={result}
           raw={raw}

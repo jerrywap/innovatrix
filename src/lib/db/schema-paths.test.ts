@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Product } from "./models/catalog";
+import { Product, Taxonomy } from "./models/catalog";
 import { Vendor, VendorMember } from "./models/vendors";
 
 /**
@@ -52,5 +52,19 @@ describe("schema paths that a scope filter depends on", () => {
     expect(Vendor.schema.path("status")).toBeDefined();
     expect(Vendor.schema.path("slug")).toBeDefined();
     expect(Vendor.schema.path("deletedAt")).toBeDefined();
+  });
+
+  /**
+   * The catalogue split, and this is the cheapest four lines in it.
+   *
+   * `strictQuery: true` **silently drops** a filter condition on an undeclared
+   * path. So if `catalogue` ever leaves either schema — or a long-running process
+   * holds a stale model — `{ catalogue: "template" }` stops narrowing anything and
+   * `/templates` serves the entire catalogue. No error, no empty page: the wrong
+   * rows, looking right. That is the exact incident this file was written after.
+   */
+  it("declares the paths the catalogue split depends on", () => {
+    expect(Product.schema.path("catalogue")).toBeDefined();
+    expect(Taxonomy.schema.path("catalogue")).toBeDefined();
   });
 });

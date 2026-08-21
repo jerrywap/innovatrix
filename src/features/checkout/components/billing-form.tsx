@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Landmark, Lock } from "lucide-react";
+import { Gift, Landmark, Lock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FormErrors } from "@/features/products/components/section-form";
 import { placeOrderAction } from "../actions";
@@ -31,6 +31,7 @@ export function BillingForm({
   offlineAvailable,
   cardAvailable,
   currency,
+  free,
 }: {
   defaults: {
     organizationName?: string;
@@ -51,12 +52,22 @@ export function BillingForm({
   cardAvailable: boolean;
   /** The cart's currency, so the refusal can name it. */
   currency: string;
+  /**
+   * A £0 basket. Both payment options are nonsense, so neither is rendered and
+   * the method stays `online` — which is what the order records, because
+   * `paymentMethod` is about *stated intent* and a free order has none. The
+   * durable record of its free-ness is `Payment.provider === "free"`.
+   *
+   * Note what this buys: a free product is checkoutable in a currency no
+   * provider covers, because `cardAvailable` never gates this path.
+   */
+  free: boolean;
 }) {
   const [state, formAction] = useActionState(placeOrderAction, null);
   // Default to whatever can actually be paid. Starting on "online" when no
   // provider takes the currency would submit a method the server must refuse.
   const [method, setMethod] = useState<"online" | "offline">(
-    cardAvailable ? "online" : "offline",
+    free || cardAvailable ? "online" : "offline",
   );
   const failed = state && !state.ok ? state : null;
 
@@ -185,7 +196,7 @@ export function BillingForm({
         who finds that out only when they press "place order" has typed an
         address for nothing.
       */}
-      {!cardAvailable && (
+      {!cardAvailable && !free && (
         <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-[13px]">
           We can&rsquo;t take a card payment in {currency} at the moment.{" "}
           {offlineAvailable
@@ -194,7 +205,7 @@ export function BillingForm({
         </p>
       )}
 
-      {(offlineAvailable || !cardAvailable) && (
+      {!free && (offlineAvailable || !cardAvailable) && (
         <FieldGroup title="How you'd like to pay">
           <div className="flex flex-col gap-2">
             {cardAvailable && (
@@ -221,9 +232,14 @@ export function BillingForm({
 
       {failed && <FormErrors error={failed.error} fieldErrors={failed.fieldErrors} />}
 
-      <PlaceOrder method={method} />
+      <PlaceOrder method={method} free={free} />
 
-      {method === "online" ? (
+      {free ? (
+        <p className="text-subtle flex items-center gap-1.5 text-[12px]">
+          <Gift className="size-3" aria-hidden />
+          Nothing to pay. We still need an address for your invoice record.
+        </p>
+      ) : method === "online" ? (
         <p className="text-subtle flex items-center gap-1.5 text-[12px]">
           <Lock className="size-3" aria-hidden />
           You&rsquo;ll be taken to our payment provider. We never see your card details.
@@ -282,7 +298,7 @@ function PayOption({
   );
 }
 
-function PlaceOrder({ method }: { method: "online" | "offline" }) {
+function PlaceOrder({ method, free }: { method: "online" | "offline"; free: boolean }) {
   const { pending } = useFormStatus();
   return (
     <button
@@ -292,9 +308,11 @@ function PlaceOrder({ method }: { method: "online" | "offline" }) {
     >
       {pending
         ? "Placing your order…"
-        : method === "offline"
-          ? "Place order"
-          : "Continue to payment"}
+        : free
+          ? "Get it free"
+          : method === "offline"
+            ? "Place order"
+            : "Continue to payment"}
     </button>
   );
 }

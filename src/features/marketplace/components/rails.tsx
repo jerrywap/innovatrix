@@ -8,6 +8,7 @@ import {
   toStorefrontCurrency,
 } from "@/config/storefront";
 import { getCardsBySlug, getRail } from "@/services/marketplace";
+import type { CatalogueScope } from "@/config/catalogue";
 import { parseRecentlyViewed } from "@/services/marketplace/recently-viewed";
 import { ProductCardTile } from "./product-card";
 
@@ -28,15 +29,17 @@ import { ProductCardTile } from "./product-card";
  * it is also why the cookie's contents are treated as untrusted on the way in:
  * `parseRecentlyViewed` drops anything that is not a slug.
  */
-export async function DiscoveryRails() {
+export async function DiscoveryRails({ catalogue }: { catalogue: CatalogueScope }) {
   const jar = await cookies();
   const currency = toStorefrontCurrency(jar.get(CURRENCY_COOKIE)?.value);
   const recentSlugs = parseRecentlyViewed(jar.get(RECENTLY_VIEWED_COOKIE)?.value);
 
   const [recent, featured, popular] = await Promise.all([
-    getCardsBySlug(recentSlugs, currency),
-    getRail("featured", currency, 3),
-    getRail("popular", currency, 3),
+    // All three scoped: a "recently viewed" rail on /templates showing yesterday's
+    // CRM is the split leaking, and so is a "featured" rail from the other shop.
+    getCardsBySlug(recentSlugs, currency, catalogue),
+    getRail("featured", currency, 3, catalogue),
+    getRail("popular", currency, 3, catalogue),
   ]);
 
   return (

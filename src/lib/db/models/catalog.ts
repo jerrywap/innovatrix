@@ -14,6 +14,8 @@ import {
   ARTEFACT_SOURCE_STATUSES,
   DELIVERY_METHODS,
   REVIEW_REASON_CODES,
+  PRODUCT_CATALOGUES,
+  TAXONOMY_CATALOGUES,
   TAXONOMY_KINDS,
   TESTING_CHECKLIST_STATUSES,
   type AddonPricingType,
@@ -27,6 +29,8 @@ import {
   type ArtefactSourceStatus,
   type DeliveryMethod,
   type ReviewReasonCode,
+  type ProductCatalogue,
+  type TaxonomyCatalogue,
   type TaxonomyKind,
   type TestingChecklistStatus,
 } from "../enums";
@@ -49,6 +53,14 @@ import {
 export interface TaxonomyDoc {
   _id: Types.ObjectId;
   kind: TaxonomyKind;
+  /**
+   * Which catalogue's vocabulary this term is part of — `both` for most.
+   *
+   * The filter rail renders every term of a kind and only greys out the empty
+   * ones, on purpose. So scoping the *products* is not enough: without scoping
+   * the vocabulary too, each catalogue advertises the other's categories.
+   */
+  catalogue: TaxonomyCatalogue;
   slug: string;
   name: string;
   description?: string;
@@ -60,6 +72,9 @@ export interface TaxonomyDoc {
 const taxonomySchema = new Schema<TaxonomyDoc>(
   {
     kind: { type: String, enum: TAXONOMY_KINDS, required: true },
+    // `both` by default: industries and technologies genuinely are shared, and a
+    // `script` default would leave `/templates` with an empty rail.
+    catalogue: { type: String, enum: TAXONOMY_CATALOGUES, default: "both" },
     slug: { type: String, required: true, lowercase: true, trim: true },
     name: { type: String, required: true, trim: true },
     description: String,
@@ -456,6 +471,17 @@ export interface ProductDoc {
    */
   descriptionText?: string;
   status: ProductStatus;
+  /**
+   * Which storefront this belongs to — `script` or `template`.
+   *
+   * A *surface*, not a filter: it decides which grid a product appears in, not
+   * which checkbox narrows it. `product_type` still says what kind of thing it is
+   * (admin panel, starter kit, plugin) **within** whichever catalogue it is in.
+   *
+   * Required with a default, so no new document can lack it, and backfilled for
+   * the ones written before it existed.
+   */
+  catalogue: ProductCatalogue;
   categoryIds: Types.ObjectId[];
   industryIds: Types.ObjectId[];
   technologyIds: Types.ObjectId[];
@@ -540,6 +566,7 @@ const productSchema = new Schema<ProductDoc>(
       index: true,
     },
 
+    catalogue: { type: String, enum: PRODUCT_CATALOGUES, required: true, default: "script" },
     categoryIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
     industryIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
     technologyIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
@@ -626,7 +653,17 @@ productSchema.index({ slugHistory: 1 });
  *
  * `facets` is derived. `buildProductFacets()` is the only thing that writes it.
  */
-productSchema.index({ status: 1, facets: 1 });
+/*
+ * `catalogue` sits **between** `status` and `facets`.
+ *
+ * Both leading keys are equality-shaped, so the planner gets point bounds on each
+ * and `facets` — the multikey, and the one the facet filter needs bounded — still
+ * bounds after them. That ordering is why the script predicate is an `$in` rather
+ * than a `$ne`: a non-equality middle key would strip the bounds off `facets` and
+ * slow every marketplace query, not only the template ones. See
+ * `productCatalogueFilter` in `config/catalogue.ts`.
+ */
+productSchema.index({ status: 1, catalogue: 1, facets: 1 });
 productSchema.index({ status: 1, isFeatured: -1, publishedAt: -1 });
 productSchema.index({ status: 1, orderCount: -1 });
 // The admin product list's default sort. The storefront indexes above are

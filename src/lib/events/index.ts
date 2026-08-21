@@ -293,6 +293,45 @@ export interface DomainEventMap {
   ProductApproved: { productId: string; productName: string; vendorId: string };
 
   /**
+   * A paid plugin was bought, and somebody now owes the customer a key.
+   *
+   * Emitted **after** the fulfilment transaction commits, one per add-on line,
+   * so a duplicate webhook short-circuits at `already_processed` long before it
+   * gets here. `vendorId` is absent on a first-party plugin, which is why the
+   * handler tolerates its absence rather than requiring it.
+   *
+   * Carries no key and no credential — there is nothing to carry yet, and once
+   * there is, it travels in the message thread and nowhere else.
+   */
+  AddonProvisioningRequested: {
+    orderId: string;
+    orderReference: string;
+    orderLineId: string;
+    organizationId: string;
+    addonName: string;
+    productName: string;
+    vendorId?: string;
+    currency: string;
+    amount: number;
+  };
+
+  /**
+   * The key has been handed over.
+   *
+   * Deliberately does **not** carry it. The customer reads it in the thread; a
+   * notification body and an audit payload are both places a third-party
+   * credential must never end up.
+   */
+  AddonProvisioned: {
+    orderId: string;
+    orderReference: string;
+    orderLineId: string;
+    organizationId: string;
+    addonName: string;
+    productName: string;
+  };
+
+  /**
    * On sale — §46.
    *
    * Listed in `DOMAIN_EVENTS` since ticket 02 and **emitted nowhere**: there was no
@@ -464,6 +503,8 @@ const EVENT_NAME_SET: Record<DomainEventName, true> = {
   ProductChangesRequested: true,
   ProductApproved: true,
   ProductPublished: true,
+  AddonProvisioningRequested: true,
+  AddonProvisioned: true,
   InvoiceIssued: true,
   MessagePosted: true,
   InvoicePaid: true,

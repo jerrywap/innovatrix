@@ -4,6 +4,7 @@ import {
   CUSTOMIZATION_AREAS,
   DEMO_EXPOSURES,
   LICENCE_TYPES,
+  PRODUCT_CATALOGUES,
   PRODUCT_MEDIA_KINDS,
   TESTING_CHECKLIST_STATUSES,
 } from "@/lib/db/enums";
@@ -72,6 +73,11 @@ export const productSlugSchema = z.object({ slug: slugSchema });
 /* ────────────────────────────────────────────── 2. classification */
 
 export const productClassificationSchema = z.object({
+  /**
+   * Which catalogue this belongs to. Defaults to `script`, matching the schema,
+   * so a form rendered before this field existed still saves.
+   */
+  catalogue: z.enum(PRODUCT_CATALOGUES).default("script"),
   categoryIds: idListSchema,
   industryIds: idListSchema,
   technologyIds: idListSchema,

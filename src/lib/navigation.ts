@@ -97,6 +97,7 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
     items: [
       { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
       { label: "Marketplace", href: "/marketplace", icon: "store" },
+      { label: "Templates", href: "/templates", icon: "tags" },
     ],
   },
   {
@@ -197,6 +198,15 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         href: "/dashboard/selling/requests",
         icon: "clipboard",
         matchNested: true,
+        requiresVendor: true,
+      },
+      {
+        // Paid plugins the vendor still owes somebody a key for. Directly after
+        // Requests and before Earnings for the same §102 reason: what is waiting
+        // on them comes before any figure.
+        label: "Plugins",
+        href: "/dashboard/selling/plugins",
+        icon: "checklist",
         requiresVendor: true,
       },
       {
@@ -567,6 +577,10 @@ export const ADMIN_NAV: readonly NavSection[] = [
 
 export const PUBLIC_NAV: readonly NavItem[] = [
   { label: "Marketplace", href: "/marketplace", icon: "store" },
+  // The template catalogue's front door. Second, after Marketplace: scripts are
+  // the platform's main business and templates are the adjacent one, and the two
+  // are separate storefronts rather than two views of one.
+  { label: "Templates", href: "/templates", icon: "tags" },
   { label: "Custom build", href: "/custom-software", icon: "wrench" },
   { label: "Services", href: "/services", icon: "settings" },
   { label: "Pricing", href: "/pricing", icon: "receipt" },

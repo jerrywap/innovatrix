@@ -2,7 +2,7 @@ import type { ClientSession, Types } from "mongoose";
 import { BaseRepository } from "./base";
 import { toObjectId } from "@/lib/db/base";
 import { Taxonomy, type TaxonomyDoc } from "@/lib/db/models/catalog";
-import type { TaxonomyKind } from "@/lib/db/enums";
+import type { TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 
 /**
  * Categories, industries, technologies and product types — §7.
@@ -78,6 +78,35 @@ export class TaxonomyRepository extends BaseRepository<TaxonomyDoc> {
       .lean<Array<{ _id: Types.ObjectId; slug: string }>>();
 
     return new Map(docs.map((doc) => [String(doc._id), doc.slug]));
+  }
+
+  /**
+   * Each term's catalogue scope, for checking a classification against it.
+   *
+   * Returns names alongside the scope because the only caller refuses with a
+   * message that has to say *which* terms were wrong — an error listing object ids
+   * is one the person reading it cannot act on.
+   */
+  async scopesByIds(
+    ids: readonly (string | Types.ObjectId)[],
+  ): Promise<Map<string, { catalogue: TaxonomyCatalogue; name: string }>> {
+    if (ids.length === 0) return new Map();
+
+    const unique = [...new Set(ids.map(String))].map((id) => toObjectId(id));
+
+    const docs = await this.model
+      .find({ _id: { $in: unique } })
+      .select({ catalogue: 1, name: 1 })
+      .lean<Array<{ _id: Types.ObjectId; catalogue?: TaxonomyCatalogue; name: string }>>();
+
+    return new Map(
+      docs.map((doc) => [
+        String(doc._id),
+        // Absent ⇒ `both`, matching the schema default, so a term written before
+        // the field existed is usable in either catalogue rather than neither.
+        { catalogue: doc.catalogue ?? "both", name: doc.name },
+      ]),
+    );
   }
 }
 

@@ -155,6 +155,19 @@ export function FilterRail({
       )}
 
       <Section title="Options">
+        {/*
+          "Free" sits here rather than in the price section on purpose: it is a
+          state a customer looks for by name, not a number they choose. It is
+          still a bound on the same active price underneath, so it is correct
+          per currency.
+        */}
+        <RailLink
+          href={marketplaceHref(basePath, raw, {
+            free: raw.free === "true" ? undefined : true,
+          })}
+          active={raw.free === "true"}
+          label="Free"
+        />
         <RailLink
           href={marketplaceHref(basePath, raw, {
             customisable: raw.customisable === "true" ? undefined : true,

@@ -33,6 +33,14 @@ describe("robotsFor — §93", () => {
     expect(q({ maxPrice: 10_000 }).index).toBe(false);
   });
 
+  it("indexes free, and spends a dimension on it rather than being exempt", () => {
+    // Unlike an arbitrary price slice, "free CRM software" is a real query with
+    // a real page behind it — but it still doubles the crawl space it joins.
+    expect(q({ free: true }).index).toBe(true);
+    expect(q({ free: true, category: ["crm"] }).index).toBe(true);
+    expect(q({ free: true, category: ["crm"], technology: ["laravel"] }).index).toBe(false);
+  });
+
   it("self-canonicalises page 2, rather than pointing it at page 1", () => {
     // Canonicalising page 5 to page 1 tells the crawler page 5's products do
     // not exist. `rel=prev/next` was retired in 2019, so this is what is left.

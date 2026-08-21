@@ -49,6 +49,40 @@ describe("parseMarketplaceQuery — untrusted input", () => {
     expect(parseMarketplaceQuery({ customisable: "maybe" }).customisable).toBeUndefined();
   });
 
+  it("ignores a catalogue in the query string", () => {
+    /*
+     * The trust boundary for the split. A catalogue is the surface the visitor is
+     * standing on, decided by the route — if `?catalogue=template` worked here,
+     * `/marketplace` would be a way to browse the template shop and the
+     * separation would be advisory.
+     */
+    expect(parseMarketplaceQuery({ catalogue: "template" }).catalogue).toBe("script");
+    expect(
+      parseMarketplaceQuery({ catalogue: "script" }, { catalogue: "template" }).catalogue,
+    ).toBe("template");
+  });
+
+  it("reads free=false as false, like every other query boolean", () => {
+    expect(parseMarketplaceQuery({ free: "true" }).free).toBe(true);
+    expect(parseMarketplaceQuery({ free: "false" }).free).toBe(false);
+    expect(parseMarketplaceQuery({ free: "" }).free).toBeUndefined();
+    expect(parseMarketplaceQuery({ free: "maybe" }).free).toBeUndefined();
+  });
+
+  it("counts free as a filter, so 'Clear all' can clear it", () => {
+    // The list this reads has drifted once already — a dimension missing from it
+    // renders a filter with no way back out.
+    expect(FILTER_KEYS).toContain("free");
+    expect(activeFilterCount({ free: "true" })).toBe(1);
+  });
+
+  it("requires the currency in the URL once free is on", () => {
+    // "Free" is a bound on the price *in this currency*, so a shared link
+    // without it shows a different set to somebody whose cookie differs.
+    expect(currencyMustBeInUrl(parseMarketplaceQuery({ free: "true" }))).toBe(true);
+    expect(currencyMustBeInUrl(parseMarketplaceQuery({}))).toBe(false);
+  });
+
   it("ignores a negative or nonsense price", () => {
     expect(parseMarketplaceQuery({ minPrice: "-100" }).minPrice).toBeUndefined();
     expect(parseMarketplaceQuery({ maxPrice: "abc" }).maxPrice).toBeUndefined();
@@ -179,7 +213,13 @@ describe("currencyMustBeInUrl", () => {
     // "Under 50,000" means nothing without saying 50,000 of what — a URL with a
     // bound and no currency gives a different result set to a viewer whose
     // cookie says something else.
-    const base = { sort: "latest", page: 1, limit: 24, currency: "GBP" } as const;
+    const base = {
+      sort: "latest",
+      page: 1,
+      limit: 24,
+      currency: "GBP",
+      catalogue: "script",
+    } as const;
     expect(currencyMustBeInUrl(base)).toBe(false);
     expect(currencyMustBeInUrl({ ...base, minPrice: 1000 })).toBe(true);
     expect(currencyMustBeInUrl({ ...base, maxPrice: 1000 })).toBe(true);
@@ -225,11 +265,22 @@ describe("activeFilterCount", () => {
       customisable: "true",
     });
 
-    // Every key the parser reads as a filter must be one this counts. The exceptions are the four
-    // that do not narrow the result set, plus `raw` — the parser echoes its own input back under
-    // that name, so it is the whole query rather than a dimension of it.
+    /*
+     * Every key the parser reads as a filter must be one this counts. The exceptions are the four
+     * that do not narrow the result set, plus `raw` — the parser echoes its own input back under
+     * that name, so it is the whole query rather than a dimension of it.
+     *
+     * `catalogue` is a sixth exception and a different kind. It *does* narrow the
+     * result set, but it is not a filter: it comes from the page rather than the
+     * query string, it never appears in a URL, and the rail cannot clear it.
+     * Counting it would badge "1 filter" on every template page with nothing the
+     * customer could press to remove it — which is the exact bug the `FILTER_KEYS`
+     * comment records for `vendor`, in reverse.
+     */
     const parsedFilterKeys = Object.entries(parsed)
-      .filter(([key]) => !["sort", "page", "limit", "currency", "raw"].includes(key))
+      .filter(
+        ([key]) => !["sort", "page", "limit", "currency", "raw", "catalogue"].includes(key),
+      )
       .filter(([, value]) => value !== undefined)
       .map(([key]) => key);
 

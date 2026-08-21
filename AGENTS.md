@@ -233,23 +233,28 @@ unprompted, on the way past, is how a small change becomes a large one. If a
 change genuinely wants one, say so and let it be decided — don't build it as a
 side effect.
 
-### The registry fan-out — one pass, not seven red tests
+### The registry fan-out — one pass, not nine red tests
 
-A new state, or a state change that emits, touches seven places guarded by
-assertions in four different suites. Discovering them one failure at a time costs
-five runs. Do them together:
+A new state, or a state change that emits, touches **nine** places. Discovering
+them one failure at a time costs five runs, and two of the nine fail *silently* —
+so a green suite is not evidence you found them all. Do them together:
 
-| # | File | Edit |
-|---|---|---|
-| 1 | `src/lib/db/enums.ts` | the state, in its `*_STATUSES` array |
-| 2 | `src/lib/db/states.ts` | the edges, in the `*_TRANSITIONS` map |
-| 3 | `src/lib/db/states.ts` | for product and request only: the parallel `*_TRANSITION_RULES` map — permission and actor per edge. `states.test.ts` checks the two cover each other |
-| 4 | `src/components/status-badge.tsx` | a `STATUS_TONES` entry. Without one the state renders neutral grey; `assertEveryStatusHasATone()` in `components.test.ts` refuses it |
-| 5 | `src/lib/db/enums.ts` | `DOMAIN_EVENTS`, if the change emits |
-| 6 | `src/lib/events/index.ts` | the matching `DomainEventMap` entry. `events.test.ts` checks both directions — an enum name with no payload type fails, and a payload type with no enum name fails |
-| 7 | `src/services/notifications/catalog.ts` | a `CATALOG` row, if anyone should be told. Optional by design — plenty of events notify nobody |
+| # | File | Edit | If you miss it |
+|---|---|---|---|
+| 1 | `src/lib/db/enums.ts` | the state, in its `*_STATUSES` array | compiler |
+| 2 | `src/lib/db/states.ts` | the edges, in the `*_TRANSITIONS` map | `states.test.ts` |
+| 3 | `src/lib/db/states.ts` | for product and request only: the parallel `*_TRANSITION_RULES` map — permission and actor per edge | `states.test.ts` checks the two cover each other |
+| 4 | `src/components/status-badge.tsx` | a `STATUS_TONES` entry | `assertEveryStatusHasATone()` |
+| 5 | `src/components/status-badge.tsx` | **the new tuple added to `ALL_STATUS_ENUMS`** | **nothing.** That list is hand-maintained ("Extend when a machine is added"), and it is what `assertEveryStatusHasATone()` iterates — so a tuple that is not in it makes the guard pass **vacuously** and every new state renders neutral grey |
+| 6 | `src/lib/db/enums.ts` | `DOMAIN_EVENTS`, if the change emits | `events.test.ts` |
+| 7 | `src/lib/events/index.ts` | the `DomainEventMap` entry **and** `EVENT_NAME_SET` | `events.test.ts` both directions; `EVENT_NAME_SET` is a `Record<DomainEventName, true>`, so the compiler catches that half |
+| 8 | `src/services/notifications/catalog.ts` | a `CATALOG` row, if anyone should be told. Optional by design — plenty of events notify nobody | — |
+| 9 | `src/services/notifications/handlers.ts` | **the event added to `GENERIC`, or given its own `on()`** | **nothing.** A `CATALOG` row on its own notifies **nobody**: `registerNotificationHandlers` only subscribes what is in `GENERIC` or explicitly registered. An event needing more than the organisation audience — a vendor, say — needs the explicit `on()` that maps its payload |
 
 Then `npm run db:docs`, which regenerates `STATES.md` from the maps.
+
+Rows 5 and 9 are the ones to check by eye, because no test will tell you. Both
+are hand-maintained lists that a reasonable reader assumes are derived.
 
 Nine transition maps and two parallel rules maps in 677 lines is a cost worth
 collapsing one day. Until then this table is cheaper than rediscovering it.

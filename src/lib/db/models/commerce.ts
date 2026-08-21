@@ -5,6 +5,7 @@ import {
   CART_ITEM_KINDS,
   DISCOUNT_KINDS,
   ENTITLEMENT_STATUSES,
+  ADDON_PROVISIONING_STATUSES,
   LICENCE_STATUSES,
   LICENCE_TYPES,
   ORDER_STATUSES,
@@ -12,6 +13,7 @@ import {
   PAYMENT_STATUSES,
   PAYMENT_SUBJECT_TYPES,
   TAX_RULE_KINDS,
+  type AddonProvisioningStatus,
   type CartItemKind,
   type DiscountKind,
   type EntitlementStatus,
@@ -93,6 +95,40 @@ export interface OrderItem {
   addonKey?: string;
   addonName?: string;
   parentLineId?: string;
+  /**
+   * A paid plugin's handover, on **add-on lines only**.
+   *
+   * ## Why an order line carries mutable state at all
+   *
+   * §61 freezes the *pricing* snapshot, and this touches nothing priced. What it
+   * records is an obligation the purchase created: a plugin is delivered off this
+   * platform — a key, a licence code, an account on a third-party API the script
+   * already talks to — so there is no artefact, no entitlement and no download to
+   * stand in for "done". Without this the customer cannot see whether anybody
+   * acted, and support has no answer.
+   *
+   * Written `pending` at checkout rather than at fulfilment, deliberately: it
+   * keeps `processPaymentSucceeded` free of another write and another way for a
+   * confirmed payment to abort.
+   *
+   * ## Absence means "not tracked"
+   *
+   * Every add-on line sold before this existed was an installation or branding
+   * service, done off-book. Backfilling those to `pending` would open a task
+   * nobody is waiting for, so the queue matches on the status and ignores them.
+   *
+   * ## The key is never stored here
+   *
+   * `AdminOrderDetail.items` is `OrderDoc["items"]`, projected wholesale, and
+   * order fields reach audit `after` payloads. A third-party credential in an
+   * audit row is a disclosure. The key lives in the message thread and nowhere
+   * else — the same discipline as `PaymentDoc.evidence`.
+   */
+  provisioning?: {
+    status: AddonProvisioningStatus;
+    providedAt?: Date;
+    providedByUserId?: Types.ObjectId;
+  };
   quantity: number;
   unitPrice: MoneyDocument;
   lineTotal: MoneyDocument;
@@ -221,6 +257,24 @@ const orderItemSchema = new Schema(
     /** Mirrors the cart, so an order line knows which product it was bought with. */
     parentLineId: String,
 
+    // Add-on lines only; absence means "not tracked". See the interface above for
+    // why this is here and why the key is not.
+    provisioning: {
+      type: new Schema(
+        {
+          status: {
+            type: String,
+            enum: ADDON_PROVISIONING_STATUSES,
+            required: true,
+          },
+          providedAt: Date,
+          providedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
+
     quantity: { type: Number, required: true, min: 1 },
     unitPrice: { type: MoneySchema, required: true },
     lineTotal: { type: MoneySchema, required: true },
@@ -337,6 +391,19 @@ orderSchema.index({ status: 1, createdAt: -1 });
  * submissions of the same cart must collide here rather than both inserting.
  */
 orderSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+
+/**
+ * The plugin-handover queue — "what does this vendor still owe somebody".
+ *
+ * Both paths are inside the **same** array, so this is ordinary multikey rather
+ * than the parallel-arrays case MongoDB refuses, and an `$elemMatch` on the pair
+ * gets compound bounds.
+ *
+ * Declared here rather than created by hand because `npm run db:indexes` syncs
+ * *and drops undeclared indexes* — a hand-made one would disappear on the next
+ * run, silently, leaving the queue doing a collection scan.
+ */
+orderSchema.index({ "items.provisioning.status": 1, "items.vendorId": 1 });
 
 export const Order = defineModel<OrderDoc>("Order", orderSchema);
 

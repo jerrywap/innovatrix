@@ -34,6 +34,7 @@ let taxonomyService: typeof import("./taxonomy-service");
 let models: typeof import("@/lib/db/models/catalog");
 let auditModel: typeof import("@/lib/db/models/communication");
 let mongoose: typeof import("mongoose").default;
+let marketplace: typeof import("@/services/marketplace/pipeline");
 
 const ACTOR = { type: "staff", userId: "6a80c46f6c887b38e2f0e001", name: "Test" } as const;
 
@@ -49,6 +50,7 @@ beforeAll(async () => {
   vi.stubEnv("MONGODB_TRANSACTIONS", "true");
 
   mongoose = (await import("mongoose")).default;
+  marketplace = await import("@/services/marketplace/pipeline");
   catalog = await import("./product-service");
   taxonomyService = await import("./taxonomy-service");
   models = await import("@/lib/db/models/catalog");
@@ -351,6 +353,7 @@ describe("taxonomy", () => {
       await catalog.saveClassification(
         String(product._id),
         {
+          catalogue: "script" as const,
           categoryIds: [String(category._id)],
           industryIds: [String(industry._id)],
           technologyIds: [],
@@ -384,7 +387,12 @@ describe("taxonomy", () => {
     const product = await draft();
     await catalog.saveClassification(
       String(product._id),
-      { categoryIds: [String(category._id)], industryIds: [], technologyIds: [] },
+      {
+        catalogue: "script" as const,
+        categoryIds: [String(category._id)],
+        industryIds: [],
+        technologyIds: [],
+      },
       ACTOR,
     );
 
@@ -397,7 +405,7 @@ describe("taxonomy", () => {
     // not a permanent veto.
     await catalog.saveClassification(
       String(product._id),
-      { categoryIds: [], industryIds: [], technologyIds: [] },
+      { catalogue: "script" as const, categoryIds: [], industryIds: [], technologyIds: [] },
       ACTOR,
     );
     await expect(
@@ -522,5 +530,77 @@ describe("audit trail", () => {
     }).lean();
     expect(JSON.stringify(rows)).not.toContain("129999");
     expect(rows[0]?.after).toMatchObject({ section: "pricing", fields: ["prices"] });
+  });
+});
+
+/**
+ * The catalogue predicate, against a real index and a real missing field.
+ *
+ * Earned as an integration test for one reason a unit test cannot reach: whether
+ * `{ $in: ["script", null] }` actually matches a document where `catalogue` is
+ * **absent**. That is MongoDB matcher semantics, not our code, and the whole
+ * backfill window depends on it — get it wrong and `/marketplace` empties for
+ * every un-backfilled product, silently.
+ *
+ * The absent-field row is inserted through the driver, deliberately bypassing
+ * Mongoose so its schema default cannot fill the field in and make the test pass
+ * for the wrong reason.
+ */
+describe("the catalogue predicate against real documents", () => {
+  async function seedThree() {
+    const base = {
+      summary: "A thing.",
+      status: "published",
+      deletedAt: null,
+      facets: ["cat:crm"],
+      prices: [{ currency: "GBP", amount: 1000 }],
+      licencePackages: [],
+      media: [],
+      testingChecklist: [],
+      categoryIds: [],
+      industryIds: [],
+      technologyIds: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await mongoose.connection.collection("products").insertMany([
+      { ...base, name: "A script", slug: "a-script", catalogue: "script" },
+      { ...base, name: "A template", slug: "a-template", catalogue: "template" },
+      // No `catalogue` at all — a document written before the field existed.
+      { ...base, name: "A legacy row", slug: "a-legacy-row" },
+    ] as never);
+  }
+
+  const slugsFor = async (catalogue: "script" | "template" | "all") => {
+    const rows = await mongoose.connection
+      .collection("products")
+      .aggregate(
+        marketplace.buildMarketplacePipeline({
+          sort: "latest",
+          page: 1,
+          limit: 10,
+          currency: "GBP",
+          catalogue,
+        }) as never,
+      )
+      .toArray();
+    return ((rows[0]?.rows ?? []) as Array<{ slug: string }>).map((row) => row.slug).sort();
+  };
+
+  it("counts a document with no catalogue as a script", async () => {
+    await seedThree();
+    // The one assertion the backfill window rests on.
+    expect(await slugsFor("script")).toEqual(["a-legacy-row", "a-script"]);
+  });
+
+  it("returns only templates for the template surface", async () => {
+    await seedThree();
+    expect(await slugsFor("template")).toEqual(["a-template"]);
+  });
+
+  it("returns everything for both", async () => {
+    await seedThree();
+    expect(await slugsFor("all")).toEqual(["a-legacy-row", "a-script", "a-template"]);
   });
 });

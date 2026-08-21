@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import {
+  ADDON_PROVISIONING_STATUSES,
   ENTITLEMENT_STATUSES,
   TESTING_CHECKLIST_STATUSES,
   FILE_SCAN_STATUSES,
@@ -107,6 +108,10 @@ const STATUS_TONES: Record<string, StatusTone> = {
   succeeded: "positive",
   requires_review: "attention",
   issued: "progress",
+
+  /* A paid plugin's handover. `pending` and `cancelled` are already above and
+     mean the same thing here; only "handed over" is new. */
+  provided: "positive",
 
   /* quotes */
   accepted: "positive",
@@ -247,6 +252,7 @@ const ALL_STATUS_ENUMS: ReadonlyArray<readonly string[]> = [
   LEDGER_ENTRY_STATUSES,
   PAYOUT_STATUSES,
   VENDOR_BRIEF_STATUSES,
+  ADDON_PROVISIONING_STATUSES,
 ];
 
 /**

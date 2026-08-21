@@ -11,6 +11,7 @@ import { serverEnv } from "@/config/env";
 import { writeAuditLog, type AuditActor } from "@/services/audit";
 import { payments } from "@/repositories/payment.repository";
 import { resolveProvider } from "./registry";
+import { processPaymentSucceeded } from "./fulfilment";
 
 /**
  * Starting a payment — §62.
@@ -126,6 +127,112 @@ export async function initiatePaymentForOrder(input: {
     redirectUrl: initiated.redirectUrl,
     provider: key,
   };
+}
+
+/**
+ * Settle a **£0** order — a free product, or a free product whose plugins are
+ * all free too.
+ *
+ * ## Why this exists rather than a branch in `initiatePaymentForOrder`
+ *
+ * That function's job is to hand a customer to a provider, and it correctly
+ * refuses a zero total: there is nothing to pay *at a provider*. But it refuses
+ * **after** `createOrder` has committed, so before this existed a £0 checkout
+ * left an `awaiting_payment` order with no payment and nothing to sweep it —
+ * the reconcile job walks `Payment` rows, and there was none.
+ *
+ * ## It mints a Payment rather than fulfilling directly
+ *
+ * A £0 order still gets a `Payment`, of `provider: "free"`, amount zero. That
+ * looks redundant for a beat and is the entire design:
+ * `processPaymentSucceeded` is the only path to entitlements and licences, and
+ * its concurrency gate is `payments.setStatusIfCurrent(pending → succeeded)`.
+ * Fulfilling without a payment would mean re-creating that claim somewhere else,
+ * which is a second way for a confirmed order to double-fulfil. The amount match
+ * inside fulfilment is already zero-tolerant (`0 === 0`), so nothing there
+ * needed changing.
+ *
+ * ## The second lock
+ *
+ * `free` is deliberately absent from `DRIVERS`, so currency routing can never
+ * select it for a real order. This function's own `total.amount !== 0` refusal
+ * is the independent second lock: even called directly, it cannot settle
+ * something somebody owes money for.
+ */
+export async function settleFreeOrder(input: {
+  orderReference: string;
+  organizationId: string;
+  actor: AuditActor;
+}): Promise<{ outcome: "settled" | "already_settled"; payment?: PaymentDoc }> {
+  await connectToDatabase();
+
+  const order = await Order.findOne({
+    reference: input.orderReference,
+    organizationId: toObjectId(input.organizationId),
+  }).lean<OrderDoc>();
+
+  if (!order) throw new NotFoundError("order", { reference: input.orderReference });
+
+  // A double submit must not throw — the customer pressed the button twice, and
+  // the order is already theirs.
+  if (order.status === "paid" || order.status === "fulfilled") {
+    return { outcome: "already_settled" };
+  }
+
+  if (order.status !== "awaiting_payment") {
+    throw new ConflictError(
+      `That order is ${order.status.replace(/_/g, " ")} and cannot be settled.`,
+    );
+  }
+
+  if (order.total.amount !== 0) {
+    // Not a `ConflictError`: this is a programming mistake, not a state race.
+    throw new ValidationError("That order has something to pay and cannot be settled free.", {
+      total: [`Order total is ${order.total.amount}, not zero.`],
+    });
+  }
+
+  const currency = order.currency as CurrencyCode;
+
+  // Same reuse rule as `initiatePaymentForOrder`: two pending payments against
+  // one order is how a double fulfilment starts.
+  const existing = (await payments.findForSubject(String(order._id))).find(
+    (candidate) => candidate.status === "pending" && candidate.provider === "free",
+  );
+
+  const payment =
+    existing ??
+    (await createPaymentRecord({
+      organizationId: input.organizationId,
+      provider: "free",
+      subjectId: String(order._id),
+      amount: { amount: 0, currency },
+    }));
+
+  const result = await processPaymentSucceeded({
+    provider: "free",
+    providerRef: payment.providerRef,
+    fallbackReference: payment.reference,
+    // Nothing to verify: there is no third party and no amount to confirm. The
+    // amount on our own record is the authority, and it is zero by the guard
+    // above.
+    skipVerification: true,
+    source: "free",
+    actor: input.actor,
+  });
+
+  if (result.outcome === "already_processed") return { outcome: "already_settled", payment };
+
+  await writeAuditLog({
+    action: "payment.free_settled",
+    actor: input.actor,
+    subject: { type: "order", id: String(order._id) },
+    organizationId: input.organizationId,
+    after: { reference: payment.reference, provider: "free", amount: 0, currency },
+    source: "checkout",
+  });
+
+  return { outcome: "settled", payment };
 }
 
 /**

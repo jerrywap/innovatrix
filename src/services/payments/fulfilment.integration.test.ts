@@ -16,6 +16,7 @@ import { isValidLicenceKeyFormat } from "@/lib/licence-key";
 let mongoose: typeof import("mongoose").default;
 let fulfilment: typeof import("./fulfilment");
 let registry: typeof import("./registry");
+let paymentService: typeof import("./payment-service");
 let commerce: typeof import("@/lib/db/models/commerce");
 
 const ORG = "6a80c46f6c887b38e2f0e0b4";
@@ -39,6 +40,7 @@ beforeAll(async () => {
   mongoose = (await import("mongoose")).default;
   fulfilment = await import("./fulfilment");
   registry = await import("./registry");
+  paymentService = await import("./payment-service");
   commerce = await import("@/lib/db/models/commerce");
 
   const { connectToDatabase } = await import("@/lib/db/client");
@@ -867,5 +869,113 @@ describe("a vendor's earning rides the fulfilment transaction", () => {
     expect(entries.map((entry) => entry.kind)).toEqual(["earning", "refund"]);
     expect(entries.find((entry) => entry.kind === "earning")!.status).toBe("reversed");
     expect(entries.find((entry) => entry.kind === "refund")!.amount.amount).toBe(-7_000);
+  });
+});
+
+/**
+ * A £0 order — a free script whose plugins are all free too.
+ *
+ * The point of these two is that fulfilment did not change to allow it: the
+ * amount match was already `0 === 0`, and `settleFreeOrder` mints a real
+ * `free` Payment so the same `pending → succeeded` claim is the concurrency
+ * gate. What is asserted is that the entitlement arrives and that a real order
+ * can never take this path.
+ */
+describe("a free order settles through the same path", () => {
+  async function freeOrder(total = 0) {
+    return commerce.Order.create({
+      reference: `ORD-2026-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+      organizationId: new mongoose.Types.ObjectId(ORG),
+      userId: new mongoose.Types.ObjectId(USER),
+      currency: "GBP",
+      items: [
+        {
+          lineId: "line-1",
+          kind: "product_licence",
+          productId: OID(),
+          productName: "Storefront Starter",
+          productSlug: "storefront-starter",
+          versionId: OID(),
+          versionNumber: "1.0.0",
+          licencePackageKey: "standard",
+          licencePackageName: "Standard",
+          licenceType: "single_installation",
+          activationLimit: 1,
+          supportMonths: 12,
+          updateMonths: 12,
+          quantity: 1,
+          unitPrice: { amount: total, currency: "GBP" },
+          lineTotal: { amount: total, currency: "GBP" },
+        },
+      ],
+      subtotal: { amount: total, currency: "GBP" },
+      total: { amount: total, currency: "GBP" },
+      status: "awaiting_payment",
+      billingSnapshot: { country: "GB" },
+    });
+  }
+
+  it("issues the entitlement and licence, with a zero payment behind it", async () => {
+    const order = await freeOrder();
+
+    const result = await paymentService.settleFreeOrder({
+      orderReference: order.reference,
+      organizationId: ORG,
+      actor: ACTOR,
+    });
+
+    expect(result.outcome).toBe("settled");
+
+    // `paid`, not `fulfilled` — the same transition a card payment makes.
+    const reread = await commerce.Order.findById(order._id).lean();
+    expect(reread!.status).toBe("paid");
+
+    // The licence line got its entitlement, exactly as a paid one would.
+    expect(await commerce.Entitlement.countDocuments({ orderId: order._id })).toBe(1);
+    expect(await commerce.Licence.countDocuments({})).toBe(1);
+
+    // And there is a real Payment, of zero, so fulfilment had a claim to make.
+    const payment = await commerce.Payment.findOne({ subjectId: order._id }).lean();
+    expect(payment!.provider).toBe("free");
+    expect(payment!.amount.amount).toBe(0);
+    expect(payment!.status).toBe("succeeded");
+  });
+
+  it("is idempotent, so a double submit does not fulfil twice", async () => {
+    const order = await freeOrder();
+    const first = await paymentService.settleFreeOrder({
+      orderReference: order.reference,
+      organizationId: ORG,
+      actor: ACTOR,
+    });
+    const second = await paymentService.settleFreeOrder({
+      orderReference: order.reference,
+      organizationId: ORG,
+      actor: ACTOR,
+    });
+
+    expect(first.outcome).toBe("settled");
+    expect(second.outcome).toBe("already_settled");
+    expect(await commerce.Entitlement.countDocuments({ orderId: order._id })).toBe(1);
+  });
+
+  it("refuses an order that has something to pay", async () => {
+    // The second of the two locks against a paid order settling for nothing.
+    // The first is that `free` is not in `DRIVERS`, so routing cannot pick it.
+    const order = await freeOrder(29_999);
+
+    await expect(
+      paymentService.settleFreeOrder({
+        orderReference: order.reference,
+        organizationId: ORG,
+        actor: ACTOR,
+      }),
+    ).rejects.toThrow(/cannot be settled free/);
+
+    expect(await commerce.Entitlement.countDocuments({ orderId: order._id })).toBe(0);
+  });
+
+  it("has no driver, so nothing can route a real payment to it", async () => {
+    expect(() => registry.driverFor("free")).toThrow(/no provider driver/);
   });
 });

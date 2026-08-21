@@ -4,6 +4,7 @@ import type { Route } from "next";
 import { notFound } from "next/navigation";
 import { Landmark, Package } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { FreeBadge } from "@/components/free-badge";
 import { MoneyDisplay } from "@/components/money-display";
 import { StatusBadge } from "@/components/status-badge";
 import { Timeline } from "@/components/timeline";
@@ -115,12 +116,38 @@ export default async function Page({ params }: PageProps<"/dashboard/orders/[ref
               {line.addons.length > 0 && (
                 <ul className="mt-1 flex flex-col gap-1">
                   {line.addons.map((addon) => (
-                    <li
-                      key={addon.name}
-                      className="text-muted-foreground flex items-baseline justify-between gap-3 text-[12.5px]"
-                    >
-                      <span>+ {addon.name}</span>
-                      <MoneyDisplay value={addon.price} />
+                    <li key={addon.name} className="flex flex-col gap-0.5">
+                      <span className="text-muted-foreground flex items-baseline justify-between gap-3 text-[12.5px]">
+                        <span>+ {addon.name}</span>
+                        {addon.price.amount === 0 ? (
+                          <FreeBadge size="compact" />
+                        ) : (
+                          <MoneyDisplay value={addon.price} />
+                        )}
+                      </span>
+
+                      {/*
+                        A plugin ships no bytes — the vendor sends a key, an
+                        account, a licence code. So the customer needs to be told
+                        that something is owed and where it will arrive, or the
+                        line reads as delivered when it is not.
+                      */}
+                      {addon.provisioning?.status === "pending" && (
+                        <span className="text-[11.5px] text-amber-700 dark:text-amber-400">
+                          Awaiting your {addon.name} details — we&rsquo;ll message you on this
+                          order.
+                        </span>
+                      )}
+                      {addon.provisioning?.status === "provided" && (
+                        <span className="text-subtle text-[11.5px]">
+                          Sent — check the messages on this order.
+                        </span>
+                      )}
+                      {addon.provisioning?.status === "cancelled" && (
+                        <span className="text-subtle text-[11.5px]">
+                          Cancelled with the refund.
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
