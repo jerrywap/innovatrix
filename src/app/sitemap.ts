@@ -39,6 +39,9 @@ type ChangeFrequency = NonNullable<MetadataRoute.Sitemap[number]["changeFrequenc
 export const STATIC_PATHS: ReadonlyArray<[string, ChangeFrequency, number]> = [
   ["/", "weekly", 1],
   ["/marketplace", "daily", 0.9],
+  // The template catalogue's own front door. Same priority as the marketplace:
+  // they are two storefronts, not a main one and a subsection.
+  ["/templates", "daily", 0.9],
   ["/custom-software", "monthly", 0.8],
   ["/services", "monthly", 0.7],
   ["/pricing", "monthly", 0.7],
@@ -83,13 +86,32 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }),
   );
 
-  const taxonomy = await getTaxonomyIndex();
+  // `"all"` — every landing page that exists belongs in the sitemap, and the
+  // split below decides which path each term gets.
+  const taxonomy = await getTaxonomyIndex("all");
+  /*
+   * Category landing pages, split by which catalogue **owns** the term.
+   *
+   * A `both` term has exactly one landing page, on `/marketplace`, and appears on
+   * `/templates` as a filter — which is what `generateStaticParams` on each page
+   * does too, and the two must agree or the sitemap advertises a URL that was
+   * never prerendered.
+   */
   const landingPages: MetadataRoute.Sitemap = [
-    ...taxonomy.category.map((term) => ({
-      url: `${origin}/marketplace/category/${term.slug}`,
-      changeFrequency: "weekly" as const,
-      priority: 0.8,
-    })),
+    ...taxonomy.category
+      .filter((term) => term.catalogue !== "template")
+      .map((term) => ({
+        url: `${origin}/marketplace/category/${term.slug}`,
+        changeFrequency: "weekly" as const,
+        priority: 0.8,
+      })),
+    ...taxonomy.category
+      .filter((term) => term.catalogue === "template")
+      .map((term) => ({
+        url: `${origin}/templates/category/${term.slug}`,
+        changeFrequency: "weekly" as const,
+        priority: 0.8,
+      })),
     ...taxonomy.industry.map((term) => ({
       url: `${origin}/marketplace/industry/${term.slug}`,
       changeFrequency: "weekly" as const,

@@ -1,6 +1,10 @@
 import "server-only";
 import { connectToDatabase } from "@/lib/db/client";
-import type { PaymentProvider as ProviderKey } from "@/lib/db/enums";
+import {
+  isDriverlessProvider,
+  type DriverlessProvider,
+  type PaymentProvider as ProviderKey,
+} from "@/lib/db/enums";
 import { PaymentSettings, type PaymentSettingsDoc } from "@/lib/db/models/commerce";
 import { ValidationError } from "@/lib/errors";
 import type { CurrencyCode } from "@/lib/money";
@@ -20,17 +24,18 @@ import type { PaymentProviderDriver } from "./provider";
  * module is the only place that names all three, which is what makes that true.
  */
 
-const DRIVERS: Record<Exclude<ProviderKey, "manual">, PaymentProviderDriver> = {
+const DRIVERS: Record<Exclude<ProviderKey, DriverlessProvider>, PaymentProviderDriver> = {
   stripe: new StripeDriver(),
   paystack: new PaystackDriver(),
   paypal: new PaypalDriver(),
 };
 
 export function driverFor(key: ProviderKey): PaymentProviderDriver {
-  if (key === "manual") {
+  if (isDriverlessProvider(key)) {
     // A bank transfer has no driver: staff confirm it, and ticket 13 runs the
-    // same fulfilment path afterwards. Asking for one is a bug in the caller.
-    throw new Error("Manual payments have no provider driver.");
+    // same fulfilment path afterwards. A £0 order has none for the same reason.
+    // Asking for one is a bug in the caller.
+    throw new Error(`${key} payments have no provider driver.`);
   }
   return DRIVERS[key];
 }
@@ -60,9 +65,10 @@ export async function getPaymentSettings(): Promise<PaymentSettingsDoc> {
           key: driver.key,
           enabled: false,
           mode: "test",
-          // `driver.key` is narrowed by the `DRIVERS` record's own key type,
-          // but `PaymentProviderDriver.key` widens it back to include
-          // `manual` — which has no driver and therefore no secret.
+          // `driver.key` is narrowed by the `DRIVERS` record's own key type, but
+          // `PaymentProviderDriver.key` widens it back to include the
+          // driverless ones — which have no driver and therefore no secret.
+          // Only real drivers get here, so the cast is safe.
           secretEnvVar: SECRET_ENV_VARS[driver.key as keyof typeof SECRET_ENV_VARS],
           supportedCurrencies: driver.supportedCurrencies(),
         })),
@@ -82,7 +88,7 @@ export async function getPaymentSettings(): Promise<PaymentSettingsDoc> {
  * expected and whether it is set; nothing writes a secret into MongoDB, and
  * there is no input on that screen that could.
  */
-export const SECRET_ENV_VARS: Record<Exclude<ProviderKey, "manual">, string> = {
+export const SECRET_ENV_VARS: Record<Exclude<ProviderKey, DriverlessProvider>, string> = {
   stripe: "STRIPE_SECRET_KEY",
   paystack: "PAYSTACK_SECRET_KEY",
   paypal: "PAYPAL_CLIENT_SECRET",
@@ -184,7 +190,7 @@ export async function providersFor(currency: CurrencyCode): Promise<ResolvedProv
 
   const enabled = new Map(
     settings.providers
-      .filter((provider) => provider.enabled && provider.key !== "manual")
+      .filter((provider) => provider.enabled && !isDriverlessProvider(provider.key))
       .map((provider) => [provider.key, provider]),
   );
 
@@ -204,7 +210,7 @@ export async function providersFor(currency: CurrencyCode): Promise<ResolvedProv
   const resolved: ResolvedProvider[] = [];
 
   for (const key of ordered) {
-    if (seen.has(key) || key === "manual") continue;
+    if (seen.has(key) || isDriverlessProvider(key)) continue;
     seen.add(key);
 
     const configured = enabled.get(key);

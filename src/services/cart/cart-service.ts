@@ -5,6 +5,7 @@ import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import { parseFacet, type ProductDoc } from "@/lib/db/models/catalog";
 import type { CartDoc, CartItem } from "@/lib/db/models/commerce";
+import type { AddonPricingType } from "@/lib/db/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { money, type CurrencyCode, type Money } from "@/lib/money";
 import { products } from "@/repositories/product.repository";
@@ -56,6 +57,12 @@ export interface CartLineView {
   productName: string;
   licencePackageKey?: string;
   addonKey?: string;
+  /**
+   * Add-on lines only. Lets the basket tell a `quote_required` line ("priced
+   * later") from a genuinely free one ("Free") — both sit at zero, and before
+   * this they were indistinguishable on screen.
+   */
+  addonPricingType?: AddonPricingType;
   parentLineId?: string;
   displayName: string;
   displaySummary?: string;
@@ -167,6 +174,9 @@ export async function recalculate(
       productName: product.name,
       ...(item.licencePackageKey ? { licencePackageKey: item.licencePackageKey } : {}),
       ...(item.addonKey ? { addonKey: item.addonKey } : {}),
+      ...(addonPricingTypeOf(product, item)
+        ? { addonPricingType: addonPricingTypeOf(product, item)! }
+        : {}),
       ...(item.parentLineId ? { parentLineId: item.parentLineId } : {}),
       displayName: item.displayName,
       ...(item.displaySummary ? { displaySummary: item.displaySummary } : {}),
@@ -366,8 +376,40 @@ export async function addItem(
     if (!addon) continue;
 
     const addonPrice = priceIn(addon.prices, cartCurrency);
-    // A `quote_required` add-on has no price and is still worth carrying: it
-    // tells the order that the customer wants it quoted.
+
+    /*
+     * Three answers, and `0` is not the same as "no price".
+     *
+     * This used to be `addonPrice ?? 0`, which charged nothing for an add-on
+     * that simply had no row in the basket's currency — while the licence a few
+     * lines up throws for exactly that. Once an add-on can *legitimately* be
+     * free, the two cases became indistinguishable and the coalesce turned into
+     * a revenue leak: a paid plugin unpriced in NGN shipped for nothing.
+     *
+     * `recalculate` never agreed with it either — `priceOf` returns `undefined`
+     * there and the line is dropped with a `no_price_in_currency` notice, which
+     * `assertOrderable` treats as blocking. So the same basket was priced at
+     * zero on the way in and refused on the way out. One rule now.
+     */
+    const unitAmount =
+      addon.pricingType === "quote_required"
+        ? // No price yet by design: carrying it at zero is what tells the order
+          // the customer wants it quoted.
+          0
+        : addonPrice;
+
+    if (unitAmount === undefined) {
+      // Refuse rather than drop. The customer *ticked* this — an ecommerce
+      // script silently shipped without the payment plugin it needs is
+      // discovered after paying, and this is the last moment they can act on it
+      // by switching currency or basket. Same shape as the licence refusal.
+      throw new ConflictError(
+        `${addon.name} isn't sold in ${cartCurrency}. Switch your basket to a currency it's ` +
+          `priced in, or add ${product.name} without it.`,
+        { currency: [`${addon.name} is not priced in ${cartCurrency}.`] },
+      );
+    }
+
     items.push({
       lineId: nanoid(10),
       kind: "addon",
@@ -377,7 +419,7 @@ export async function addItem(
       // add-ons with it.
       parentLineId: lineId,
       quantity: 1,
-      unitPrice: { amount: addonPrice ?? 0, currency: cartCurrency },
+      unitPrice: { amount: unitAmount, currency: cartCurrency },
       displayName: addon.name,
       displaySummary: product.name,
     });
@@ -580,7 +622,15 @@ export async function clearCart(cartId: string, session?: ClientSession): Promis
 
 /* ────────────────────────────────────────────── pricing helpers */
 
-/** The live price for a line, in the cart's currency. `undefined` = not sold. */
+/**
+ * The live price for a line, in the cart's currency. `undefined` = not sold.
+ *
+ * `0` and `undefined` are different answers and neither is coerced into the
+ * other — a genuinely free add-on returns `0`, one with no row in this currency
+ * returns `undefined`, and the caller decides. `addItem` refuses the latter;
+ * here it stays the backstop for a price *removed after* the line was added,
+ * which surfaces as a `no_price_in_currency` notice and blocks checkout.
+ */
 function priceOf(product: ProductDoc, item: CartItem, currency: string): number | undefined {
   if (item.kind === "addon") {
     const addon = product.addons.find((candidate) => candidate.key === item.addonKey);
@@ -594,6 +644,12 @@ function priceOf(product: ProductDoc, item: CartItem, currency: string): number 
     (candidate) => candidate.key === item.licencePackageKey,
   );
   return licence ? priceIn(licence.prices, currency) : undefined;
+}
+
+/** The add-on's pricing type, for an add-on line. `undefined` for a licence. */
+function addonPricingTypeOf(product: ProductDoc, item: CartItem): AddonPricingType | undefined {
+  if (item.kind !== "addon") return undefined;
+  return product.addons.find((candidate) => candidate.key === item.addonKey)?.pricingType;
 }
 
 function priceIn(

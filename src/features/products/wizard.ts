@@ -7,7 +7,7 @@ import { taxonomies } from "@/repositories/taxonomy.repository";
 import { readinessFor } from "@/services/catalog/product-service";
 import { toAdminProductView, type AdminProductView } from "@/services/catalog/product-view";
 import type { Readiness } from "@/services/catalog/readiness";
-import type { TaxonomyKind } from "@/lib/db/enums";
+import type { TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 
 /**
  * What every wizard step needs, loaded once.
@@ -72,12 +72,29 @@ export const loadVendorWizardProduct = cache(
 );
 
 /** The taxonomy pickers on the classification step. */
+/**
+ * Every option, each carrying its catalogue.
+ *
+ * Deliberately **not** scoped server-side, and the zero-argument signature is
+ * load-bearing: one cache entry, and the two classification pages do not have to
+ * await the product before they can start loading options. The form filters by
+ * the catalogue the editor currently has selected, which is what makes switching
+ * to Template swap the vocabulary in front of them rather than after a save.
+ *
+ * The authority is `saveClassification`, which refuses a term from the other
+ * catalogue. This list is a convenience for the person editing.
+ */
 export const loadTaxonomyOptions = cache(
-  async (): Promise<Record<TaxonomyKind, Array<{ id: string; name: string }>>> => {
+  async (): Promise<
+    Record<TaxonomyKind, Array<{ id: string; name: string; catalogue: TaxonomyCatalogue }>>
+  > => {
     await connectToDatabase();
 
     const all = await taxonomies.listAll({ activeOnly: true });
-    const grouped: Record<TaxonomyKind, Array<{ id: string; name: string }>> = {
+    const grouped: Record<
+      TaxonomyKind,
+      Array<{ id: string; name: string; catalogue: TaxonomyCatalogue }>
+    > = {
       category: [],
       industry: [],
       technology: [],
@@ -85,7 +102,11 @@ export const loadTaxonomyOptions = cache(
     };
 
     for (const taxonomy of all) {
-      grouped[taxonomy.kind].push({ id: String(taxonomy._id), name: taxonomy.name });
+      grouped[taxonomy.kind].push({
+        id: String(taxonomy._id),
+        name: taxonomy.name,
+        catalogue: taxonomy.catalogue ?? "both",
+      });
     }
 
     return grouped;

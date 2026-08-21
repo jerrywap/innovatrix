@@ -563,6 +563,45 @@ export const CATALOG: Catalog = {
     },
   ],
 
+  /*
+   * A paid plugin was bought and somebody owes the customer a key.
+   *
+   * Two rows, because there are two possible providers and they are reached
+   * differently: the vendor whose product it is, or — when there is no vendor —
+   * the staff who look after orders. `resolveAudience` returns nobody for a
+   * `vendor_member` audience with no `vendorId`, so the staff row is what makes a
+   * first-party plugin visible rather than silently unowned.
+   */
+  AddonProvisioningRequested: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "billing",
+      title: (p) => `${p.addonName} was bought and needs handing over`,
+      body: (p) =>
+        `A customer bought ${p.addonName} with ${p.productName}. Send them what it needs — a key, a licence code, an account — and mark it provided.`,
+      href: () => "/dashboard/selling/plugins",
+    },
+    {
+      audience: { kind: "staff", permission: "order.update_status" },
+      category: "billing",
+      title: (p) => `${p.addonName} on ${p.orderReference} needs handing over`,
+      body: (p) => `Bought with ${p.productName}. Nothing is delivered until somebody does.`,
+      href: (p) => `/admin/orders/${p.orderReference}`,
+    },
+  ],
+
+  AddonProvisioned: [
+    {
+      audience: { kind: "organization" },
+      category: "billing",
+      title: (p) => `${p.addonName} is ready`,
+      // Not the key itself, and not a promise about where it is: the thread is
+      // linked, and the thread is the only place it exists.
+      body: () => "The details are in the messages on your order.",
+      href: (p) => `/dashboard/orders/${p.orderReference}`,
+    },
+  ],
+
   ProductPublished: [
     {
       audience: { kind: "vendor_member" },

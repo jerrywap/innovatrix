@@ -27,7 +27,7 @@ import { SearchBox } from "@/features/marketplace/components/search-box";
  * filters.
  */
 export async function generateStaticParams() {
-  const taxonomy = await getTaxonomyIndex();
+  const taxonomy = await getTaxonomyIndex("script");
   // Cache Components requires at least one param, and an empty database at
   // build time would otherwise fail the build rather than skip prerendering.
   return taxonomy.industry.length > 0
@@ -78,6 +78,7 @@ export default async function Page({
             different shapes before, and only one of them matched the layout. */}
         <Suspense fallback={<ResultsSkeleton />}>
           <MarketplaceResults
+            catalogue="script"
             searchParams={searchParams}
             basePath={`/marketplace/industry/${slug}`}
             forced={{ industry: [slug] }}

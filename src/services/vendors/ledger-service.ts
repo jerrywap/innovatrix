@@ -80,6 +80,10 @@ export async function recordEarnings(
   order: OrderDoc,
   session: ClientSession | undefined,
 ): Promise<{ written: number }> {
+  // Licence *and* add-on lines: a vendor's plugin earns them commission the same
+  // way their licence does. Nothing here changed to allow that — the filter has
+  // always been "has a vendor and a snapshotted rate", and `buildOrderLines`
+  // simply stamps both kinds now. Do not narrow it back to `product_licence`.
   const vendorLines = order.items.filter(
     (item) => item.vendorId && typeof item.commissionBasisPoints === "number",
   );

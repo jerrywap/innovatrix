@@ -21,7 +21,13 @@ import type { MarketplaceQueryInput } from "../src/services/marketplace/pipeline
 
 const BUDGET_MS = 300;
 
-const base = { sort: "latest", page: 1, limit: 24, currency: "GBP" } as const;
+const base = {
+  sort: "latest",
+  page: 1,
+  limit: 24,
+  currency: "GBP",
+  catalogue: "script",
+} as const;
 
 const CASES: Array<{ label: string; query: MarketplaceQueryInput }> = [
   { label: "unfiltered, page 1", query: { ...base } },
@@ -56,6 +62,22 @@ const CASES: Array<{ label: string; query: MarketplaceQueryInput }> = [
     query: { ...base, q: "invoices", category: ["finance"], sort: "relevance" },
   },
   { label: "NGN pricing", query: { ...base, currency: "NGN", sort: "price_asc" } },
+  /*
+   * Both sides of the catalogue split, because they take *different* index bounds
+   * and only one of them is a point lookup.
+   *
+   * The script predicate is an `$in` of two point values, chosen so that `facets`
+   * still bounds after it — a `$ne` on the middle key of
+   * `{ status, catalogue, facets }` would strip those bounds and slow every
+   * marketplace query, not only the template ones. If that regresses, it shows up
+   * here as a jump in `totalKeysExamined` on the *script* rows.
+   */
+  { label: "templates, unfiltered", query: { ...base, catalogue: "template" } },
+  {
+    label: "templates + a category",
+    query: { ...base, catalogue: "template", category: ["admin-dashboards"] },
+  },
+  { label: "both catalogues (a vendor storefront)", query: { ...base, catalogue: "all" } },
 ];
 
 interface Stage {

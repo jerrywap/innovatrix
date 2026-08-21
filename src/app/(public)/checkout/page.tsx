@@ -109,6 +109,7 @@ async function CheckoutBody() {
         idempotencyKey={idempotencyKey}
         offlineAvailable={offline.available}
         cardAvailable={cardAvailable}
+        free={cart.totals.total.amount === 0}
         currency={cart.currency}
         defaults={{
           organizationName: org?.name ?? organization.name,

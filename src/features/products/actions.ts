@@ -295,6 +295,7 @@ export async function saveClassificationAction(
     await productService.saveClassification(
       productId,
       {
+        catalogue: input.catalogue,
         categoryIds: input.categoryIds,
         industryIds: input.industryIds,
         technologyIds: input.technologyIds,

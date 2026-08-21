@@ -3,8 +3,13 @@ import { cacheLife, cacheTag } from "next/cache";
 import type { PipelineStage } from "mongoose";
 import { connectToDatabase } from "@/lib/db/client";
 import { Product, Taxonomy } from "@/lib/db/models/catalog";
-import type { TaxonomyKind } from "@/lib/db/enums";
+import type { TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 import { DEFAULT_CURRENCY, type StorefrontCurrency } from "@/config/storefront";
+import {
+  productCatalogueFilter,
+  taxonomyScopeFilter,
+  type CatalogueScope,
+} from "@/config/catalogue";
 import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG } from "@/services/catalog/cache";
 import {
   buildMarketplacePipeline,
@@ -85,6 +90,16 @@ export interface TaxonomyTerm {
   slug: string;
   name: string;
   description?: string;
+  /**
+   * Which catalogue's vocabulary it is in — `both` for most.
+   *
+   * Carried on the term so a landing page can decide whether it *owns* the term
+   * or merely uses it as a filter: a `both` category gets exactly one landing
+   * page (on `/marketplace`), and appears on `/templates` as a filter only. Two
+   * landing pages for one term is duplicate content that we would be generating
+   * on purpose.
+   */
+  catalogue: TaxonomyCatalogue;
 }
 
 export type TaxonomyIndex = Record<TaxonomyKind, TaxonomyTerm[]>;
@@ -100,17 +115,40 @@ export type TaxonomyIndex = Record<TaxonomyKind, TaxonomyTerm[]>;
  * a large regression — the whole point of denormalising `facets` was to make
  * the grid one indexed read.
  */
-export async function getTaxonomyIndex(): Promise<TaxonomyIndex> {
+export async function getTaxonomyIndex(
+  /*
+   * Scoped by catalogue, and this argument is what closes the rail leak.
+   *
+   * `filter-rail.tsx` renders **every** term of a kind and only greys out the ones
+   * with no matches — deliberately, so the rail "never loses options as it
+   * narrows". So filtering the products is not enough: without scoping the
+   * vocabulary here, `/templates` advertises "CRM" and `/marketplace` advertises
+   * "Admin dashboards", each greyed out and neither meaning anything.
+   *
+   * Being an argument also puts it in the `"use cache"` key, so the two surfaces
+   * cannot share a cached index. That is the requirement satisfied structurally
+   * rather than remembered.
+   */
+  scope: CatalogueScope = "all",
+): Promise<TaxonomyIndex> {
   "use cache";
   cacheTag(TAXONOMY_TAG);
   cacheLife(CACHE_PROFILE.taxonomy);
 
   await connectToDatabase();
 
-  const rows = await Taxonomy.find({ isActive: true })
+  const rows = await Taxonomy.find({ isActive: true, ...taxonomyScopeFilter(scope) })
     .sort({ sortOrder: 1, name: 1 })
-    .select({ kind: 1, slug: 1, name: 1, description: 1 })
-    .lean<Array<{ kind: TaxonomyKind; slug: string; name: string; description?: string }>>();
+    .select({ kind: 1, slug: 1, name: 1, description: 1, catalogue: 1 })
+    .lean<
+      Array<{
+        kind: TaxonomyKind;
+        slug: string;
+        name: string;
+        description?: string;
+        catalogue?: TaxonomyCatalogue;
+      }>
+    >();
 
   const index: TaxonomyIndex = {
     category: [],
@@ -124,6 +162,9 @@ export async function getTaxonomyIndex(): Promise<TaxonomyIndex> {
       slug: row.slug,
       name: row.name,
       ...(row.description ? { description: row.description } : {}),
+      // Absent ⇒ `both`, matching the schema default, so a term written before
+      // the field existed is usable in either catalogue rather than neither.
+      catalogue: row.catalogue ?? "both",
     });
   }
 
@@ -134,8 +175,13 @@ export async function getTaxonomyIndex(): Promise<TaxonomyIndex> {
 export async function getTaxonomyTerm(
   kind: TaxonomyKind,
   slug: string,
+  /*
+   * Scoped, so a landing page for the wrong catalogue's term 404s rather than
+   * rendering an empty grid under a real-looking heading.
+   */
+  scope: CatalogueScope = "all",
 ): Promise<TaxonomyTerm | null> {
-  const index = await getTaxonomyIndex();
+  const index = await getTaxonomyIndex(scope);
   return index[kind].find((term) => term.slug === slug) ?? null;
 }
 
@@ -199,6 +245,16 @@ async function runSearch(input: MarketplaceQueryInput): Promise<MarketplaceResul
 export async function getCardsBySlug(
   slugs: readonly string[],
   currency: StorefrontCurrency,
+  /*
+   * Scoped explicitly, because this is one of the three readers that **skip
+   * stage one** — it writes its own `$match` and then reuses the pipeline from
+   * stage two. A predicate added to `primaryMatch` never reaches here, so
+   * "recently viewed" on `/templates` would happily show the script somebody
+   * looked at yesterday.
+   *
+   * `"all"` for a saved list, which spans both by design.
+   */
+  scope: CatalogueScope = "all",
 ): Promise<ProductCard[]> {
   "use cache";
   cacheTag(CATALOG_TAG, TAXONOMY_TAG);
@@ -209,7 +265,14 @@ export async function getCardsBySlug(
   await connectToDatabase();
 
   const [result] = await Product.aggregate<RawFacetResult>([
-    { $match: { slug: { $in: [...slugs] }, status: "published", deletedAt: null } },
+    {
+      $match: {
+        slug: { $in: [...slugs] },
+        status: "published",
+        deletedAt: null,
+        ...productCatalogueFilter(scope),
+      },
+    },
     // Reuses the same pipeline minus its own `$match`, so the card projection
     // and the price logic cannot drift between the grid and the rails.
     ...(buildMarketplacePipeline({
@@ -217,10 +280,13 @@ export async function getCardsBySlug(
       page: 1,
       limit: slugs.length,
       currency,
+      // Irrelevant here — stage one is sliced off — but the type requires a
+      // decision, which is the point of it being required.
+      catalogue: scope,
     }).slice(1) as unknown as PipelineStage[]),
   ] as PipelineStage[]);
 
-  const taxonomy = await getTaxonomyIndex();
+  const taxonomy = await getTaxonomyIndex(scope);
   const cards = (result?.rows ?? []).map((row) => toCard(row, taxonomy, currency));
   const bySlug = new Map(cards.map((card) => [card.slug, card]));
 
@@ -245,8 +311,15 @@ export async function getCardsBySlug(
  */
 export async function getPublishedProductCount(
   currency: StorefrontCurrency = DEFAULT_CURRENCY,
+  catalogue: CatalogueScope = "script",
 ): Promise<number> {
-  const { total } = await searchMarketplace({ sort: "latest", page: 1, limit: 1, currency });
+  const { total } = await searchMarketplace({
+    sort: "latest",
+    page: 1,
+    limit: 1,
+    currency,
+    catalogue,
+  });
   return total;
 }
 
@@ -255,6 +328,7 @@ export async function getRail(
   rail: "featured" | "latest" | "popular",
   currency: StorefrontCurrency,
   limit = 4,
+  catalogue: CatalogueScope = "script",
 ): Promise<ProductCard[]> {
   "use cache";
   cacheTag(CATALOG_TAG, TAXONOMY_TAG);
@@ -265,6 +339,7 @@ export async function getRail(
     page: 1,
     limit,
     currency,
+    catalogue,
   });
 
   if (rail !== "featured") return result.products;

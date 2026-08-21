@@ -300,6 +300,8 @@ export const marketplaceQuerySchema = paginationSchema.extend({
   /** Integer minor units in the active currency — never a major-unit decimal. */
   minPrice: z.coerce.number().int().nonnegative().optional(),
   maxPrice: z.coerce.number().int().nonnegative().optional(),
+  /** Free only — a bound on the active price, not a stored flag. */
+  free: queryBooleanSchema.optional(),
   customisable: queryBooleanSchema.optional(),
   sort: z.enum(["relevance", "latest", "popular", "price_asc", "price_desc"]).default("latest"),
 });

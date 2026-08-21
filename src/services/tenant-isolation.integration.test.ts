@@ -449,7 +449,7 @@ describe("Vendor B is refused Vendor A's products", () => {
     await expect(
       productService.saveClassification(
         VENDOR_A_PRODUCT,
-        { categoryIds: [], industryIds: [], technologyIds: [] },
+        { catalogue: "script" as const, categoryIds: [], industryIds: [], technologyIds: [] },
         { type: "vendor", userId: USER_B, vendorId: VENDOR_B },
         { vendorId: VENDOR_B },
       ),
@@ -477,7 +477,7 @@ describe("Vendor B is refused Vendor A's products", () => {
   it("preserves the vendor facet when its owner edits the classification", async () => {
     await productService.saveClassification(
       VENDOR_A_PRODUCT,
-      { categoryIds: [], industryIds: [], technologyIds: [] },
+      { catalogue: "script" as const, categoryIds: [], industryIds: [], technologyIds: [] },
       { type: "vendor", userId: USER_A, vendorId: VENDOR_A },
       { vendorId: VENDOR_A },
     );

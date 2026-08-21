@@ -198,8 +198,10 @@ export function toProviderAmount(provider: ProviderKey, amount: Money): number |
     case "paypal":
       return formatPlain(amount);
     case "manual":
-      // Never sent anywhere. Present so the switch is exhaustive rather than
-      // defaulting, which is what would let a new provider slip through.
+    case "free":
+      // Never sent anywhere — both are driverless. Present so the switch is
+      // exhaustive rather than defaulting, which is what would let a new
+      // provider slip through.
       return amount.amount;
     default: {
       const exhaustive: never = provider;

@@ -2,7 +2,7 @@ import type { ClientSession } from "mongoose";
 import { OrgScopedRepository } from "./base";
 import { toObjectId } from "@/lib/db/base";
 import { Payment, type PaymentDoc } from "@/lib/db/models/commerce";
-import type { PaymentProvider, PaymentStatus } from "@/lib/db/enums";
+import { DRIVERLESS_PROVIDERS, type PaymentProvider, type PaymentStatus } from "@/lib/db/enums";
 
 /**
  * Payments — §62, §87.
@@ -80,11 +80,21 @@ export class PaymentRepository extends OrgScopedRepository<PaymentDoc> {
     cutoff: Date,
     limit = 50,
   ): Promise<Array<PaymentDoc & { createdAt: Date }>> {
-    return this.model
-      .find({ status: "pending", provider: { $ne: "manual" }, createdAt: { $lte: cutoff } })
-      .sort({ createdAt: 1 })
-      .limit(limit)
-      .lean<Array<PaymentDoc & { createdAt: Date }>>();
+    return (
+      this.model
+        // Driverless providers are excluded because the sweep's whole job is to
+        // call `driverFor(payment.provider).verify(...)`. A pending `manual` or
+        // `free` row has no driver, so including it would throw on every tick
+        // forever rather than reconciling anything.
+        .find({
+          status: "pending",
+          provider: { $nin: DRIVERLESS_PROVIDERS },
+          createdAt: { $lte: cutoff },
+        })
+        .sort({ createdAt: 1 })
+        .limit(limit)
+        .lean<Array<PaymentDoc & { createdAt: Date }>>()
+    );
   }
 }
 

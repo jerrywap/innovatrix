@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
+import { FreeBadge } from "@/components/free-badge";
 import { MoneyDisplay } from "@/components/money-display";
 import { StarRating } from "@/components/star-rating";
 import { money } from "@/lib/money";
@@ -161,10 +162,19 @@ export function ProductCardTile({
         <div className="mt-auto pt-2">
           {card.price ? (
             <span className="flex items-baseline gap-2">
-              <MoneyDisplay
-                value={money(card.price.amount, card.price.currency)}
-                className="text-[15px] font-medium"
-              />
+              {/*
+                Zero is a proposition, not a number — see `FreeBadge`. The
+                `compareAtAmount` beside it still renders, so a formerly-paid
+                product now given away reads "Free  £299.00".
+              */}
+              {card.price.amount === 0 ? (
+                <FreeBadge />
+              ) : (
+                <MoneyDisplay
+                  value={money(card.price.amount, card.price.currency)}
+                  className="text-[15px] font-medium"
+                />
+              )}
               {card.price.compareAtAmount !== undefined && (
                 <MoneyDisplay
                   value={money(card.price.compareAtAmount, card.price.currency)}

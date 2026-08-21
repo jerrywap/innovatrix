@@ -58,6 +58,22 @@ const CATEGORY_WEIGHTS: Array<[string, number]> = [
   ["hr-and-rota", 5],
 ];
 
+/**
+ * Template categories, kept separate from the script ones above.
+ *
+ * A template carrying "CRM" would be worse than the greyed-out leak the catalogue
+ * scoping fixes: it would show a script category in the template rail at a
+ * **non-zero** count, so it would look correct. This seed writes documents
+ * directly and never goes through `saveClassification`, so the cross-catalogue
+ * check does not protect it — the separation has to be here.
+ */
+const TEMPLATE_CATEGORY_WEIGHTS: Array<[string, number]> = [
+  ["admin-dashboards", 40],
+  ["ecommerce-pages", 25],
+  ["corporate-and-business", 20],
+  ["landing-pages", 15],
+];
+
 const INDUSTRY_WEIGHTS: Array<[string, number]> = [
   ["healthcare", 22],
   ["education", 18],
@@ -79,12 +95,27 @@ const TECH_WEIGHTS: Array<[string, number]> = [
   ["python", 6],
 ];
 
+/*
+ * `product_type` weights — reconciled with `scripts/taxonomy-vocabulary.ts`.
+ *
+ * `template` used to be here at 12%, which is the modelling the `catalogue` field
+ * replaces: whether something is a template is *which shop it is in*, not what
+ * kind of thing it is within one. Those rows now become genuine templates via the
+ * `catalogue` weight below, and the retired term is deactivated by
+ * `db:backfill:catalogue`.
+ */
 const TYPE_WEIGHTS: Array<[string, number]> = [
   ["complete-application", 55],
   ["module", 25],
-  ["template", 12],
+  ["starter-kit", 12],
   ["integration", 8],
 ];
+
+/**
+ * Roughly one in eight bulk products is a template, so `/templates` has a
+ * realistic grid and the split can be seen doing something at scale.
+ */
+const TEMPLATE_SHARE = 0.12;
 
 const NOUNS = [
   "Atlas",
@@ -197,6 +228,7 @@ async function main() {
 
   const missing = [
     ...CATEGORY_WEIGHTS.map(([s]) => `category:${s}`),
+    ...TEMPLATE_CATEGORY_WEIGHTS.map(([s]) => `category:${s}`),
     ...INDUSTRY_WEIGHTS.map(([s]) => `industry:${s}`),
     ...TECH_WEIGHTS.map(([s]) => `technology:${s}`),
     ...TYPE_WEIGHTS.map(([s]) => `product_type:${s}`),
@@ -229,6 +261,8 @@ async function main() {
   // — a missing term would have thrown above.
   const operations: Parameters<(typeof M.Product)["bulkWrite"]>[0] = [];
   let noGbp = 0;
+  let free = 0;
+  let templates = 0;
   let ownersOnly = 0;
 
   for (let index = 0; index < TOTAL; index += 1) {
@@ -237,7 +271,15 @@ async function main() {
     const name = `${noun} ${kind} ${index + 1}`;
     const slug = `${noun.toLowerCase()}-${kind.toLowerCase()}-${index + 1}`;
 
-    const categorySlug = pickWeighted(CATEGORY_WEIGHTS, random);
+    // Decided before the category, because it decides *which* vocabulary the
+    // category comes from.
+    const isTemplate = random() < TEMPLATE_SHARE;
+    if (isTemplate) templates += 1;
+
+    const categorySlug = pickWeighted(
+      isTemplate ? TEMPLATE_CATEGORY_WEIGHTS : CATEGORY_WEIGHTS,
+      random,
+    );
     const industrySlug = pickWeighted(INDUSTRY_WEIGHTS, random);
     const techSlugs = [
       ...new Set([pickWeighted(TECH_WEIGHTS, random), pickWeighted(TECH_WEIGHTS, random)]),
@@ -251,12 +293,31 @@ async function main() {
     // ~20% are missing a price in at least one currency. The card must render
     // "Price on request" for those, never £0.00.
     const gap = random();
-    const base = 19_900 + Math.floor(random() * 480_000);
+    /*
+     * ~5% are genuinely **free**, priced at zero in every currency.
+     *
+     * Deliberately distinct from the ~20% above that are missing a price: the
+     * grid has to show "Free" for one and "Price on request" for the other, and
+     * a filter that confused them would be the worst possible bug on `?free=true`.
+     * Priced in *all three* currencies so free stays free whichever one the
+     * viewer is browsing in.
+     */
+    const isFree = random() < 0.05;
+    const base = isFree ? 0 : 19_900 + Math.floor(random() * 480_000);
     const prices: Array<{ currency: string; amount: number; compareAtAmount?: number }> = [];
-    if (gap > 0.1) prices.push({ currency: "GBP", amount: base });
-    else noGbp += 1;
-    if (gap > 0.2) prices.push({ currency: "USD", amount: Math.round(base * 1.27) });
-    if (gap > 0.35) prices.push({ currency: "NGN", amount: Math.round(base * 21) * 100 });
+    if (isFree) {
+      free += 1;
+      prices.push(
+        { currency: "GBP", amount: 0 },
+        { currency: "USD", amount: 0 },
+        { currency: "NGN", amount: 0 },
+      );
+    } else {
+      if (gap > 0.1) prices.push({ currency: "GBP", amount: base });
+      else noGbp += 1;
+      if (gap > 0.2) prices.push({ currency: "USD", amount: Math.round(base * 1.27) });
+      if (gap > 0.35) prices.push({ currency: "NGN", amount: Math.round(base * 21) * 100 });
+    }
 
     const exposure =
       random() < 0.1 ? "owners_only" : random() < 0.5 ? "authenticated" : "public";
@@ -284,6 +345,7 @@ async function main() {
             industryIds: [idBySlug.get(`industry:${industrySlug}`)],
             technologyIds: techSlugs.map((s) => idBySlug.get(`technology:${s}`)),
             productTypeId: idBySlug.get(`product_type:${typeSlug}`),
+            catalogue: isTemplate ? "template" : "script",
             facets,
             prices,
             media: [
@@ -359,6 +421,10 @@ async function main() {
   const published = await M.Product.countDocuments({ status: "published", deletedAt: null });
   console.log(`\npublished products:      ${published}`);
   console.log(`no GBP price:            ${noGbp} (${Math.round((noGbp / TOTAL) * 100)}%)`);
+  console.log(`free (0 in all three):  ${free} (${Math.round((free / TOTAL) * 100)}%)`);
+  console.log(
+    `templates:              ${templates} (${Math.round((templates / TOTAL) * 100)}%)`,
+  );
   console.log(
     `owners_only demos:       ${ownersOnly} (${Math.round((ownersOnly / TOTAL) * 100)}%)`,
   );

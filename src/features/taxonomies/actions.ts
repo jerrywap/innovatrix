@@ -5,7 +5,7 @@ import { z } from "zod";
 import { ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { parseNestedFormData } from "@/lib/form-data";
 import { requirePermission } from "@/lib/auth/dal";
-import { TAXONOMY_KINDS } from "@/lib/db/enums";
+import { TAXONOMY_CATALOGUES, TAXONOMY_KINDS } from "@/lib/db/enums";
 import { objectIdSchema, optionalText, slugSchema } from "@/validators/common";
 import { staffActor } from "@/services/audit";
 import { taxonomyChanged } from "@/services/catalog/cache";
@@ -22,6 +22,12 @@ import * as taxonomyService from "@/services/catalog/taxonomy-service";
 
 const taxonomyFormSchema = z.object({
   kind: z.enum(TAXONOMY_KINDS),
+  /**
+   * Which catalogue's vocabulary this belongs to. `both` by default, which is
+   * right for a term somebody adds here without thinking about it — usable in
+   * either shop rather than in neither.
+   */
+  catalogue: z.enum(TAXONOMY_CATALOGUES).default("both"),
   name: z.string().trim().min(2, "Give it a name").max(80),
   /** Derived from the name when blank — an admin should not have to think about it. */
   slug: z.union([slugSchema, z.literal("")]).optional(),

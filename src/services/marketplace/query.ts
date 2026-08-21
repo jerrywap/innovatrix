@@ -4,6 +4,7 @@ import {
   toStorefrontCurrency,
   type StorefrontCurrency,
 } from "@/config/storefront";
+import type { CatalogueScope } from "@/config/catalogue";
 import {
   MAX_LIMIT,
   MAX_PAGE,
@@ -52,6 +53,15 @@ export function parseMarketplaceQuery(
   options: {
     currency?: StorefrontCurrency;
     forced?: Partial<Pick<MarketplaceQueryInput, "category" | "industry">>;
+    /**
+     * Which catalogue's grid this is. Defaults to `script` — the marketplace.
+     *
+     * Read from `options` and **never** from `raw`: a catalogue is the surface the
+     * visitor is standing on, not a filter they may flip. `?catalogue=template`
+     * on `/marketplace` is ignored, which is what stops one storefront being used
+     * to browse the other's stock.
+     */
+    catalogue?: CatalogueScope;
   } = {},
 ): ParsedMarketplaceQuery {
   const q = trimmedText(raw.q, 120);
@@ -79,6 +89,9 @@ export function parseMarketplaceQuery(
     ...(firstSlug(raw.productType) ? { productType: firstSlug(raw.productType)! } : {}),
     ...(minorUnits(raw.minPrice) !== undefined ? { minPrice: minorUnits(raw.minPrice)! } : {}),
     ...(minorUnits(raw.maxPrice) !== undefined ? { maxPrice: minorUnits(raw.maxPrice)! } : {}),
+    // Through `boolean()` like `customisable`, so `?free=false` means *not free*
+    // rather than a truthy non-empty string.
+    ...(boolean(raw.free) !== undefined ? { free: boolean(raw.free)! } : {}),
     ...(boolean(raw.customisable) !== undefined
       ? { customisable: boolean(raw.customisable)! }
       : {}),
@@ -86,6 +99,7 @@ export function parseMarketplaceQuery(
     page: intInRange(first(raw.page), 1, 1, MAX_PAGE),
     limit: intInRange(first(raw.limit), DEFAULT_PAGE_SIZE, 1, MAX_LIMIT),
     currency: options.currency ?? DEFAULT_CURRENCY,
+    catalogue: options.catalogue ?? "script",
     raw,
   };
 }
@@ -153,6 +167,7 @@ export const FILTER_KEYS = [
   "vendor",
   "minPrice",
   "maxPrice",
+  "free",
   "customisable",
 ] as const;
 
@@ -191,7 +206,12 @@ export function toggleTerm(
  * outright.
  */
 export function currencyMustBeInUrl(query: MarketplaceQueryInput): boolean {
-  return query.minPrice !== undefined || query.maxPrice !== undefined;
+  // `free` counts for the same reason: it is a bound on the price in *this*
+  // currency, so a shared `?free=true` link without the currency shows a
+  // different set to a viewer whose cookie says otherwise.
+  return (
+    query.minPrice !== undefined || query.maxPrice !== undefined || query.free !== undefined
+  );
 }
 
 export function isStorefrontCurrencyParam(value: unknown): value is StorefrontCurrency {

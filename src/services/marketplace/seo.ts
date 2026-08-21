@@ -41,6 +41,7 @@ export interface SeoQuery {
   productType?: string;
   minPrice?: number;
   maxPrice?: number;
+  free?: boolean;
   customisable?: boolean;
   page: number;
 }
@@ -48,11 +49,21 @@ export interface SeoQuery {
 const MAX_INDEXABLE_DIMENSIONS = 2;
 
 export function robotsFor(basePath: string, query: SeoQuery): RobotsDecision {
+  /*
+   * `free` counts as a dimension rather than forcing `noindex` the way an
+   * arbitrary price bound does.
+   *
+   * "free CRM software" is a real search with a real page behind it, so
+   * `?free=true` and `?free=true&category=crm` should both be indexable. But it
+   * doubles the crawl space for every combination it joins, so it spends budget
+   * instead of being exempt from it — a third dimension on top is still out.
+   */
   const dimensions = [
     query.category?.length ? 1 : 0,
     query.industry?.length ? 1 : 0,
     query.technology?.length ? 1 : 0,
     query.productType ? 1 : 0,
+    query.free === true ? 1 : 0,
   ].reduce<number>((sum, value) => sum + value, 0);
 
   const hasPriceFilter = query.minPrice !== undefined || query.maxPrice !== undefined;

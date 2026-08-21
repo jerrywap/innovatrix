@@ -172,7 +172,7 @@ async function main() {
   /* 7. the trap: a classification save must not wipe the vendor term */
   await productService.saveClassification(
     productId,
-    { categoryIds: [], industryIds: [], technologyIds: [] },
+    { catalogue: "script" as const, categoryIds: [], industryIds: [], technologyIds: [] },
     { type: "vendor", userId, vendorId: id },
     { vendorId: id },
   );

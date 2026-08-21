@@ -2,7 +2,7 @@ import "server-only";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import { formatDateTime } from "@/lib/dates";
-import type { OrderStatus } from "@/lib/db/enums";
+import type { AddonProvisioningStatus, OrderStatus } from "@/lib/db/enums";
 import type { Money } from "@/lib/money";
 import { Order, Payment, type OrderDoc, type PaymentDoc } from "@/lib/db/models/commerce";
 import { Entitlement, type EntitlementDoc } from "@/lib/db/models/commerce";
@@ -36,7 +36,16 @@ export interface CustomerOrderLine {
   quantity: number;
   unitPrice: Money;
   lineTotal: Money;
-  addons: Array<{ name: string; price: Money }>;
+  /**
+   * Plugins bought with this line. `provisioning` is present when somebody owes
+   * the customer a key — a plugin is delivered off this platform, so the status
+   * is the only thing that can tell them whether it has happened.
+   */
+  addons: Array<{
+    name: string;
+    price: Money;
+    provisioning?: { status: AddonProvisioningStatus; providedAt?: string };
+  }>;
 }
 
 export interface CustomerOrderDetail {
@@ -115,6 +124,16 @@ export async function loadCustomerOrder(
           .map((addon) => ({
             name: addon.addonName ?? addon.productName,
             price: toMoney(addon.lineTotal),
+            ...(addon.provisioning
+              ? {
+                  provisioning: {
+                    status: addon.provisioning.status,
+                    ...(addon.provisioning.providedAt
+                      ? { providedAt: addon.provisioning.providedAt.toISOString() }
+                      : {}),
+                  },
+                }
+              : {}),
           })),
       })),
     subtotal: toMoney(order.subtotal),

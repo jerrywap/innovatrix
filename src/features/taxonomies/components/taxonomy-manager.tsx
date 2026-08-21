@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { FormErrors } from "@/features/products/components/section-form";
 import { cn } from "@/lib/utils";
-import type { TaxonomyKind } from "@/lib/db/enums";
+import type { TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 import { createTaxonomyAction, deleteTaxonomyAction, updateTaxonomyAction } from "../actions";
 import { SLUG_INPUT_ATTRS } from "@/validators/common";
 
@@ -36,6 +36,15 @@ export interface TaxonomyRow {
   icon?: string;
   sortOrder: number;
   isActive: boolean;
+  /**
+   * Which catalogue's vocabulary it is in.
+   *
+   * A **column**, not a fifth tab. The tabs are `kind` — what sort of axis a term
+   * is — and catalogue is orthogonal to that: a category exists in both shops, an
+   * industry is shared by both. Making it a tab would imply eight lists where
+   * there are four.
+   */
+  catalogue: TaxonomyCatalogue;
   /** How many products reference it. Drives the delete affordance. */
   usageCount: number;
 }
@@ -103,6 +112,16 @@ function TaxonomyRowView({
           </span>
           <code className="text-subtle font-mono text-[11.5px]">{row.slug}</code>
           {!row.isActive && <StatusBadge status="archived" label="Inactive" />}
+          {/*
+            Shown only when scoped. `both` is the default and the common case, so
+            badging it would put a label on almost every row and make the two that
+            matter harder to spot.
+          */}
+          {row.catalogue !== "both" && (
+            <span className="border-border text-subtle rounded-full border px-1.5 py-0 text-[11px]">
+              {row.catalogue === "template" ? "Templates" : "Scripts"}
+            </span>
+          )}
         </div>
         {row.description && (
           <p className="text-muted-foreground mt-0.5 truncate text-[12.5px]">
@@ -215,6 +234,19 @@ function TaxonomyForm({
       </label>
 
       <div className="flex flex-wrap items-end gap-4">
+        <label className="flex flex-col gap-1">
+          <span className="text-[12.5px] font-medium">Catalogue</span>
+          <select
+            name="catalogue"
+            defaultValue={row?.catalogue ?? "both"}
+            className="border-border bg-surface focus-visible:ring-signal/40 h-9 rounded-lg border px-2 text-[13px] focus-visible:ring-2 focus-visible:outline-none"
+          >
+            <option value="both">Both</option>
+            <option value="script">Scripts only</option>
+            <option value="template">Templates only</option>
+          </select>
+        </label>
+
         <label className="flex flex-col gap-1">
           <span className="text-[12.5px] font-medium">Order</span>
           <Input

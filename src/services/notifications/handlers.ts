@@ -25,6 +25,8 @@ import { messageSender } from "./recipients";
 
 /** Events whose audiences need nothing beyond the organisation. */
 const GENERIC: DomainEventName[] = [
+  // Audience is the buying organisation and nothing else needs looking up.
+  "AddonProvisioned",
   "QuoteIssued",
   "QuoteAccepted",
   "QuoteRejected",
@@ -215,6 +217,19 @@ export function registerNotificationHandlers(): void {
     await dispatch("ProductApproved", payload, {
       productId: payload.productId,
       vendorId: payload.vendorId,
+    });
+  });
+
+  /*
+   * Not in `GENERIC`, because the audience needs the vendor looked up from the
+   * payload — and, like `ProductPublished`, it must tolerate that vendor being
+   * absent. A first-party plugin has no vendor, and the staff row in the
+   * catalogue is what covers it.
+   */
+  on("AddonProvisioningRequested", async (payload) => {
+    await dispatch("AddonProvisioningRequested", payload, {
+      organizationId: payload.organizationId,
+      ...(payload.vendorId ? { vendorId: payload.vendorId } : {}),
     });
   });
 

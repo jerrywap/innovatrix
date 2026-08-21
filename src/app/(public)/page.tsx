@@ -169,7 +169,12 @@ function HeroSearch() {
  * body would make the whole route dynamic.
  */
 async function CatalogueSummary() {
-  const [count, taxonomy] = await Promise.all([getPublishedProductCount(), getTaxonomyIndex()]);
+  // The home page is the *scripts* brand. Its category chips and its product
+  // count are about that catalogue; templates have their own front door.
+  const [count, taxonomy] = await Promise.all([
+    getPublishedProductCount(DEFAULT_CURRENCY, "script"),
+    getTaxonomyIndex("script"),
+  ]);
 
   const industries = taxonomy.industry?.length ?? 0;
 
@@ -556,7 +561,7 @@ function Marketplace() {
  * this section now cannot drift from them by construction.
  */
 async function FeaturedProducts() {
-  const cards = await getRail("featured", DEFAULT_CURRENCY, 4);
+  const cards = await getRail("featured", DEFAULT_CURRENCY, 4, "script");
 
   if (cards.length === 0) return null;
 

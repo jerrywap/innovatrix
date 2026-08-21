@@ -19,6 +19,8 @@ import { formatReference } from "../src/lib/references";
 import { syncAllIndexes } from "./sync-indexes";
 import { BRAND } from "../src/config/brand";
 
+import { TAXONOMY_VOCABULARY } from "./taxonomy-vocabulary";
+
 async function main() {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("MONGODB_URI is not set — copy .env.example to .env.local");
@@ -30,43 +32,9 @@ async function main() {
   const M = await import("../src/lib/db/models");
 
   /* ── taxonomies ─────────────────────────────────────────── */
-  const taxonomies = [
-    ...[
-      "CRM",
-      "Booking",
-      "Property",
-      "Healthcare",
-      "Logistics",
-      "HR & Rota",
-      "E-commerce",
-      "Finance",
-    ].map((name, i) => ({ kind: "category" as const, name, sortOrder: i })),
-    ...[
-      "Healthcare",
-      "Education",
-      "Logistics",
-      "Hospitality",
-      "Property",
-      "Finance",
-      "Retail",
-      "Nonprofit",
-    ].map((name, i) => ({ kind: "industry" as const, name, sortOrder: i })),
-    ...[
-      "Laravel",
-      "Next.js",
-      "Django",
-      "PostgreSQL",
-      "MongoDB",
-      "MySQL",
-      "Redis",
-      "Stripe",
-    ].map((name, i) => ({ kind: "technology" as const, name, sortOrder: i })),
-    ...["Complete application", "Script", "Admin panel", "Starter kit"].map((name, i) => ({
-      kind: "product_type" as const,
-      name,
-      sortOrder: i,
-    })),
-  ];
+  // One vocabulary, shared with `seed-bulk.ts`. The two used to disagree about
+  // `product_type` and each auto-created what the other was missing.
+  const taxonomies = TAXONOMY_VOCABULARY;
 
   const slugify = (s: string) =>
     s
@@ -80,7 +48,17 @@ async function main() {
     const slug = slugify(t.name);
     const doc = await M.Taxonomy.findOneAndUpdate(
       { kind: t.kind, slug },
-      { $set: { name: t.name, sortOrder: t.sortOrder, isActive: true } },
+      {
+        $set: {
+          name: t.name,
+          sortOrder: t.sortOrder,
+          isActive: true,
+          // Stated, not defaulted: the eight script categories being explicitly
+          // `script` is what keeps them out of the template rail.
+          catalogue: t.catalogue,
+          ...(t.description ? { description: t.description } : {}),
+        },
+      },
       { upsert: true, returnDocument: "after" },
     ).lean();
     taxonomyIds.set(`${t.kind}:${slug}`, doc!._id);
@@ -464,6 +442,96 @@ async function main() {
       // example, or nobody notices when it starts rendering an empty section.
       areas: ["Branding", "Route planning", "Customer notifications"],
     },
+    {
+      /*
+       * The free-tier fixture, and it carries three of the four combinations on
+       * its own: a **free** script, a **paid** plugin and a **free** plugin. The
+       * four paid products above are the fourth.
+       *
+       * `price: 0` is a real price, not an absent one — it flows into both
+       * `prices` and `licencePackages[].prices` below, which it has to, or
+       * `readiness.ts` refuses to publish it as `unbuyable_currency`: a listing
+       * showing a price the cart cannot build a line from.
+       *
+       * It exists so `?free=true`, the FREE badge, the £0 checkout path and the
+       * plugin handover queue all have something behind them on a fresh database.
+       */
+      slug: "storefront-starter",
+      name: "Storefront Starter",
+      summary:
+        "A working ecommerce storefront you can run as it is — or add a payment gateway to.",
+      category: "E-commerce",
+      industry: "Retail",
+      tech: ["Next.js", "PostgreSQL"],
+      price: 0,
+      adapted: 4,
+      areas: ["Branding", "Payment gateway", "Shipping rules"],
+      addons: [
+        {
+          // The headline case: the script is free, this is not. Bought at
+          // checkout, then handed over out of band — a Stripe account key is not
+          // something this platform can deliver.
+          key: "stripe-gateway",
+          name: "Stripe gateway",
+          pricingType: "fixed" as const,
+          price: 49,
+        },
+        {
+          // A free plugin, so "free + free" is on the screen too. Zero here means
+          // zero, which is exactly what `addItem` no longer confuses with "no
+          // price in this currency".
+          key: "csv-export",
+          name: "CSV export",
+          pricingType: "fixed" as const,
+          price: 0,
+        },
+      ],
+    },
+
+    /*
+     * The **template** catalogue. Three, one per template category with products
+     * in it, because `/templates` demoing as an empty grid is the same failure as
+     * the four legal stubs that shipped rendering nothing.
+     *
+     * One of them is free, so the FREE badge and `?free=true` are exercised in
+     * both catalogues rather than only in the one that happens to be the default.
+     */
+    {
+      slug: "meridian-admin",
+      name: "Meridian Admin",
+      summary: "A dark-first admin dashboard with the tables, charts and forms already built.",
+      catalogue: "template" as const,
+      category: "Admin dashboards",
+      industry: "Finance",
+      tech: ["Tailwind CSS", "Next.js"],
+      price: 59,
+      adapted: 11,
+      areas: ["Branding", "Extra chart types", "Dark mode tuning"],
+    },
+    {
+      slug: "vitrine-storefront",
+      name: "Vitrine Storefront",
+      summary: "Product, basket and checkout pages, responsive and ready to wire up.",
+      catalogue: "template" as const,
+      category: "Ecommerce pages",
+      industry: "Retail",
+      tech: ["Bootstrap"],
+      price: 39,
+      adapted: 8,
+      areas: ["Branding", "Extra product layouts"],
+    },
+    {
+      slug: "atrium-corporate",
+      name: "Atrium Corporate",
+      summary: "A company site — services, team, case studies and contact — free to use.",
+      catalogue: "template" as const,
+      category: "Corporate & business",
+      industry: "Property",
+      tech: ["Tailwind CSS"],
+      price: 0,
+      adapted: 3,
+      areas: ["Branding", "Extra page layouts"],
+    },
   ];
 
   for (const p of products) {
@@ -475,15 +543,26 @@ async function main() {
           summary: p.summary,
           status: "published",
           publishedAt: new Date(),
+          // Stated per product. Defaulting would make every template a script
+          // until somebody edited it, and `/templates` would seed empty.
+          catalogue: "catalogue" in p && p.catalogue ? p.catalogue : "script",
           categoryIds: [tax("category", p.category)],
           industryIds: [tax("industry", p.industry)],
           technologyIds: p.tech.map((t) => tax("technology", t)),
-          productTypeId: tax("product_type", "Complete application"),
+          // Scripts are complete applications; a template is not one, and typing
+          // it as such would put it under the wrong facet in its own rail.
+          // `productTypeId` is optional, so leaving it unset is the honest answer
+          // until there is a template type vocabulary worth having.
+          ...("catalogue" in p && p.catalogue === "template"
+            ? {}
+            : { productTypeId: tax("product_type", "Complete application") }),
           facets: M.buildProductFacets({
             categorySlugs: [slugify(p.category)],
             industrySlugs: [slugify(p.industry)],
             technologySlugs: p.tech.map(slugify),
-            productTypeSlug: slugify("Complete application"),
+            ...("catalogue" in p && p.catalogue === "template"
+              ? {}
+              : { productTypeSlug: slugify("Complete application") }),
           }),
           features: [
             { title: "Role-based access" },
@@ -508,20 +587,31 @@ async function main() {
               prices: everyCurrency(p.price),
             },
           ],
-          addons: [
-            {
-              key: "installation",
-              name: "Installation",
-              pricingType: "fixed",
-              prices: everyCurrency(99),
-            },
-            {
-              key: "branding",
-              name: "Brand setup",
-              pricingType: "fixed",
-              prices: everyCurrency(49),
-            },
-          ],
+          // Most products take the two platform services; a product may name its
+          // own instead, which is how the free-tier fixture carries a paid plugin
+          // and a free one.
+          addons:
+            "addons" in p && p.addons
+              ? p.addons.map((addon) => ({
+                  key: addon.key,
+                  name: addon.name,
+                  pricingType: addon.pricingType,
+                  prices: everyCurrency(addon.price),
+                }))
+              : [
+                  {
+                    key: "installation",
+                    name: "Installation",
+                    pricingType: "fixed",
+                    prices: everyCurrency(99),
+                  },
+                  {
+                    key: "branding",
+                    name: "Brand setup",
+                    pricingType: "fixed",
+                    prices: everyCurrency(49),
+                  },
+                ],
           customization: {
             available: true,
             aiWorkflowEnabled: true,

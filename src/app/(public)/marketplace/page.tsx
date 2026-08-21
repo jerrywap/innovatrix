@@ -49,7 +49,11 @@ export default function Page({ searchParams }: PageProps<"/marketplace">) {
 
       <div className="mt-8">
         <Suspense fallback={<ResultsSkeleton />}>
-          <MarketplaceResults searchParams={searchParams} basePath="/marketplace" />
+          <MarketplaceResults
+            searchParams={searchParams}
+            basePath="/marketplace"
+            catalogue="script"
+          />
         </Suspense>
       </div>
     </div>

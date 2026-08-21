@@ -12,7 +12,7 @@ import { toObjectId } from "@/lib/db/base";
 import { placeOrderSchema } from "@/validators/checkout";
 import { staffActor } from "@/services/audit";
 import * as checkout from "@/services/checkout/checkout-service";
-import { initiatePaymentForOrder } from "@/services/payments/payment-service";
+import { initiatePaymentForOrder, settleFreeOrder } from "@/services/payments/payment-service";
 import { readOwnerKey } from "@/services/cart/owner";
 
 /**
@@ -33,6 +33,7 @@ export async function placeOrderAction(
   let reference: string | undefined;
   let redirectUrl: string | undefined;
   let offline = false;
+  let free = false;
 
   const result = await withAction<never>(async () => {
     const user = await requireUser();
@@ -86,6 +87,32 @@ export async function placeOrderAction(
       return ok(undefined as never);
     }
 
+    /*
+     * A £0 basket — a free script whose plugins are all free too.
+     *
+     * Settled here rather than at a provider, because there is nothing to
+     * charge. This branch is also what closes a real hole: before it,
+     * `initiatePaymentForOrder` refused a zero total *after* `createOrder` had
+     * committed, so the customer got a generic failure and was left with an
+     * `awaiting_payment` order that nothing swept.
+     *
+     * If `settleFreeOrder` itself throws, the order stays `awaiting_payment`
+     * with a `pending` free payment the sweep deliberately skips. Recovery is
+     * the customer submitting again — the idempotency key finds the same order
+     * and the pending payment is reused — or staff recording a £0 manual
+     * payment, which already works. Strictly better than the orphan.
+     */
+    if (created.order.total.amount === 0) {
+      await settleFreeOrder({
+        orderReference: created.order.reference,
+        organizationId,
+        actor: staffActor({ id: user.id, name: user.name }),
+      });
+      free = true;
+      revalidatePath("/", "layout");
+      return ok(undefined as never);
+    }
+
     // Hand off to the provider. Everything before this point is ours; from
     // here the customer is on somebody else's page until the webhook lands.
     const initiated = await initiatePaymentForOrder({
@@ -122,7 +149,9 @@ export async function placeOrderAction(
    * page is still right — it shows the order awaiting payment rather than a lie
    * about a payment that never started.
    */
-  if (offline) redirect(`/orders/${reference}/confirmation` as Route);
+  // A free order is already paid and fulfilled, so there is nothing to poll —
+  // the processing page would show a payment that never existed.
+  if (offline || free) redirect(`/orders/${reference}/confirmation` as Route);
 
   redirect(`/checkout/processing?order=${reference}` as Route);
 }

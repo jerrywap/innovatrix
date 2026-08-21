@@ -2,6 +2,8 @@ import "server-only";
 import type { Types } from "mongoose";
 import { buildProductFacets } from "@/lib/db/models/catalog";
 import { taxonomies } from "@/repositories/taxonomy.repository";
+import { ValidationError } from "@/lib/errors";
+import type { ProductCatalogue, TaxonomyCatalogue } from "@/lib/db/enums";
 
 /**
  * Derive `products.facets` from a product's taxonomy ids.
@@ -126,4 +128,48 @@ export async function deriveFacetsForMany(
       }),
     };
   });
+}
+
+/**
+ * Refuse a classification that mixes catalogues.
+ *
+ * A `both` term is fine in either; a `script` term in a template product is not.
+ * `product_type` is checked too, since a template's type vocabulary and a
+ * script's are not the same list.
+ *
+ * Deliberately a **refusal**, not a filter. `deriveFacets` drops ids it cannot
+ * resolve because a deleted term should cost one facet rather than make a product
+ * unsaveable — but a term that exists and was just chosen by a human is the
+ * opposite case, and dropping it silently produces a product in a catalogue with
+ * no categories and no explanation.
+ */
+export async function assertTermsInCatalogue(
+  ids: TaxonomyIds,
+  catalogue: ProductCatalogue,
+): Promise<void> {
+  const all = [
+    ...(ids.categoryIds ?? []),
+    ...(ids.industryIds ?? []),
+    ...(ids.technologyIds ?? []),
+    ...(ids.productTypeId ? [ids.productTypeId] : []),
+  ];
+  if (all.length === 0) return;
+
+  const scopes = await taxonomies.scopesByIds(all);
+
+  const wrong = [...new Set(all.map(String))]
+    .map((id) => scopes.get(id))
+    .filter((term): term is { catalogue: TaxonomyCatalogue; name: string } => {
+      // An id that does not resolve is `deriveFacets`' problem, not this one.
+      if (!term) return false;
+      return term.catalogue !== "both" && term.catalogue !== catalogue;
+    });
+
+  if (wrong.length > 0) {
+    const names = wrong.map((term) => term.name).join(", ");
+    throw new ValidationError(
+      `These do not belong to the ${catalogue} catalogue: ${names}. Remove them, or move the product to the other catalogue.`,
+      { categoryIds: [`Not available for a ${catalogue}: ${names}.`] },
+    );
+  }
 }

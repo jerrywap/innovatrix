@@ -22,6 +22,7 @@ const base: MarketplaceQueryInput = {
   page: 1,
   limit: 24,
   currency: "GBP",
+  catalogue: "script" as const,
 };
 
 const query = (overrides: Partial<MarketplaceQueryInput> = {}) =>
@@ -75,6 +76,43 @@ describe("stage one — what the index sees", () => {
     expect(
       stage(query({ customisable: false }), "$match").$match!["customization.available"],
     ).toEqual({ $ne: true });
+  });
+});
+
+describe("the catalogue split", () => {
+  const matchOf = (overrides: Partial<MarketplaceQueryInput>) =>
+    (stage(query(overrides), "$match") as { $match: Record<string, unknown> }).$match;
+
+  it("filters templates by equality", () => {
+    expect(matchOf({ catalogue: "template" }).catalogue).toEqual("template");
+  });
+
+  it("filters scripts with an $in that also matches a missing field", () => {
+    /*
+     * Asserted as `$in`, by name, because the shape is the point and it is the
+     * thing somebody will later be tempted to "tidy" into `$ne: "template"` or
+     * `"script"`.
+     *
+     * `$ne` on the middle key of `{ status, catalogue, facets }` strips the index
+     * bounds off `facets`, which is what stage one exists to preserve — it would
+     * slow every marketplace query, not just this one. A bare `"script"` would
+     * empty the catalogue for any document the backfill has not reached, with no
+     * error: a filter bug that looks like an empty database.
+     */
+    expect(matchOf({ catalogue: "script" }).catalogue).toEqual({ $in: ["script", null] });
+  });
+
+  it("adds no catalogue predicate at all for both", () => {
+    expect(matchOf({ catalogue: "all" }).catalogue).toBeUndefined();
+  });
+
+  it("keeps the catalogue in stage one, where an index can use it", () => {
+    // Not in the post-`$addFields` match: that one cannot use an index, which is
+    // the whole reason the price filter is separate from it.
+    const pipeline = query({ catalogue: "template" });
+    const first = pipeline.findIndex((s) => "$match" in s);
+    const addFieldsAt = pipeline.findIndex((s) => "$addFields" in s);
+    expect(first).toBeLessThan(addFieldsAt);
   });
 });
 
@@ -132,6 +170,30 @@ describe("the price range filter", () => {
     expect((pipeline[last]! as { $match: Record<string, unknown> }).$match).toEqual({
       "activePrice.amount": { $gte: 10_000 },
     });
+  });
+
+  it("filters free as a bound on the same field, not a separate mechanism", () => {
+    const pipeline = query({ free: true });
+    const last = pipeline.findLastIndex((s) => "$match" in s);
+    expect((pipeline[last]! as { $match: Record<string, unknown> }).$match).toEqual({
+      "activePrice.amount": { $lte: 0 },
+    });
+  });
+
+  it("lets free win over a numeric range rather than intersecting the two", () => {
+    // `?free=true&maxPrice=50000` is a contradiction the URL can express and
+    // nobody means. Intersecting would silently produce `$lte: 0, $lte: 50000`.
+    const pipeline = query({ free: true, minPrice: 10_000, maxPrice: 50_000 });
+    const last = pipeline.findLastIndex((s) => "$match" in s);
+    expect((pipeline[last]! as { $match: Record<string, unknown> }).$match).toEqual({
+      "activePrice.amount": { $lte: 0 },
+    });
+  });
+
+  it("adds no stage for free:false, so 'not free' is not a filter", () => {
+    const pipeline = query({ free: false });
+    // Only stage one matches; there is no second `$match`.
+    expect(pipeline.filter((s) => "$match" in s)).toHaveLength(1);
   });
 });
 

@@ -24,6 +24,10 @@ import { orders } from "@/repositories/order.repository";
 import { payments } from "@/repositories/payment.repository";
 import { clawBackEarnings, recordEarnings } from "@/services/vendors/ledger-service";
 import { driverFor } from "./registry";
+import {
+  cancelProvisioning,
+  requestProvisioning,
+} from "@/services/checkout/provisioning-service";
 
 /**
  * The one fulfilment path — §13, §62, §87, §64.
@@ -59,7 +63,12 @@ import { driverFor } from "./registry";
  * attack and neither should ship licences.
  */
 
-export type FulfilmentSource = "webhook" | "reconciliation" | `manual:${string}`;
+export type FulfilmentSource =
+  | "webhook"
+  | "reconciliation"
+  /** A £0 order, settled in-process by `settleFreeOrder`. No third party asked. */
+  | "free"
+  | `manual:${string}`;
 
 export interface FulfilmentResult {
   outcome:
@@ -77,7 +86,10 @@ export async function processPaymentSucceeded(input: {
   fallbackReference?: string;
   source: FulfilmentSource;
   actor: AuditActor;
-  /** Manual payments have no provider to ask; staff confirmation is the proof. */
+  /**
+   * Manual payments have no provider to ask; staff confirmation is the proof.
+   * A `free` payment has none either, and its amount is zero on our own record.
+   */
   skipVerification?: boolean;
 }): Promise<FulfilmentResult> {
   await connectToDatabase();
@@ -271,6 +283,18 @@ export async function processPaymentSucceeded(input: {
     });
     throw error;
   }
+
+  /*
+   * A paid plugin needs somebody to hand over a key — **after** the commit.
+   *
+   * Deliberately outside the transaction, per the dispatch-after-commit rule in
+   * `lib/events`: a notification sent from inside a transaction that then aborts
+   * has told a vendor about work that does not exist. The line was already
+   * stamped `pending` at checkout, so nothing is lost if this throws — the queue
+   * query finds it regardless, and it is the queue, not the notification, that is
+   * the record.
+   */
+  await requestProvisioning(order);
 
   return {
     outcome: "fulfilled",
@@ -549,6 +573,16 @@ export async function processPaymentRefunded(input: {
       { $set: { status: "suspended" } },
       { session },
     );
+
+    /*
+     * A plugin nobody handed over yet is cancelled, in the same transaction and
+     * for the same reason the entitlements are suspended: a refunded order must
+     * not leave an open obligation in somebody's queue.
+     *
+     * Only `pending` lines move. A key already sent cannot be unsent, so
+     * `provided` has no outbound edge — that case is a conversation.
+     */
+    await cancelProvisioning(order, session);
 
     /*
      * Claw back the vendor's earning — vendor ticket 08.

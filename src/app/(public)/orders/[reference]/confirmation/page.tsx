@@ -67,6 +67,13 @@ export default async function Page({ params }: PageProps<"/orders/[reference]/co
    * of a payment.
    */
   const awaitingTransfer = !paid && order.paymentMethod === "offline";
+
+  /*
+   * A £0 order. Paid, but paid with nothing — so "we've emailed you a receipt"
+   * is the wrong sentence in the same way "nothing more is needed from you" was
+   * wrong for a transfer. There is no receipt for a free thing.
+   */
+  const free = paid && order.total.amount === 0;
   const offline = awaitingTransfer ? await offlinePaymentAvailability() : null;
 
   return (
@@ -79,15 +86,21 @@ export default async function Page({ params }: PageProps<"/orders/[reference]/co
         )}
 
         <h1 className="font-display text-[26px] tracking-[-0.02em]">
-          {paid ? "Thank you — your order is confirmed" : "Your order is placed"}
+          {free
+            ? "It's yours — enjoy"
+            : paid
+              ? "Thank you — your order is confirmed"
+              : "Your order is placed"}
         </h1>
 
         <p className="text-muted-foreground max-w-[52ch] text-[14px] leading-relaxed">
-          {paid
-            ? "We've emailed you a receipt. Your downloads and licence keys are in My Software."
-            : awaitingTransfer
-              ? "Send the payment using the details below and we'll release your software as soon as it lands."
-              : "We're still waiting for your payment provider to confirm. Nothing more is needed from you — we'll email you the moment it clears."}
+          {free
+            ? "Nothing to pay. Your download and licence key are in My Software, ready now."
+            : paid
+              ? "We've emailed you a receipt. Your downloads and licence keys are in My Software."
+              : awaitingTransfer
+                ? "Send the payment using the details below and we'll release your software as soon as it lands."
+                : "We're still waiting for your payment provider to confirm. Nothing more is needed from you — we'll email you the moment it clears."}
         </p>
 
         <p className="text-subtle font-mono text-[12px]">{order.reference}</p>

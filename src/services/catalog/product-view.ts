@@ -5,6 +5,7 @@ import type {
   DeliveryMethod,
   DemoExposure,
   LicenceType,
+  ProductCatalogue,
   ProductMediaKind,
   ProductStatus,
   TestingChecklistStatus,
@@ -92,6 +93,8 @@ export interface AdminProductView {
   status: ProductStatus;
   /** Vendor ticket 06. Absent ⇒ `archive`, the direct-upload path. */
   deliveryMethod?: DeliveryMethod;
+  /** Which catalogue it is in — the classification form's first control. */
+  catalogue: ProductCatalogue;
   categoryIds: string[];
   industryIds: string[];
   technologyIds: string[];
@@ -205,6 +208,7 @@ export function toAdminProductView(product: ProductDoc): AdminProductView {
     ...(product.description ? { description: product.description } : {}),
     status: product.status,
     ...(product.deliveryMethod ? { deliveryMethod: product.deliveryMethod } : {}),
+    catalogue: product.catalogue ?? "script",
     categoryIds: product.categoryIds.map(String),
     industryIds: product.industryIds.map(String),
     technologyIds: product.technologyIds.map(String),

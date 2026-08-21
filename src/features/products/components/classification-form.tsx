@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -11,11 +12,13 @@ import {
 import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { saveClassificationAction } from "../actions";
 import type { AdminProductView } from "@/services/catalog/product-view";
-import type { TaxonomyKind } from "@/lib/db/enums";
+import type { ProductCatalogue, TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 
 export interface TaxonomyOption {
   id: string;
   name: string;
+  /** Which catalogue's vocabulary it belongs to — `both` for most. */
+  catalogue: TaxonomyCatalogue;
 }
 
 /**
@@ -46,15 +49,46 @@ export function ClassificationForm({
   nextHref: string;
   action?: SectionFormProps["action"];
 }) {
+  /*
+   * Held in state so the vocabulary below swaps the moment the catalogue changes,
+   * rather than after a save that would have been refused anyway.
+   *
+   * The server is still the authority: `saveClassification` refuses a term from
+   * the other catalogue. This is what stops the editor being offered one.
+   */
+  const [catalogue, setCatalogue] = useState<ProductCatalogue>(product.catalogue ?? "script");
+
+  const inCatalogue = (option: TaxonomyOption) =>
+    option.catalogue === "both" || option.catalogue === catalogue;
+
   return (
     <SectionForm action={action} productId={product.id} nextHref={nextHref}>
+      <Field
+        label="Catalogue"
+        hint="Templates are browsed at /templates and never appear in script search. Changing this changes which categories are available."
+      >
+        <Select
+          name="catalogue"
+          value={catalogue}
+          onValueChange={(value) => setCatalogue(value as ProductCatalogue)}
+        >
+          <SelectTrigger className="w-full sm:w-[280px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="script">Application script</SelectItem>
+            <SelectItem value="template">Website template</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+
       <FieldGroup
         title="Categories"
         description="What kind of software this is. Shown as a filter and as a landing page."
       >
         <CheckboxList
           name="categoryIds"
-          options={options.category}
+          options={options.category.filter(inCatalogue)}
           selected={product.categoryIds}
         />
       </FieldGroup>
@@ -65,7 +99,7 @@ export function ClassificationForm({
       >
         <CheckboxList
           name="industryIds"
-          options={options.industry}
+          options={options.industry.filter(inCatalogue)}
           selected={product.industryIds}
         />
       </FieldGroup>
@@ -76,21 +110,21 @@ export function ClassificationForm({
       >
         <CheckboxList
           name="technologyIds"
-          options={options.technology}
+          options={options.technology.filter(inCatalogue)}
           selected={product.technologyIds}
         />
       </FieldGroup>
 
       <Field
         label="Product type"
-        hint="One only — a product is a complete application or a script, not both."
+        hint="One only, and it says what kind of thing this is *within* its catalogue — not which catalogue it is in."
       >
         <Select name="productTypeId" defaultValue={product.productTypeId ?? ""}>
           <SelectTrigger className="w-full sm:w-[280px]">
             <SelectValue placeholder="Choose a type" />
           </SelectTrigger>
           <SelectContent>
-            {options.product_type.map((option) => (
+            {options.product_type.filter(inCatalogue).map((option) => (
               <SelectItem key={option.id} value={option.id}>
                 {option.name}
               </SelectItem>

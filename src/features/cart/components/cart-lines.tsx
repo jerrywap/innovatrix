@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
 import { Minus, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { FreeBadge } from "@/components/free-badge";
 import { MoneyDisplay } from "@/components/money-display";
 import { money } from "@/lib/money";
 import { removeLineAction, setQuantityAction } from "../actions";
@@ -61,8 +62,18 @@ export function CartLines({
                 <li key={addon.lineId} className="flex items-center justify-between gap-3">
                   <span className="text-[13px]">{addon.displayName}</span>
                   <span className="flex items-center gap-3">
-                    {addon.unitPrice.amount === 0 ? (
+                    {/*
+                      Two different zeroes, and this used to show "quoted" for
+                      both. A `quote_required` add-on is priced later; a free one
+                      is priced now, at nothing. `addonPricingType` is what tells
+                      them apart — without it a free plugin read as "quoted",
+                      which invites the customer to wait for a quote that is
+                      never coming.
+                    */}
+                    {addon.addonPricingType === "quote_required" ? (
                       <span className="text-subtle text-[12px]">quoted</span>
+                    ) : addon.unitPrice.amount === 0 ? (
+                      <FreeBadge size="compact" />
                     ) : (
                       <MoneyDisplay value={addon.lineTotal} className="text-[13px]" />
                     )}

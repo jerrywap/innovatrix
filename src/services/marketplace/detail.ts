@@ -2,11 +2,12 @@ import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { connectToDatabase } from "@/lib/db/client";
 import { Entitlement } from "@/lib/db/models/commerce";
-import { Product, parseFacet, type ProductDoc } from "@/lib/db/models/catalog";
-import type { LicenceType, TaxonomyKind } from "@/lib/db/enums";
+import { FACET_PREFIX, Product, parseFacet, type ProductDoc } from "@/lib/db/models/catalog";
+import type { LicenceType, ProductCatalogue, TaxonomyKind } from "@/lib/db/enums";
 import type { RichTextDocument } from "@/lib/rich-text/schema";
 import { toObjectId } from "@/lib/db/base";
 import type { StorefrontCurrency } from "@/config/storefront";
+import { productCatalogueFilter } from "@/config/catalogue";
 import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG, productTag } from "@/services/catalog/cache";
 import { listCustomerVersions } from "@/services/catalog/version-service";
@@ -78,6 +79,8 @@ export interface DetailVersion {
 
 export interface ProductDetail {
   id: string;
+  /** Which storefront it belongs to — so related products stay in it. */
+  catalogue: ProductCatalogue;
   slug: string;
   name: string;
   summary: string;
@@ -176,6 +179,7 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
 
   return {
     id: String(product._id),
+    catalogue: product.catalogue ?? "script",
     slug: product.slug,
     name: product.name,
     summary: product.summary,
@@ -332,9 +336,17 @@ export async function getRelatedProducts(
   cacheTag(CATALOG_TAG, TAXONOMY_TAG, productTag(detail.slug));
   cacheLife(CACHE_PROFILE.product);
 
+  /*
+   * Through `FACET_PREFIX`, not hand-written strings.
+   *
+   * These were `cat:` and `ind:` literals, which happened to be right and would
+   * have gone silently wrong the first time a prefix was renamed or a dimension
+   * added — the failure being "related products stops finding anything", with no
+   * error. `FACET_PREFIX` is the one place that decides.
+   */
   const facets = [
-    ...detail.taxonomy.categories.map((term) => `cat:${term.slug}`),
-    ...detail.taxonomy.industries.map((term) => `ind:${term.slug}`),
+    ...detail.taxonomy.categories.map((term) => `${FACET_PREFIX.category}:${term.slug}`),
+    ...detail.taxonomy.industries.map((term) => `${FACET_PREFIX.industry}:${term.slug}`),
   ];
   if (facets.length === 0) return [];
 
@@ -347,6 +359,13 @@ export async function getRelatedProducts(
         deletedAt: null,
         _id: { $ne: toObjectId(detail.id) },
         facets: { $in: facets },
+        /*
+         * Related products stay in the same catalogue. Another of the three
+         * readers that skip stage one, so `primaryMatch`'s predicate never gets
+         * here — and "you might also like" pointing from a Tailwind template to a
+         * Laravel CRM is the split leaking at the most visible moment.
+         */
+        ...productCatalogueFilter(detail.catalogue),
       },
     },
     ...(buildMarketplacePipeline({
@@ -354,10 +373,15 @@ export async function getRelatedProducts(
       page: 1,
       limit,
       currency,
+      catalogue: detail.catalogue,
     }).slice(1) as unknown as PipelineStage[]),
   ] as PipelineStage[]);
 
-  return toCardsForRelated(result?.rows ?? [], await getTaxonomyIndex(), currency);
+  return toCardsForRelated(
+    result?.rows ?? [],
+    await getTaxonomyIndex(detail.catalogue),
+    currency,
+  );
 }
 
 /* ────────────────────────────────────────────── ownership */

@@ -66,6 +66,7 @@ export default async function TaxonomiesPage() {
       ...(taxonomy.icon ? { icon: taxonomy.icon } : {}),
       sortOrder: taxonomy.sortOrder,
       isActive: taxonomy.isActive,
+      catalogue: taxonomy.catalogue ?? "both",
       usageCount: usageById.get(String(taxonomy._id)) ?? 0,
     });
   }

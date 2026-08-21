@@ -77,6 +77,10 @@ export default async function Page({ params }: PageProps<"/vendors/[slug]">) {
       sort: "latest",
       page: 1,
       limit: MAX_LIMIT,
+      // `"all"` deliberately: a vendor's storefront is *theirs*, and a vendor who
+      // sells both a script and a template has one shop, not two. Revisited if and
+      // when the catalogues become separate sites.
+      catalogue: "all",
     }),
   ]);
 

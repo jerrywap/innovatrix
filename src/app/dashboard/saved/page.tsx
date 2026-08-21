@@ -49,7 +49,9 @@ export default async function Page() {
     .map((id) => slugById.get(id))
     .filter((slug): slug is string => Boolean(slug));
 
-  const cards = await getCardsBySlug(slugs, currency);
+  // `"all"`: a saved list is the customer's own, and they may have saved from
+  // either catalogue. Scoping it would silently hide half of it.
+  const cards = await getCardsBySlug(slugs, currency, "all");
 
   return (
     <div className="flex flex-col gap-6">

@@ -12,6 +12,7 @@ import { VALID_ENV } from "@/test/env";
 let mongoose: typeof import("mongoose").default;
 let checkout: typeof import("./checkout-service");
 let cartService: typeof import("@/services/cart/cart-service");
+let provisioning: typeof import("./provisioning-service");
 let catalog: typeof import("@/lib/db/models/catalog");
 let commerce: typeof import("@/lib/db/models/commerce");
 
@@ -38,6 +39,7 @@ beforeAll(async () => {
   mongoose = (await import("mongoose")).default;
   checkout = await import("./checkout-service");
   cartService = await import("@/services/cart/cart-service");
+  provisioning = await import("./provisioning-service");
   catalog = await import("@/lib/db/models/catalog");
   commerce = await import("@/lib/db/models/commerce");
 
@@ -543,14 +545,17 @@ describe("the commission rate is snapshotted onto the line", () => {
   });
 
   /**
-   * An **add-on** on a vendor's product is still the platform's revenue.
+   * An **add-on** on a vendor's product is the **vendor's** revenue.
    *
-   * Installation and branding are work CoSetup does; a vendor who wants paid services
-   * around their product is a different feature. The line therefore carries no vendor and no
-   * rate, so no earning is ever written for it — asserted rather than left to the comment on
-   * `buildOrderLines`.
+   * This assertion used to read the other way, on the assumption that an add-on is always
+   * platform-delivered work — installation, branding. An add-on is now also how a plugin is
+   * sold: the vendor prices it and the vendor hands it over, so they earn on it at the same
+   * rate as the licence beside it.
+   *
+   * Asserted rather than left to the comment on `buildOrderLines`, and it is what makes
+   * `recordEarnings` write an earning for the line.
    */
-  it("leaves an add-on on a vendor product with no vendor and no rate", async () => {
+  it("gives an add-on on a vendor product the vendor and the same rate", async () => {
     const atlas = await vendorProduct(1500);
 
     await catalog.Product.updateOne(
@@ -579,10 +584,10 @@ describe("the commission rate is snapshotted onto the line", () => {
 
     const addon = order.items.find((item) => item.kind === "addon");
     expect(addon).toBeTruthy();
-    expect(addon!.vendorId).toBeUndefined();
-    expect(addon!.commissionBasisPoints).toBeUndefined();
+    expect(String(addon!.vendorId)).toBe(VENDOR);
+    expect(addon!.commissionBasisPoints).toBe(1500);
 
-    // The licence line beside it is still the vendor's, so this is not vacuous.
+    // The licence line beside it carries the same rate, so this is not vacuous.
     const licence = order.items.find((item) => item.kind === "product_licence");
     expect(licence!.commissionBasisPoints).toBe(1500);
   });
@@ -593,5 +598,147 @@ describe("the commission rate is snapshotted onto the line", () => {
     const { order } = await place();
     expect(order.items[0]!.vendorId).toBeUndefined();
     expect(order.items[0]!.commissionBasisPoints).toBeUndefined();
+  });
+});
+
+/**
+ * A paid plugin's handover.
+ *
+ * A plugin ships no bytes — the vendor sends a key out of band — so "delivered"
+ * has to be recorded rather than inferred. What is worth an integration test
+ * here is the pair of things a unit test cannot reach: the guarded update that
+ * stops two people providing the same line, and the ownership check that keeps
+ * one vendor out of another's.
+ */
+describe("plugin provisioning", () => {
+  const VENDOR = "6c10c46f6c887b38e2f0e0f1";
+  const OTHER_VENDOR = "6c10c46f6c887b38e2f0e0f2";
+
+  async function orderWithPlugin(commissionBasisPoints = 1500) {
+    const atlas = await product({ amount: 10_000 });
+
+    await mongoose.connection.collection("vendors").insertOne({
+      _id: new mongoose.Types.ObjectId(VENDOR),
+      displayName: "Northwind Labs",
+      slug: "northwind-labs",
+      contactEmail: "hi@northwind.test",
+      country: "GB",
+      status: "verified",
+      commissionBasisPoints,
+    } as never);
+
+    await catalog.Product.updateOne(
+      { _id: atlas._id },
+      {
+        $set: {
+          vendorId: new mongoose.Types.ObjectId(VENDOR),
+          vendorSlug: "northwind-labs",
+          vendorName: "Northwind Labs",
+          addons: [
+            {
+              key: "stripe",
+              name: "Stripe gateway",
+              pricingType: "fixed",
+              prices: [{ currency: "GBP", amount: 4_900 }],
+            },
+          ],
+        },
+      },
+    );
+
+    await cartService.addItem(
+      OWNER,
+      { productId: String(atlas._id), addonKeys: ["stripe"] },
+      { currency: "GBP", userId: USER },
+    );
+
+    const { order } = await place();
+    // Paid, because the queue is "owed *and* paid for".
+    await commerce.Order.updateOne(
+      { _id: order._id },
+      { $set: { status: "paid", paidAt: new Date() } },
+    );
+
+    return commerce.Order.findById(order._id).lean();
+  }
+
+  it("stamps a plugin line pending at checkout, and leaves the licence alone", async () => {
+    const order = await orderWithPlugin();
+
+    const addon = order!.items.find((item) => item.kind === "addon");
+    const licence = order!.items.find((item) => item.kind === "product_licence");
+
+    expect(addon!.provisioning?.status).toBe("pending");
+    // A licence has an entitlement and a download; it needs no handover record.
+    expect(licence!.provisioning).toBeUndefined();
+  });
+
+  it("shows the line to its own vendor and to nobody else", async () => {
+    const order = await orderWithPlugin();
+
+    const mine = await provisioning.listPending({ vendorId: VENDOR });
+    expect(mine.map((row) => row.lineId)).toContain(
+      order!.items.find((item) => item.kind === "addon")!.lineId,
+    );
+
+    // Another vendor's queue, and the first-party queue, are both empty — the
+    // per-line check, not just the document-level `$elemMatch`.
+    const someoneElse = await provisioning.listPending({ vendorId: OTHER_VENDOR });
+    expect(someoneElse).toHaveLength(0);
+    expect(await provisioning.listPending({ firstPartyOnly: true })).toHaveLength(0);
+  });
+
+  it("refuses a vendor a line they do not own", async () => {
+    const order = await orderWithPlugin();
+    const lineId = order!.items.find((item) => item.kind === "addon")!.lineId;
+
+    await expect(
+      provisioning.markProvided(
+        { orderReference: order!.reference, lineId },
+        { vendorId: OTHER_VENDOR },
+        { type: "staff", userId: USER },
+      ),
+    ).rejects.toThrow();
+
+    const reread = await commerce.Order.findById(order!._id).lean();
+    expect(reread!.items.find((item) => item.kind === "addon")!.provisioning?.status).toBe(
+      "pending",
+    );
+  });
+
+  it("marks it provided once, and refuses the second attempt", async () => {
+    const order = await orderWithPlugin();
+    const lineId = order!.items.find((item) => item.kind === "addon")!.lineId;
+
+    await provisioning.markProvided(
+      { orderReference: order!.reference, lineId },
+      { vendorId: VENDOR },
+      { type: "staff", userId: USER },
+    );
+
+    const reread = await commerce.Order.findById(order!._id).lean();
+    const addon = reread!.items.find((item) => item.kind === "addon")!;
+    expect(addon.provisioning?.status).toBe("provided");
+    expect(addon.provisioning?.providedAt).toBeTruthy();
+
+    /*
+     * Two layers refuse a second attempt, and which one fires depends on timing.
+     *
+     * Sequentially — this case — the transition assertion sees `provided` and
+     * refuses first. Concurrently, two callers can both read `pending` and both
+     * pass that assertion, which is what the status in the update filter is for:
+     * the loser modifies nothing and gets a `ConflictError`. Asserting the
+     * sequential message here rather than pretending to test the race.
+     */
+    await expect(
+      provisioning.markProvided(
+        { orderReference: order!.reference, lineId },
+        { vendorId: VENDOR },
+        { type: "staff", userId: USER },
+      ),
+    ).rejects.toThrow(/cannot move from provided/);
+
+    // And it left the queue.
+    expect(await provisioning.listPending({ vendorId: VENDOR })).toHaveLength(0);
   });
 });
