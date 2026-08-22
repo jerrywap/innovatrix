@@ -5,6 +5,12 @@ import { loadVendorWizardProduct } from "@/features/products/wizard";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { ReadinessGaps } from "@/features/products/components/readiness-gaps";
 import { SubmitPanel } from "@/features/vendors/components/submit-panel";
+import { TemplateSiblingPanel } from "@/features/products/components/template-sibling-panel";
+import { stepHref } from "@/features/products/steps";
+import {
+  createVendorTemplateSiblingAction,
+  unlinkVendorTemplateSiblingAction,
+} from "@/features/vendors/product-actions";
 import { ReviewHistory } from "@/features/vendors/components/review-history";
 import { products } from "@/repositories/product.repository";
 import { toVendorReviewNotes } from "@/services/catalog/product-view";
@@ -44,6 +50,16 @@ export default async function Page({
   const doc = await products.findScoped(id, { vendorId });
   if (!doc) notFound();
 
+  // The other half of the pair, both scoped to this vendor. `findTemplateSiblingOf`
+  // is not scoped itself, so the catalogue check plus the fact that the sibling was
+  // created under this vendor's scope is what keeps it theirs; the link only ever
+  // navigates within their own wizard.
+  const sibling =
+    (doc.catalogue ?? "script") === "script" ? await products.findTemplateSiblingOf(id) : null;
+  const linkedScript = doc.scriptListingId
+    ? await products.findScoped(String(doc.scriptListingId), { vendorId })
+    : null;
+
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="review" />
@@ -63,6 +79,35 @@ export default async function Page({
         status={product.status}
         isPublishable={readiness.isPublishable}
         attestationText={ATTESTATION_TEXT}
+      />
+
+      <TemplateSiblingPanel
+        productId={product.id}
+        catalogue={doc.catalogue ?? "script"}
+        licencePackageCount={doc.licencePackages.length}
+        hrefFor={(productId) => stepHref(productId, "basics", "vendor")}
+        action={createVendorTemplateSiblingAction}
+        unlinkAction={unlinkVendorTemplateSiblingAction}
+        {...(sibling
+          ? {
+              sibling: {
+                id: String(sibling._id),
+                name: sibling.name,
+                slug: sibling.slug,
+                status: sibling.status,
+              },
+            }
+          : {})}
+        {...(linkedScript
+          ? {
+              linkedScript: {
+                id: String(linkedScript._id),
+                name: linkedScript.name,
+                slug: linkedScript.slug,
+                status: linkedScript.status,
+              },
+            }
+          : {})}
       />
 
       <ReviewHistory notes={toVendorReviewNotes(doc)} />

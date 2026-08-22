@@ -63,6 +63,21 @@ describe("schema paths that a scope filter depends on", () => {
    * `/templates` serves the entire catalogue. No error, no empty page: the wrong
    * rows, looking right. That is the exact incident this file was written after.
    */
+  /**
+   * The linked-listing edge — one template, one full script.
+   *
+   * `strictQuery: true` drops a filter on an undeclared path, so a stale schema
+   * turns `findOne({ scriptListingId: id })` into `findOne({})` — an arbitrary
+   * product, with no error. The authoring screen would then report every script as
+   * already linked, and `softDelete` would refuse deletions at random.
+   *
+   * `syncIndexes` also builds from the schema, so a missing path silently means a
+   * missing **partial unique index** — and then two templates per script.
+   */
+  it("declares the path the linked-listing lookup depends on", () => {
+    expect(Product.schema.path("scriptListingId")).toBeDefined();
+  });
+
   it("declares the paths the catalogue split depends on", () => {
     expect(Product.schema.path("catalogue")).toBeDefined();
     expect(Taxonomy.schema.path("catalogue")).toBeDefined();

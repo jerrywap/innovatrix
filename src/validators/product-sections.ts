@@ -84,6 +84,27 @@ export const productClassificationSchema = z.object({
   productTypeId: objectIdSchema.optional(),
 });
 
+/**
+ * Also listing the front-end as a website template.
+ *
+ * `confirm` is a real field rather than inferred from the price map, so an empty
+ * form submitted by accident is a validation error rather than a product. The
+ * refinement is what turns the checkbox from decoration into a gate.
+ */
+export const templateSiblingSchema = z
+  .object({
+    confirm: checkboxSchema,
+    prices: priceMapSchema,
+  })
+  .refine((value) => value.confirm, {
+    path: ["confirm"],
+    error: "Tick the box to create the website template listing.",
+  })
+  .refine((value) => value.prices.length > 0, {
+    path: ["prices"],
+    error: "Give the template listing a price in at least one currency.",
+  });
+
 /* ────────────────────────────────────────────── 3. content */
 
 export const productContentSchema = z.object({

@@ -86,6 +86,16 @@ const CARD_PROJECTION = {
   slug: 1,
   name: 1,
   summary: 1,
+  /*
+   * Which catalogue it is in, so the card can say "Website Template" or "Full
+   * Script" rather than leaving a visitor to infer it from the URL they arrived
+   * by.
+   *
+   * It matters most where the two catalogues meet: search results, a saved list
+   * and a vendor storefront all mix them, and on those screens the type is the
+   * difference between a front-end you style and an application you run.
+   */
+  catalogue: 1,
   facets: 1,
   media: { $slice: ["$media", 1] },
   prices: 1,

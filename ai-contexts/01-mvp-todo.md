@@ -425,7 +425,7 @@ Landing     → Build Custom Software → AI Assistant → Request → Staff →
 
 | SN | Task | FE | BE | Ticket |
 |----|------|:--:|:--:|--------|
-| 21.1 | Public content: `/services`, `/pricing`, `/terms`, `/privacy`; drop the `/concepts` footer link | [x] | — | smoke 01 |
+| 21.1 | Public content: `/services`, ~~`/pricing`~~ (deleted 2026-08-22), `/terms`, `/privacy`; drop the `/concepts` footer link | [x] | — | smoke 01 |
 | 21.2 | Landing hero — a real search input and real counts; ~100-item suggestion pool sampled 4 at a time | [x] | [x] | smoke 02 |
 | 21.3 | **Signed-out visitors cannot use the assistant** — owner-less conversations are persisted and then refused | [x] | [x] | smoke 03 |
 | 21.4 | Google sign-in UI; **an SMTP driver** — neither is a config-only change | [x] | [x] | smoke 04 |

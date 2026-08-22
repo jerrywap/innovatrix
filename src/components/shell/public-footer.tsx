@@ -21,9 +21,19 @@ const COLUMNS: ReadonlyArray<{
     heading: "Platform",
     links: [
       { label: "Marketplace", href: "/marketplace" },
+      // Added with the catalogue split — `/templates` shipped with a header entry
+      // and no footer one, so the footer was quietly a page behind.
+      { label: "Templates", href: "/templates" },
       { label: "Custom build", href: "/custom-software" },
+      /*
+       * `/services` lives here and **only** here now.
+       *
+       * It came out of `PUBLIC_NAV` rather than being deleted, so this link is the
+       * one remaining way to find it from chrome. Removing it would orphan a real
+       * page — the thing vendor ticket 01 records happening to `/sell` for six
+       * tickets.
+       */
       { label: "Services", href: "/services" },
-      { label: "Pricing", href: "/pricing" },
     ],
   },
   {

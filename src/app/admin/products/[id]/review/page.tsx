@@ -4,6 +4,9 @@ import { PRODUCT_TRANSITIONS, nextStates } from "@/lib/db/states";
 import { loadWizardProduct } from "@/features/products/wizard";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { PublishPanel } from "@/features/products/components/publish-panel";
+import { TemplateSiblingPanel } from "@/features/products/components/template-sibling-panel";
+import { stepHref } from "@/features/products/steps";
+import { products } from "@/repositories/product.repository";
 
 export const metadata: Metadata = { title: "Review" };
 
@@ -21,6 +24,19 @@ export default async function ReviewPage({ params }: PageProps<"/admin/products/
   const { id } = await params;
   const { product, readiness } = await loadWizardProduct(id);
 
+  /*
+   * The other half of the pair, whichever half this is.
+   *
+   * One indexed read each way and only on an authoring screen, so no `<Suspense>`:
+   * the guard above has already resolved and there is no `loading.tsx` over this
+   * segment to flush a shell early.
+   */
+  const sibling =
+    product.catalogue === "script" ? await products.findTemplateSiblingOf(product.id) : null;
+  const linkedScript = product.scriptListingId
+    ? await products.findById(product.scriptListingId)
+    : null;
+
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="review" />
@@ -29,6 +45,32 @@ export default async function ReviewPage({ params }: PageProps<"/admin/products/
         status={product.status}
         nextStates={nextStates(PRODUCT_TRANSITIONS, product.status)}
         gaps={readiness.gaps}
+      />
+      <TemplateSiblingPanel
+        productId={product.id}
+        catalogue={product.catalogue}
+        licencePackageCount={product.licencePackages.length}
+        hrefFor={(productId) => stepHref(productId, "basics", "admin")}
+        {...(sibling
+          ? {
+              sibling: {
+                id: String(sibling._id),
+                name: sibling.name,
+                slug: sibling.slug,
+                status: sibling.status,
+              },
+            }
+          : {})}
+        {...(linkedScript
+          ? {
+              linkedScript: {
+                id: String(linkedScript._id),
+                name: linkedScript.name,
+                slug: linkedScript.slug,
+                status: linkedScript.status,
+              },
+            }
+          : {})}
       />
     </div>
   );

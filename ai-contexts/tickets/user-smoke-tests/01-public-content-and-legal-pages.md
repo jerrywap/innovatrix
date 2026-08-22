@@ -1,5 +1,13 @@
 # S01 — Public content & legal pages
 
+> **`/pricing` has since been deleted (2026-08-22).** This ticket wrote it, and the reasoning
+> in it was sound — no invented tiers, explain the *shapes* of pricing and send people to the
+> catalogue for numbers. What changed is the judgement that a page whose job is to point
+> elsewhere is a hop rather than a destination: the catalogue answers "what does it cost"
+> itself. `/services` was dropped from the header at the same time but still exists and is
+> still linked from the footer. Everything below about `/services`, `/terms` and `/privacy`
+> still holds; read the `/pricing` sections as history.
+
 **Source:** ticket 30, lines 1–6 · **Severity:** minor (terms/privacy block launch)
 **Depends on:** — · **Blocks:** launch · **Size:** M
 **Spec:** §4.1 (public website), §93 (SEO)
@@ -105,8 +113,9 @@ illustrative set. Smoke ticket 02 removes it there.
 
 ## Acceptance criteria
 
-- [ ] `/services` and `/pricing` carry real copy that describes something the platform can
-      actually do today, with working calls to action.
+- [ ] `/services` and ~~`/pricing`~~ carry real copy that describes something the platform can
+      actually do today, with working calls to action. **`/pricing` was deleted on
+      2026-08-22** — see the note at the top. `/services` still stands.
 - [ ] `/terms` and `/privacy` either carry approved legal text or are not linked and not
       indexed — never a live, indexed page reading "not yet published".
 - [ ] No stub page appears in `sitemap.ts` or is indexable.

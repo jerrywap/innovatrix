@@ -95,6 +95,13 @@ export interface AdminProductView {
   deliveryMethod?: DeliveryMethod;
   /** Which catalogue it is in — the classification form's first control. */
   catalogue: ProductCatalogue;
+  /**
+   * Set on a website template that is the front-end of a full script.
+   *
+   * The review step reads it to show which script, and to offer the unlink that
+   * `saveClassification`'s catalogue refusal depends on.
+   */
+  scriptListingId?: string;
   categoryIds: string[];
   industryIds: string[];
   technologyIds: string[];
@@ -209,6 +216,7 @@ export function toAdminProductView(product: ProductDoc): AdminProductView {
     status: product.status,
     ...(product.deliveryMethod ? { deliveryMethod: product.deliveryMethod } : {}),
     catalogue: product.catalogue ?? "script",
+    ...(product.scriptListingId ? { scriptListingId: String(product.scriptListingId) } : {}),
     categoryIds: product.categoryIds.map(String),
     industryIds: product.industryIds.map(String),
     technologyIds: product.technologyIds.map(String),

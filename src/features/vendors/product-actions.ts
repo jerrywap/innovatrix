@@ -14,12 +14,17 @@ import {
   productClassificationSchema,
   productDemoSchema,
   productTestingSchema,
+  templateSiblingSchema,
 } from "@/validators/product-sections";
 import { richTextDocumentSchema, type RichTextDocument } from "@/lib/rich-text/schema";
 import { vendorActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
 import * as productService from "@/services/catalog/product-service";
+import {
+  createTemplateSibling,
+  unlinkTemplateSibling,
+} from "@/services/catalog/template-sibling";
 import * as reviewService from "@/services/catalog/review-service";
 import * as testingService from "@/services/catalog/testing-service";
 import { requireOwnedProduct } from "@/services/catalog/ownership";
@@ -455,6 +460,82 @@ export async function createVendorProductAction(
 
   if (!result.ok) return result;
   redirect(`${BASE}/${createdId}/classification` as Route);
+}
+
+/**
+ * Also list the front-end as a website template — the vendor's own review step.
+ *
+ * The vendor's twin of `createTemplateSiblingAction`. Same service, same schema;
+ * the differences are the two that always differ on this surface: the `verified`
+ * gate (an unverified vendor may not add to the catalogue — copied from
+ * `createVendorProductAction` above, same reason) and the **scope**, which comes
+ * from `requireVendorOrForbid()` and never from the form. A `productId` in the body
+ * is a claim, and `findScoped` is what turns it into a 404 rather than someone
+ * else's product.
+ *
+ * No permission check beyond that: decision V9 gives the vendor their own pricing,
+ * and the two-role model reserves only the payout account for the owner.
+ */
+export async function createVendorTemplateSiblingAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<never>> {
+  let createdId: string | undefined;
+
+  const result = await withAction<never>(async () => {
+    const context = await requireVendorOrForbid();
+    if (context.vendor.status !== "verified") {
+      throw new ForbiddenError("Your vendor account is not active.");
+    }
+
+    const raw = parseNestedFormData(formData);
+    const { productId } = parseInput(productIdSchema, raw);
+    const input = parseInput(templateSiblingSchema, raw);
+
+    const template = await createTemplateSibling(
+      productId,
+      { prices: input.prices },
+      vendorActor(context.user, context.vendorId),
+      { vendorId: context.vendorId },
+    );
+
+    createdId = String(template._id);
+    catalogChanged();
+    refresh(productId);
+
+    return ok(undefined as never);
+  });
+
+  if (!result.ok) return result;
+  // `basics`, not `classification` — see the staff twin for why.
+  redirect(`${BASE}/${createdId}/basics` as Route);
+}
+
+/**
+ * Break the link between a website template and its full script.
+ *
+ * Ships with the two create actions rather than later, because it is what makes
+ * `saveClassification`'s refusal to move a linked template out of the template
+ * catalogue a step rather than a wall.
+ */
+export async function unlinkVendorTemplateSiblingAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ unlinked: true }>> {
+  return withAction<{ unlinked: true }>(async () => {
+    const context = await requireVendorOrForbid();
+
+    const raw = parseNestedFormData(formData);
+    const { productId } = parseInput(productIdSchema, raw);
+
+    await unlinkTemplateSibling(productId, vendorActor(context.user, context.vendorId), {
+      vendorId: context.vendorId,
+    });
+
+    catalogChanged();
+    refresh(productId);
+    return ok({ unlinked: true as const });
+  });
 }
 
 /** The rich-text tree arrives as JSON in a hidden field. */

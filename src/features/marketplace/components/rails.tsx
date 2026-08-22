@@ -47,7 +47,7 @@ export async function DiscoveryRails({ catalogue }: { catalogue: CatalogueScope 
       {recent.length > 0 && (
         <Rail
           title="Where you left off"
-          description="The last few products you looked at. Kept on this device only."
+          description="The last few products you looked at."
           cards={recent.slice(0, 3)}
         />
       )}

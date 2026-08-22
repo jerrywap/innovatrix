@@ -21,6 +21,7 @@ import { BreadcrumbJsonLd, type Crumb } from "@/components/json-ld";
 import { DEFAULT_CURRENCY } from "@/config/storefront";
 import { PurchaseSection } from "@/features/product/purchase-section";
 import { RelatedProducts } from "@/features/product/related";
+import { CompleteApplicationBanner } from "@/features/product/complete-application-banner";
 import { ReviewsSection, reviewsForJsonLd } from "@/features/product/reviews-section";
 
 /**
@@ -171,6 +172,26 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
               </div>
               <Gallery images={product.media} productName={product.name} />
             </div>
+          )}
+
+          {/*
+            The complete-application offer, on a website template only.
+
+            Here rather than lower down because the copy leads with a *scope
+            disclosure* — "this is the front-end only" — which is most useful right
+            after the screenshots that formed the impression it corrects, and before
+            the feature list a reader would otherwise take at face value.
+
+            Below the hero deliberately: the hero `<Image priority>` is the LCP
+            element, and a suspended skeleton above it would shift it.
+
+            Suspended because it reads the currency cookie. Unsuspended, one cookie
+            read here takes the whole route out of prerendering.
+          */}
+          {product.catalogue === "template" && product.scriptListingId && (
+            <Suspense fallback={<Skeleton className="h-[74px] w-full rounded-xl" />}>
+              <CompleteApplicationBanner product={product} />
+            </Suspense>
           )}
 
           {product.description && (

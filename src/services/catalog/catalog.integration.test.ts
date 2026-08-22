@@ -30,6 +30,7 @@ import { VALID_ENV } from "@/test/env";
  */
 
 let catalog: typeof import("./product-service");
+let siblings: typeof import("./template-sibling");
 let taxonomyService: typeof import("./taxonomy-service");
 let models: typeof import("@/lib/db/models/catalog");
 let auditModel: typeof import("@/lib/db/models/communication");
@@ -52,6 +53,7 @@ beforeAll(async () => {
   mongoose = (await import("mongoose")).default;
   marketplace = await import("@/services/marketplace/pipeline");
   catalog = await import("./product-service");
+  siblings = await import("./template-sibling");
   taxonomyService = await import("./taxonomy-service");
   models = await import("@/lib/db/models/catalog");
   auditModel = await import("@/lib/db/models/communication");
@@ -602,5 +604,119 @@ describe("the catalogue predicate against real documents", () => {
   it("returns everything for both", async () => {
     await seedThree();
     expect(await slugsFor("all")).toEqual(["a-legacy-row", "a-script", "a-template"]);
+  });
+});
+
+/**
+ * One website template per full script — the **partial unique index**.
+ *
+ * Earned as an integration test for one reason a unit test cannot reach:
+ * `partialFilterExpression` behaviour is the engine's, not ours. The second case is
+ * the entire justification for the index being *partial* rather than `sparse` —
+ * `sparse` cannot express `deletedAt: null`, so a deleted template would collide
+ * with its own tombstone forever and the vendor could never make another.
+ *
+ * Appended here rather than in a new file: this one already pays the preamble and
+ * already calls `syncIndexes()`, without which the index does not exist and both
+ * assertions would pass for the wrong reason.
+ */
+describe("linked template listings", () => {
+  const PRICES = [{ currency: "GBP", amount: 7_900 }];
+
+  it("creates the template as a draft, priced, with a deterministic slug", async () => {
+    const script = await draft("Atlas CRM");
+
+    const template = await siblings.createTemplateSibling(
+      String(script._id),
+      { prices: PRICES },
+      ACTOR,
+    );
+
+    // Deterministic — not `uniqueSlug`'s random four-character fallback, which is
+    // what two products sharing a name would otherwise produce.
+    expect(template.slug).toBe("atlas-crm-template");
+    expect(template.catalogue).toBe("template");
+    expect(template.status).toBe("draft");
+    expect(String(template.scriptListingId)).toBe(String(script._id));
+
+    // The entered price lands on both lists, which is what makes
+    // `unbuyable_currency` structurally impossible on the new listing.
+    expect(template.prices).toEqual(PRICES);
+
+    // And nothing that would be false on a front-end came across.
+    expect(template.description).toBeUndefined();
+    expect(template.features ?? []).toHaveLength(0);
+    expect(template.media ?? []).toHaveLength(0);
+  });
+
+  it("refuses a second template for one script, in words", async () => {
+    const script = await draft("Atlas CRM");
+    await siblings.createTemplateSibling(String(script._id), { prices: PRICES }, ACTOR);
+
+    await expect(
+      siblings.createTemplateSibling(String(script._id), { prices: PRICES }, ACTOR),
+    ).rejects.toThrow(/already has a website template listing/);
+  });
+
+  it("lets a deleted template be replaced — the reason the index is partial", async () => {
+    const script = await draft("Atlas CRM");
+    const first = await siblings.createTemplateSibling(
+      String(script._id),
+      { prices: PRICES },
+      ACTOR,
+    );
+
+    await catalog.softDelete(String(first._id), ACTOR);
+
+    // `sparse` could not have expressed this: the tombstone would still hold the
+    // slot and the vendor could never create another.
+    const second = await siblings.createTemplateSibling(
+      String(script._id),
+      { prices: PRICES },
+      ACTOR,
+    );
+    expect(String(second._id)).not.toBe(String(first._id));
+  });
+
+  it("refuses to delete a script a template points at", async () => {
+    const script = await draft("Atlas CRM");
+    await siblings.createTemplateSibling(String(script._id), { prices: PRICES }, ACTOR);
+
+    // `restrict`, not `cascade` — deleting one saleable listing because somebody
+    // deleted the other is not a decision `softDelete` gets to make.
+    await expect(catalog.softDelete(String(script._id), ACTOR)).rejects.toThrow(
+      /template listing is linked/,
+    );
+  });
+
+  it("unlinks, and then the script can be deleted", async () => {
+    const script = await draft("Atlas CRM");
+    const template = await siblings.createTemplateSibling(
+      String(script._id),
+      { prices: PRICES },
+      ACTOR,
+    );
+
+    await siblings.unlinkTemplateSibling(String(template._id), ACTOR);
+    await expect(catalog.softDelete(String(script._id), ACTOR)).resolves.toBeUndefined();
+  });
+
+  it("refuses to move a linked template out of the template catalogue", async () => {
+    const script = await draft("Atlas CRM");
+    const template = await siblings.createTemplateSibling(
+      String(script._id),
+      { prices: PRICES },
+      ACTOR,
+    );
+
+    // A refusal rather than a silent `$unset`: clearing the link because somebody
+    // changed a dropdown is invisible data loss.
+    await expect(
+      catalog.saveClassification(
+        String(template._id),
+        { catalogue: "script", categoryIds: [], industryIds: [], technologyIds: [] },
+        ACTOR,
+      ),
+    ).rejects.toThrow(/Unlink it before moving it/);
   });
 });

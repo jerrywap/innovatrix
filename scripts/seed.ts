@@ -521,6 +521,29 @@ async function main() {
       areas: ["Branding", "Extra product layouts"],
     },
     {
+      /*
+       * The **pair** fixture: this is the front-end of `atlas-crm`.
+       *
+       * Atlas is the one to pair with — already £299 with a fulfilled order and an
+       * entitlement — so the banner on this page reads "Atlas CRM — the complete
+       * application · £299.00", which is exactly the case the feature exists for.
+       *
+       * Priced lower on purpose. The interesting demo is two prices for one app,
+       * not two listings at the same one.
+       */
+      slug: "atlas-crm-template",
+      name: "Atlas CRM",
+      summary: "The Atlas CRM front-end on its own — the screens, without the backend.",
+      catalogue: "template" as const,
+      category: "Admin dashboards",
+      industry: "Property",
+      tech: ["Tailwind CSS"],
+      price: 79,
+      adapted: 2,
+      areas: ["Branding", "Extra screens"],
+      linkTo: "atlas-crm",
+    },
+    {
       slug: "atrium-corporate",
       name: "Atrium Corporate",
       summary: "A company site — services, team, case studies and contact — free to use.",
@@ -692,7 +715,29 @@ async function main() {
 
     await seedDownloadableFile(String(product!._id), String(version!._id), product!.slug);
   }
+
+  /*
+   * Link the pair — a second pass, because the target's `_id` does not exist until
+   * its own upsert has run. The same reason `currentVersionId` is written above
+   * rather than inside the product upsert.
+   *
+   * Idempotent: `$set` to the same id on a re-seed is a no-op, and the partial
+   * unique index would refuse a second template for one script anyway.
+   */
+  let linked = 0;
+  for (const p of products) {
+    if (!("linkTo" in p) || !p.linkTo) continue;
+
+    const template = await M.Product.findOne({ slug: p.slug }).select({ _id: 1 }).lean();
+    const script = await M.Product.findOne({ slug: p.linkTo }).select({ _id: 1 }).lean();
+    if (!template || !script) continue;
+
+    await M.Product.updateOne({ _id: template._id }, { $set: { scriptListingId: script._id } });
+    linked += 1;
+  }
+
   console.log(`products: ${products.length}`);
+  if (linked > 0) console.log(`linked template pairs: ${linked}`);
   console.log(
     storageSkipReason
       ? `release files: skipped — storage not configured (${storageSkipReason})`

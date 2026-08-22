@@ -3,7 +3,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import type { PipelineStage } from "mongoose";
 import { connectToDatabase } from "@/lib/db/client";
 import { Product, Taxonomy } from "@/lib/db/models/catalog";
-import type { TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
+import type { ProductCatalogue, TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 import { DEFAULT_CURRENCY, type StorefrontCurrency } from "@/config/storefront";
 import {
   productCatalogueFilter,
@@ -47,6 +47,15 @@ export interface ProductCard {
   slug: string;
   name: string;
   summary: string;
+  /**
+   * Which catalogue it is in, rendered on the card as its type line.
+   *
+   * Not optional. The grid on `/templates` knows what it is showing, but search
+   * results, a saved list and a vendor storefront all mix the two — and there the
+   * type is the difference between a front-end you style and an application you
+   * run. `CATALOGUE_SURFACE` holds the wording.
+   */
+  catalogue: ProductCatalogue;
   /** Already resolved against the taxonomy — no `$lookup`, see below. */
   categories: Array<{ slug: string; name: string }>;
   technologies: Array<{ slug: string; name: string }>;

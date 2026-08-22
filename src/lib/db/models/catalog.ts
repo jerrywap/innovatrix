@@ -482,6 +482,29 @@ export interface ProductDoc {
    * the ones written before it existed.
    */
   catalogue: ProductCatalogue;
+  /**
+   * The **full-script listing this website template is the front-end of.**
+   *
+   * One application is often two things worth selling: the front-end on its own,
+   * and the complete working application. Those are two listings at two prices
+   * with two artefacts, and this is the edge between them.
+   *
+   * ## Three invariants, and the direction is one of them
+   *
+   * - Only a `template` may carry it. A script is never the front-end of anything.
+   * - The target is a `script`. So any edge is depth-1 by construction and a cycle
+   *   is unrepresentable — there is no cycle check anywhere because there cannot
+   *   be one.
+   * - **Absence is the norm** and means nothing beyond "this is not a linked
+   *   front-end". Unlike `catalogue`, which is `required` with a default and
+   *   therefore needed a backfill, this field has no meaning to fill in.
+   *
+   * It lives on the *template* rather than the script because the checkbox that
+   * creates the pair lives on the script — so the edge being here makes creating
+   * the sibling a **single-document insert**, with no cross-document write and no
+   * half-linked state to recover from.
+   */
+  scriptListingId?: Types.ObjectId;
   categoryIds: Types.ObjectId[];
   industryIds: Types.ObjectId[];
   technologyIds: Types.ObjectId[];
@@ -567,6 +590,7 @@ const productSchema = new Schema<ProductDoc>(
     },
 
     catalogue: { type: String, enum: PRODUCT_CATALOGUES, required: true, default: "script" },
+    scriptListingId: { type: Schema.Types.ObjectId, ref: "Product" },
     categoryIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
     industryIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
     technologyIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
@@ -634,6 +658,42 @@ const productSchema = new Schema<ProductDoc>(
 
 productSchema.index({ slug: 1 }, { unique: true });
 productSchema.index({ slugHistory: 1 });
+
+/**
+ * One website template per full script — enforced by the **database**.
+ *
+ * ## Partial, not sparse
+ *
+ * `sparse: true` is the older mechanism and cannot express a second condition, so
+ * it could not exclude soft-deleted rows: a template that was created, deleted and
+ * created again would collide with its own tombstone forever.
+ * `partialFilterExpression` can, so the guarantee is "one *live* template per
+ * script" — which is the guarantee anybody actually wants.
+ *
+ * The service still checks first, and that check is a courtesy for the error
+ * message. **This index is the authority**, the same position `slug`'s unique index
+ * takes: `createTemplateSibling` catches the duplicate key and reports it in a
+ * sentence rather than letting a stack trace out.
+ *
+ * Relaxing to several templates per script later is deleting the word `unique`.
+ * No migration.
+ *
+ * ## Deliberately its own index
+ *
+ * Not folded into `{ status, catalogue, facets }`. That index's middle key is
+ * equality-shaped on purpose and anything added to it strips `facets` of its
+ * bounds — `config/catalogue.ts` argues that at length and it is not re-argued here.
+ */
+productSchema.index(
+  { scriptListingId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      scriptListingId: { $type: "objectId" },
+      deletedAt: null,
+    },
+  },
+);
 
 /**
  * §5 faceted filtering — via `facets`, not the three id arrays.

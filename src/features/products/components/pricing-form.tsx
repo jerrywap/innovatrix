@@ -96,8 +96,14 @@ export function PricingForm({
   );
 }
 
-/** One input per storefront currency; blank means "not sold in this one". */
-function PriceMatrix({ name, prices }: { name: string; prices: readonly PriceView[] }) {
+/**
+ * One input per storefront currency; blank means "not sold in this one".
+ *
+ * Exported because the template-sibling panel needs the same control and the same
+ * hint. Duplicating fifteen lines would duplicate the sentence that makes "not sold
+ * here" expressible, and that sentence is the whole reason a blank is not a zero.
+ */
+export function PriceMatrix({ name, prices }: { name: string; prices: readonly PriceView[] }) {
   const byCurrency = new Map(prices.map((price) => [price.currency, price.amount]));
 
   return (

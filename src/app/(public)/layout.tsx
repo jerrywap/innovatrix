@@ -12,7 +12,7 @@ import {
  * The marketing shell — §4's public surface.
  *
  * A route group, so these pages keep their URLs: `/`, `/marketplace`,
- * `/pricing`.
+ * `/templates`.
  *
  * ## No `instant = false`, and that is the point of the Suspense boundary
  *

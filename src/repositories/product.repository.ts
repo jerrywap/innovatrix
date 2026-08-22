@@ -263,6 +263,29 @@ export class ProductRepository extends BaseRepository<ProductDoc> {
   }
 
   /** Retire the current slug into history, then take the new one. */
+  /**
+   * The website template listing that says it is the front-end of this script.
+   *
+   * `baseFilter()` already excludes soft-deleted rows, which matches the partial
+   * unique index's own `deletedAt: null` condition — so this and the index agree
+   * about what "already linked" means.
+   *
+   * Read on an authoring screen and by `softDelete`, never on a hot path.
+   */
+  async findTemplateSiblingOf(scriptId: string) {
+    return this.model
+      .findOne({ ...this.baseFilter(), scriptListingId: toObjectId(scriptId) })
+      .lean<ProductDoc>();
+  }
+
+  /** How many live templates point at this script — for `softDelete`'s refusal. */
+  async countTemplateSiblingsOf(scriptId: string): Promise<number> {
+    return this.model.countDocuments({
+      ...this.baseFilter(),
+      scriptListingId: toObjectId(scriptId),
+    });
+  }
+
   async changeSlug(id: string, from: string, to: string, session?: ClientSession) {
     return this.model
       .findOneAndUpdate(
