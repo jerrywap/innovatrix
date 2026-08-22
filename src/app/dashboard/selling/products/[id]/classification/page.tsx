@@ -33,6 +33,7 @@ export default async function Page({
       <ClassificationForm
         product={product}
         options={options}
+        reviewHref={stepHref(product.id, "review", "vendor")}
         nextHref={stepHref(product.id, "content", "vendor")}
         action={saveVendorClassificationAction}
       />

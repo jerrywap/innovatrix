@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -42,11 +44,20 @@ export function ClassificationForm({
   product,
   options,
   nextHref,
+  reviewHref,
   action = saveClassificationAction,
 }: {
   product: AdminProductView;
   options: Record<TaxonomyKind, TaxonomyOption[]>;
   nextHref: string;
+  /**
+   * The review step, for the signpost below the catalogue control.
+   *
+   * A resolved **string**, not a callback: `stepHref` needs the surface
+   * (`admin` or `vendor`), the page knows it and this component does not, and a
+   * function cannot cross into a client component.
+   */
+  reviewHref: Route;
   action?: SectionFormProps["action"];
 }) {
   /*
@@ -81,6 +92,29 @@ export function ClassificationForm({
           </SelectContent>
         </Select>
       </Field>
+
+      {/*
+        A signpost, not the control.
+
+        Creating the second listing lives on the **review** step, because by then
+        there is a price, media and licence packages to copy — at step two of eleven
+        there would be nothing, and the sibling would arrive empty. But this is
+        where somebody choosing between "script" and "template" thinks of it, so the
+        pointer belongs here.
+
+        Worded as *where*, not *whether*: it is accurate whether or not this product
+        already has a template listing, which this form has no way to know without a
+        query it does not otherwise need.
+      */}
+      {catalogue === "script" && (
+        <p className="text-subtle -mt-1 text-[12.5px]">
+          Selling the front-end on its own too?{" "}
+          <Link href={reviewHref} className="underline underline-offset-2">
+            That&rsquo;s on the Review step
+          </Link>
+          .
+        </p>
+      )}
 
       <FieldGroup
         title="Categories"

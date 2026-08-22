@@ -24,6 +24,7 @@ export default async function ClassificationPage({
       <ClassificationForm
         product={product}
         options={options}
+        reviewHref={stepHref(product.id, "review")}
         nextHref={stepHref(product.id, "content")}
       />
     </div>

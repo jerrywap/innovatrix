@@ -39,8 +39,17 @@ import type { ProductStatus } from "@/lib/db/enums";
 export interface TemplateSiblingView {
   id: string;
   name: string;
-  slug: string;
   status: ProductStatus;
+  /**
+   * Where to go to finish it — resolved on the **server**.
+   *
+   * This was a `hrefFor: (id) => Route` callback, which 500s the page: a function
+   * cannot cross the RSC boundary into a client component. `stepHref` needs the
+   * surface (`admin` or `vendor`), which the page knows and this component does
+   * not, so the page resolves it and the href travels with the listing it points
+   * at.
+   */
+  href: Route;
 }
 
 export function TemplateSiblingPanel({
@@ -52,8 +61,6 @@ export function TemplateSiblingPanel({
   linkedScript,
   /** How many licence packages the script has — the copy warns when it is >1. */
   licencePackageCount,
-  /** `stepHref` for the surface this is rendered on. */
-  hrefFor,
   action = createTemplateSiblingAction,
   unlinkAction = unlinkTemplateSiblingAction,
 }: {
@@ -62,7 +69,6 @@ export function TemplateSiblingPanel({
   sibling?: TemplateSiblingView;
   linkedScript?: TemplateSiblingView;
   licencePackageCount: number;
-  hrefFor: (productId: string) => Route;
   action?: typeof createTemplateSiblingAction;
   unlinkAction?: typeof unlinkTemplateSiblingAction;
 }) {
@@ -80,7 +86,7 @@ export function TemplateSiblingPanel({
           Website template listing
         </h2>
         <Link
-          href={hrefFor(sibling.id)}
+          href={sibling.href}
           className="hover:bg-surface-muted -mx-1 flex items-center gap-2 rounded-lg px-1 py-1 text-[13.5px]"
         >
           <Layout className="text-subtle size-4 shrink-0" aria-hidden />

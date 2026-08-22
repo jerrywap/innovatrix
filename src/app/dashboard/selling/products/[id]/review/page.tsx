@@ -85,7 +85,6 @@ export default async function Page({
         productId={product.id}
         catalogue={doc.catalogue ?? "script"}
         licencePackageCount={doc.licencePackages.length}
-        hrefFor={(productId) => stepHref(productId, "basics", "vendor")}
         action={createVendorTemplateSiblingAction}
         unlinkAction={unlinkVendorTemplateSiblingAction}
         {...(sibling
@@ -93,8 +92,8 @@ export default async function Page({
               sibling: {
                 id: String(sibling._id),
                 name: sibling.name,
-                slug: sibling.slug,
                 status: sibling.status,
+                href: stepHref(String(sibling._id), "basics", "vendor"),
               },
             }
           : {})}
@@ -103,8 +102,8 @@ export default async function Page({
               linkedScript: {
                 id: String(linkedScript._id),
                 name: linkedScript.name,
-                slug: linkedScript.slug,
                 status: linkedScript.status,
+                href: stepHref(String(linkedScript._id), "basics", "vendor"),
               },
             }
           : {})}

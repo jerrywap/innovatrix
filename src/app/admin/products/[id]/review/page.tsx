@@ -50,14 +50,13 @@ export default async function ReviewPage({ params }: PageProps<"/admin/products/
         productId={product.id}
         catalogue={product.catalogue}
         licencePackageCount={product.licencePackages.length}
-        hrefFor={(productId) => stepHref(productId, "basics", "admin")}
         {...(sibling
           ? {
               sibling: {
                 id: String(sibling._id),
                 name: sibling.name,
-                slug: sibling.slug,
                 status: sibling.status,
+                href: stepHref(String(sibling._id), "basics", "admin"),
               },
             }
           : {})}
@@ -66,8 +65,8 @@ export default async function ReviewPage({ params }: PageProps<"/admin/products/
               linkedScript: {
                 id: String(linkedScript._id),
                 name: linkedScript.name,
-                slug: linkedScript.slug,
                 status: linkedScript.status,
+                href: stepHref(String(linkedScript._id), "basics", "admin"),
               },
             }
           : {})}
