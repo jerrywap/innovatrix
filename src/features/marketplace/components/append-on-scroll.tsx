@@ -7,33 +7,45 @@ import { appendMarketplacePageAction } from "../append-actions";
 /**
  * The grid, with the next page appended as you reach the bottom.
  *
- * ## The numbered links stay
+ * ## The numbered links are rendered, then hidden — they are not removed
  *
- * This does **not** replace `<Pagination>`, and that is three separate
- * guarantees, not one:
+ * `<Pagination>` is still **server-rendered on every request**, which keeps two of
+ * the three guarantees it always carried:
  *
  * 1. **The crawl path.** §93 wants crawlable links; a scroll listener gives a
- *    crawler one page.
+ *    crawler one page. Hidden links are still discovered and followed.
  * 2. **No JavaScript.** Before this component hydrates — and if it never does —
- *    the page behaves exactly as it did before, because the first page and the
- *    links are both server-rendered.
- * 3. **Getting back.** Jumping to page 40, or returning to page 2 after a reload,
- *    is a thing appending cannot do at all.
+ *    the nav is visible and the page behaves exactly as it did before.
  *
- * A control that a screen reader announces and a sighted keyboard user cannot see
- * is a worse story than a visible one, so the nav is not hidden either.
+ * What changed is when a *hydrated* visitor sees it. Showing numbered pages
+ * **and** a "Show more" button **and** an auto-appending grid is three controls
+ * competing to do one job, and the first two are noise while the third is working.
+ * So the nav is `hidden` while appending can still continue, and revealed the
+ * moment it cannot — which is also the third guarantee, arriving exactly when it
+ * becomes useful: at the ceiling, or on a failure, the numbered links are how you
+ * go further or jump to page 40.
  *
- * ## Two bounds, both deliberate
+ * **The trade, stated rather than buried.** While the nav is hidden, a
+ * screen-reader user cannot jump to an arbitrary page; they get the same
+ * scroll-driven appending everyone else does, and Tab does scroll. The
+ * alternatives are worse: `sr-only` would give a control to a screen reader that a
+ * sighted keyboard user cannot see, and keeping it visible is what made the page
+ * read as three competing controls. The reveal-on-exhaustion is what stops this
+ * being a dead end.
  *
- * `MAX_AUTO_APPENDS` stops the automatic behaviour after three pages, so the
- * footer and the pagination nav remain reachable — an unbounded auto-append is a
- * page whose bottom recedes as you walk toward it, and everything down there
- * becomes unreachable by scrolling. After that a button takes over, which is an
- * explicit request rather than a guess.
+ * ## One bound, not two
  *
- * `MAX_APPENDED_PAGES` is the harder ceiling. `MAX_PAGE × MAX_LIMIT` is 4,800
- * cards, and §94's one non-negotiable rule is not loading thousands of products
- * into a browser.
+ * `MAX_APPENDED_PAGES` is the whole limit. `MAX_PAGE × MAX_LIMIT` is 4,800 cards,
+ * and §94's one non-negotiable rule is not loading thousands of products into a
+ * browser. Six pages of results — the one you landed on plus five — is roughly
+ * 144 cards, which is a lot of images and a sane place to hand back to the nav.
+ *
+ * There used to be a second, lower bound (`MAX_AUTO_APPENDS = 3`) that stopped the
+ * *automatic* behaviour early and handed over to a button, on the reasoning that
+ * an unbounded auto-append makes the footer recede as you walk toward it. That
+ * reasoning is sound for an *unbounded* appender and does not apply here: the hard
+ * ceiling already guarantees the bottom of the page is reachable, so the button
+ * was buying nothing and cost a second control.
  *
  * ## `replaceState`, not `pushState` and not `router.replace`
  *
@@ -52,7 +64,6 @@ import { appendMarketplacePageAction } from "../append-actions";
  * document.
  */
 
-const MAX_AUTO_APPENDS = 3;
 const MAX_APPENDED_PAGES = 5;
 
 export function AppendOnScroll({
@@ -62,6 +73,8 @@ export function AppendOnScroll({
   basePath,
   page,
   pageCount,
+  total,
+  pagination,
 }: {
   /** The first page, server-rendered by `Results`. */
   children: React.ReactNode;
@@ -71,49 +84,65 @@ export function AppendOnScroll({
   basePath: string;
   page: number;
   pageCount: number;
+  total: number;
+  /**
+   * The numbered nav, server-rendered by `Results` and owned here.
+   *
+   * A React node, not a render function — a function cannot cross the RSC
+   * boundary (`AGENTS.md`), and this component only ever needs to decide whether
+   * the markup is visible, never to build it.
+   */
+  pagination: React.ReactNode;
 }) {
   const [batches, setBatches] = useState<React.ReactNode[]>([]);
   const [nextPage, setNextPage] = useState(page + 1);
-  const [autoAppends, setAutoAppends] = useState(0);
+  /**
+   * Set when an append comes back with nothing.
+   *
+   * Without a button there is no manual retry, so a silent failure would leave a
+   * visitor scrolling at a sentinel that never fires again and no way onward. This
+   * turns that into exhaustion, which reveals the numbered nav — a dead end
+   * becomes a working page with one more click in it.
+   */
+  const [failed, setFailed] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const sentinel = useRef<HTMLDivElement | null>(null);
 
   const appended = batches.length;
-  const exhausted = nextPage > pageCount || appended >= MAX_APPENDED_PAGES;
-  const autoAllowed = autoAppends < MAX_AUTO_APPENDS;
+  const exhausted = failed || nextPage > pageCount || appended >= MAX_APPENDED_PAGES;
 
-  const load = useCallback(
-    (automatic: boolean) => {
-      const params = new URLSearchParams(search);
-      params.set("page", String(nextPage));
-      const query = params.toString();
+  const load = useCallback(() => {
+    const params = new URLSearchParams(search);
+    params.set("page", String(nextPage));
+    const query = params.toString();
 
-      startTransition(async () => {
-        const cards = await appendMarketplacePageAction(query, catalogue);
-        // A malformed or empty answer must not advance the counter, or the
-        // sentinel would walk silently to the end of the page space.
-        if (!cards) return;
+    startTransition(async () => {
+      const cards = await appendMarketplacePageAction(query, catalogue);
+      // A malformed or empty answer must not advance the counter, or the sentinel
+      // would walk silently to the end of the page space. It hands over to the
+      // numbered nav instead of failing quietly.
+      if (!cards) {
+        setFailed(true);
+        return;
+      }
 
-        setBatches((current) => [...current, cards]);
-        setNextPage((current) => current + 1);
-        if (automatic) setAutoAppends((current) => current + 1);
+      setBatches((current) => [...current, cards]);
+      setNextPage((current) => current + 1);
 
-        // The address bar tells the truth about which page you are reading. See
-        // the docblock on why this is `replaceState`.
-        window.history.replaceState(null, "", `${basePath}?${query}`);
-      });
-    },
-    [basePath, catalogue, nextPage, search],
-  );
+      // The address bar tells the truth about which page you are reading. See
+      // the docblock on why this is `replaceState`.
+      window.history.replaceState(null, "", `${basePath}?${query}`);
+    });
+  }, [basePath, catalogue, nextPage, search]);
 
   useEffect(() => {
     const node = sentinel.current;
-    if (!node || exhausted || !autoAllowed || pending) return;
+    if (!node || exhausted || pending) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) load(true);
+        if (entries.some((entry) => entry.isIntersecting)) load();
       },
       // Start a page early, so the cards are usually there by the time the
       // bottom of the grid arrives rather than after a visible gap.
@@ -122,65 +151,69 @@ export function AppendOnScroll({
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [autoAllowed, exhausted, load, pending]);
+  }, [exhausted, load, pending]);
 
   return (
     <>
+      {/*
+        The count line, moved in here from `Results` and doubling as the live region.
+
+        It has to live on this side of the boundary now. Server-rendered it said
+        "page 4 of 37" and stayed saying it while five more pages appended
+        underneath — the address bar, the grid and this line each claiming a
+        different thing. One `role="status"` also replaces the separate `sr-only`
+        span this used to need, so an append is announced once rather than twice.
+
+        A **page range**, not a card count. A count is the tempting version and it
+        lies: on page 4 of 37, "showing 144 of 881" would be counting the three
+        pages that were skipped past and are not on the screen.
+
+        Identical text on the server and on the first client pass — `appended` is 0
+        in both — so there is no hydration mismatch.
+      */}
+      <p role="status" className="text-subtle font-mono text-[11px] tracking-[0.08em]">
+        {total} product{total === 1 ? "" : "s"}
+        {pageCount > 1 &&
+          (appended === 0
+            ? ` · page ${page} of ${pageCount}`
+            : ` · pages ${page}–${page + appended} of ${pageCount}`)}
+      </p>
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {children}
         {batches}
       </div>
 
       {/*
-        What is on screen, for a screen reader.
-
-        The visible count line above the grid is server-rendered and static, so it
-        cannot report an append. This renders the identical sentence on the server
-        and on the first client pass — `appended` is 0 in both — so there is no
-        hydration mismatch, and then updates as pages arrive.
-
-        Stated as a **page range**, not a card count. A count is the tempting
-        version and it lies: on page 3 of 5, "showing 96 of 148" would be counting
-        the two pages that were skipped past and are not on the screen at all.
+        Zero height and no content: it exists to be scrolled past. `aria-hidden`
+        because a screen-reader user is not scrolling — the `role="status"` above
+        is what tells them a page arrived.
       */}
-      <span role="status" className="sr-only">
-        {appended === 0
-          ? `Page ${page} of ${pageCount}`
-          : `Pages ${page} to ${page + appended} of ${pageCount}`}
-      </span>
+      {!exhausted && <div ref={sentinel} aria-hidden className="h-px" />}
 
       {/*
-        Zero height and no content: it exists to be scrolled past. `aria-hidden`
-        because a screen-reader user is not scrolling, and the button below is
-        their route to more results.
+        Feedback while a page is in flight. With no button there is nothing else
+        to put a spinner on, and a grid that pauses with no explanation reads as a
+        page that has stopped working. `aria-hidden` for the same reason as the
+        sentinel: the live region already announces the outcome, and announcing
+        "loading" as well is two messages for one event.
       */}
-      {!exhausted && autoAllowed && <div ref={sentinel} aria-hidden className="h-px" />}
-
-      {!exhausted && !autoAllowed && (
-        /*
-          Focus deliberately stays here after a click. The button persists rather
-          than being replaced, so Shift+Tab from it lands on the last appended
-          card — where a keyboard user wants to be. Moving focus to the *first*
-          new card strands forward-Tab behind the cards already read, and doing it
-          on an automatic append would yank focus with no user action at all,
-          which is a WCAG 3.2.x failure.
-        */
-        <button
-          type="button"
-          onClick={() => load(false)}
-          disabled={pending}
-          className="border-border hover:bg-surface-muted focus-visible:ring-ring mx-auto rounded-full border px-4 py-2 text-[13px] focus-visible:ring-2 focus-visible:outline-none disabled:opacity-60"
-        >
-          {pending ? (
-            <>
-              <Loader2 className="mr-1.5 inline size-3.5 animate-spin" aria-hidden />
-              Loading…
-            </>
-          ) : (
-            "Show more products"
-          )}
-        </button>
+      {pending && (
+        <p aria-hidden className="text-muted-foreground flex justify-center py-2 text-[13px]">
+          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+          Loading more…
+        </p>
       )}
+
+      {/*
+        Rendered every time, visible only when appending can go no further.
+
+        `hidden` rather than conditional rendering: the markup has to reach a
+        crawler and a no-JS visitor on every request, and `exhausted` is computed
+        from the same props on the server and on the first client pass — `batches`
+        is empty in both — so there is no hydration mismatch.
+      */}
+      <div hidden={!exhausted}>{pagination}</div>
     </>
   );
 }

@@ -46,15 +46,16 @@ export function Results({
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-subtle font-mono text-[11px] tracking-[0.08em]">
-        {result.total} product{result.total === 1 ? "" : "s"}
-        {result.pageCount > 1 ? ` · page ${result.page} of ${result.pageCount}` : ""}
-      </p>
-
       {/*
         The grid lives inside `AppendOnScroll` so appended cards join the same
         grid and the layout stays continuous — a second grid below the first would
         restart the columns and leave a seam on any row that was not full.
+
+        The numbered nav goes in as a **prop** rather than a sibling, because
+        whether it is visible depends on how far appending has got, which only that
+        component knows. It is still rendered here, on the server, on every
+        request: what it loses is visibility while appending is working, not its
+        place in the markup.
       */}
       <AppendOnScroll
         search={appendSearch}
@@ -62,14 +63,14 @@ export function Results({
         basePath={basePath}
         page={result.page}
         pageCount={result.pageCount}
+        total={result.total}
+        pagination={<Pagination result={result} raw={raw} basePath={basePath} />}
       >
         {result.products.map((card, index) => (
           // The first card is the grid's LCP element, so it skips lazy-loading.
           <ProductCardTile key={card.id} card={card} priority={index === 0} />
         ))}
       </AppendOnScroll>
-
-      <Pagination result={result} raw={raw} basePath={basePath} />
     </div>
   );
 }
@@ -122,14 +123,20 @@ function NoResults({ query, taxonomy }: { query?: string; taxonomy: TaxonomyInde
 }
 
 /**
- * Numbered pages, **alongside** appending — not instead of it.
+ * Numbered pages — always rendered, conditionally visible.
  *
- * This used to read "numbered pages, not infinite scroll", and the reasoning it
- * gave was right; what changed is the conclusion that the two are alternatives.
- * `AppendOnScroll` adds the next page above; these links stay in the markup and
- * stay visible, because they are still the only thing that gives a crawler more
- * than one page (§93), the only thing that works unhydrated, and the only way to
- * jump to page 40 or get *back* to page 2 after a reload.
+ * This has been revised twice and the history is the useful part. It began as
+ * "numbered pages, **not** infinite scroll", on reasoning that was right about
+ * *why* the links matter and wrong to treat the two as alternatives. It then
+ * became "alongside appending, and always visible", which is what shipped — and
+ * which put a numbered nav, a "Show more" button and an auto-appending grid on one
+ * screen, three controls competing to do one job.
+ *
+ * Now: rendered on the server on every request, so a crawler still walks deep
+ * results (§93) and a no-JS visitor still gets working links, but `AppendOnScroll`
+ * owns whether a hydrated visitor *sees* it — hidden while appending can continue,
+ * revealed at the ceiling or on a failure, which is exactly when jumping to page
+ * 40 becomes the useful thing again.
  *
  * The bounded page space is untouched and still deliberate — `$skip` past a
  * hundred pages is a collection scan, and an unbounded one is a crawl trap that
