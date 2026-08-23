@@ -3,7 +3,12 @@ import { cacheLife, cacheTag } from "next/cache";
 import { connectToDatabase } from "@/lib/db/client";
 import { Entitlement } from "@/lib/db/models/commerce";
 import { FACET_PREFIX, Product, parseFacet, type ProductDoc } from "@/lib/db/models/catalog";
-import type { LicenceType, ProductCatalogue, TaxonomyKind } from "@/lib/db/enums";
+import type {
+  LicenceType,
+  ProductCatalogue,
+  ProductMediaKind,
+  TaxonomyKind,
+} from "@/lib/db/enums";
 import type { RichTextDocument } from "@/lib/rich-text/schema";
 import { toObjectId } from "@/lib/db/base";
 import type { StorefrontCurrency } from "@/config/storefront";
@@ -81,13 +86,32 @@ export interface ProductDetail {
   id: string;
   /** Which storefront it belongs to — so related products stay in it. */
   catalogue: ProductCatalogue;
+  /**
+   * On a website template, the full-script listing it is the front-end of.
+   *
+   * Only the id: the name and the price come from `getLinkedScriptListing`, which
+   * is its own cached read, because a price that varies by currency cannot live in
+   * this currency-agnostic entry.
+   */
+  scriptListingId?: string;
   slug: string;
   name: string;
   summary: string;
   description?: RichTextDocument;
   features: Array<{ title: string; detail?: string }>;
   requirements?: string;
-  media: Array<{ kind: string; url: string; alt: string }>;
+  /**
+   * Screenshots **and videos**, in sort order — narrowed from `kind: string`.
+   *
+   * The widened type was not harmless. Every reader treated the list as images:
+   * `media[0]` became the hero `<Image>`, the same entry became the Open Graph
+   * image, and the whole array went to the gallery. So a product whose first
+   * media entry is a video rendered an `<Image src="…mp4">` as its LCP element
+   * and advertised it to every crawler. `screenshots()` below is what readers
+   * should use; the union is what makes forgetting a compile error rather than a
+   * broken page.
+   */
+  media: Array<{ kind: ProductMediaKind; url: string; alt: string }>;
   prices: DetailPrice[];
   licencePackages: DetailLicencePackage[];
   addons: DetailAddon[];
@@ -135,6 +159,21 @@ export interface ProductDetail {
 
 /* ────────────────────────────────────────────── the cached read */
 
+/**
+ * The images, and only the images.
+ *
+ * One function so the hero, the Open Graph tag and the gallery cannot disagree
+ * about what counts as a picture — they each filtered, or failed to filter,
+ * independently, and the one that failed to was the one a crawler reads.
+ *
+ * A pure helper rather than a second field on the DTO: the video entries are
+ * still wanted (a player is the obvious next thing), so dropping them from the
+ * payload would throw away data to save a `.filter`.
+ */
+export function screenshots(media: ProductDetail["media"]): ProductDetail["media"] {
+  return media.filter((item) => item.kind === "screenshot");
+}
+
 export async function getProductDetail(slug: string): Promise<ProductDetail | null> {
   "use cache";
   cacheTag(CATALOG_TAG, TAXONOMY_TAG, productTag(slug));
@@ -180,6 +219,7 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
   return {
     id: String(product._id),
     catalogue: product.catalogue ?? "script",
+    ...(product.scriptListingId ? { scriptListingId: String(product.scriptListingId) } : {}),
     slug: product.slug,
     name: product.name,
     summary: product.summary,
@@ -192,7 +232,11 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
     media: (product.media ?? [])
       .filter((item) => Boolean(item.url))
       .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((item) => ({ kind: item.kind, url: item.url!, alt: item.alt ?? product.name })),
+      .map((item) => ({
+        kind: item.kind as ProductMediaKind,
+        url: item.url!,
+        alt: item.alt ?? product.name,
+      })),
     ...(product.vendorSlug && product.vendorName
       ? { vendor: { slug: product.vendorSlug, name: product.vendorName } }
       : {}),
@@ -327,6 +371,77 @@ export async function getPrerenderSlugs(limit = 100): Promise<string[]> {
  * grid. `$ne` on the id excludes the product being viewed, which is otherwise
  * the most related product of all.
  */
+/**
+ * The full-script listing a website template is the front-end of.
+ *
+ * ## Deliberately not a variation of `getRelatedProducts`
+ *
+ * That function applies `productCatalogueFilter(detail.catalogue)` on purpose —
+ * "'you might also like' pointing from a Tailwind template to a Laravel CRM is the
+ * split leaking at the most visible moment". This one's entire job is to cross the
+ * split, **once**, for exactly one document that a human deliberately linked. Those
+ * are opposite requirements, so they are separate functions rather than one with a
+ * flag.
+ *
+ * ## Both slugs are tagged
+ *
+ * The template's, so an unlink dumps the entry; and the **script's**, read from the
+ * document after the query, so repricing or renaming the script does too. Without
+ * the second tag the banner would advertise a stale price for up to an hour — for a
+ * page one click away, which reads worse than one stale price on one page.
+ *
+ * ## Every currency, not the viewer's
+ *
+ * Returning the whole storefront price list keeps this entry currency-agnostic,
+ * like `getProductDetail`. Taking a currency parameter would put it in the cache
+ * key and multiply the entries by three for no benefit — the component picks.
+ */
+export interface LinkedScriptListing {
+  slug: string;
+  name: string;
+  prices: DetailPrice[];
+}
+
+export async function getLinkedScriptListing(
+  scriptProductId: string,
+  templateSlug: string,
+): Promise<LinkedScriptListing | null> {
+  "use cache";
+  cacheTag(CATALOG_TAG, productTag(templateSlug));
+  cacheLife(CACHE_PROFILE.product);
+
+  await connectToDatabase();
+
+  const found = await Product.findOne({
+    _id: toObjectId(scriptProductId),
+    status: "published",
+    deletedAt: null,
+    /*
+     * A **deliberate asymmetry** with `getProductDetail`, which does not filter
+     * this: serving a URL somebody already has is one thing, actively cross-selling
+     * into a suspended vendor's catalogue is another.
+     */
+    listingSuppressed: { $ne: true },
+    // Total, and one query: guards the case where somebody later moves the target
+    // into the template catalogue and leaves the pointer behind.
+    ...productCatalogueFilter("script"),
+  })
+    .select({ slug: 1, name: 1, prices: 1 })
+    .lean<Pick<ProductDoc, "slug" | "name" | "prices">>();
+
+  if (!found) return null;
+
+  // After the read, from awaited data — supported, and the only way to tag the
+  // entry with a slug this function did not receive.
+  cacheTag(productTag(found.slug));
+
+  return {
+    slug: found.slug,
+    name: found.name,
+    prices: storefrontPrices(found.prices),
+  };
+}
+
 export async function getRelatedProducts(
   detail: ProductDetail,
   currency: StorefrontCurrency,

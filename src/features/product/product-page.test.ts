@@ -92,7 +92,16 @@ describe("the page's dynamic parts are suspended", () => {
     //
     // Recently-viewed is *not* in this list: it is written in `proxy.ts`,
     // because Next.js does not permit a Server Component to set a cookie.
-    for (const component of ["<DemoPanel", "<PurchaseSection", "<RelatedProducts"]) {
+    for (const component of [
+      "<DemoPanel",
+      "<PurchaseSection",
+      "<RelatedProducts",
+      // The complete-application banner reads the currency cookie, which is the
+      // membership rule stated above. Note the name: this check is an `indexOf`
+      // prefix match, so a component called `<RelatedProductsBanner` would be found
+      // before the real `<RelatedProducts` and measured in its place.
+      "<CompleteApplicationBanner",
+    ]) {
       const at = code.indexOf(component);
       expect(at, `${component} should be rendered`).toBeGreaterThan(0);
 

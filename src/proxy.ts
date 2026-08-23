@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 import { nanoid } from "nanoid";
-import { RECENTLY_VIEWED_COOKIE } from "@/config/storefront";
+import {
+  CURRENCY_COOKIE,
+  currencyCookieOptions,
+  isStorefrontCurrency,
+  RECENTLY_VIEWED_COOKIE,
+  type StorefrontCurrency,
+} from "@/config/storefront";
 import { REQUEST_ID_HEADER } from "@/config/observability";
 import { COOKIE_PREFIX } from "@/lib/auth/cookie-prefix";
 import { CONVERSATION_COOKIE, conversationCookie } from "@/services/ai/conversation-cookie";
@@ -42,15 +48,21 @@ import {
  * we cannot tell staff from customer without reading the database, so the
  * proxy only checks for a session and `requireStaff()` does the rest.
  *
- * ## The one thing it writes: recently-viewed
+ * ## The cookies it writes, and why they are written here
  *
- * A cookie, and **it has to be here**. Next.js does not allow a Server
- * Component to set a cookie — only a Server Action or a Route Handler can, and
- * a product page is neither. Attempting it from the page throws, which a
+ * Next.js does not allow a Server Component to set a cookie — only a Server
+ * Action or a Route Handler can. Attempting it from a page throws, which a
  * `try/catch` then swallows, and the feature silently never works. That is
- * exactly what happened before this moved.
+ * exactly what happened to recently-viewed before it moved here.
  *
- * It is still not a database read: the value is the slug from the path.
+ * Three of them now: **recently-viewed** (§6), the **anonymous conversation key**
+ * (tickets 17/18), and the **currency preference**. None is a database read — each
+ * value comes from the path, the query string, or `nanoid`.
+ *
+ * They are collected and applied to **one** response rather than each returning
+ * its own. That is not tidiness: with an early return per cookie, a URL that
+ * qualified for two got one, silently and depending on the order they happened to
+ * be written in. A product page reached with `?currency=NGN` is exactly that URL.
  */
 
 /** Prefixes that need a session. Everything else is public. */
@@ -91,6 +103,84 @@ function withRequestId(request: NextRequest, id: string): Headers {
   return headers;
 }
 
+/**
+ * One shape for all three, so they can share a list.
+ *
+ * They were already identical field for field; declaring it makes the collection
+ * below type-safe rather than an `any[]`.
+ */
+interface CookieToSet {
+  name: string;
+  value: string;
+  httpOnly: boolean;
+  sameSite: "lax";
+  secure: boolean;
+  path: string;
+  maxAge: number;
+}
+
+/**
+ * Is the browser on HTTPS, from *its* point of view?
+ *
+ * `x-forwarded-proto` first: behind a TLS terminator the internal hop is plain
+ * HTTP, so `nextUrl.protocol` alone drops `Secure` from a cookie on a site the
+ * browser reached over HTTPS. `withConversationKey` got this right and
+ * `withRecentlyViewed` did not — one function now, so they cannot differ again.
+ */
+function isSecureRequest(request: NextRequest): boolean {
+  return (
+    (request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "")) ===
+    "https"
+  );
+}
+
+/**
+ * Add a cookie to the **forwarded request**, not just the response.
+ *
+ * The half that is easy to miss. `response.cookies.set` tells the *browser* to
+ * store it; the page then renders in this same request and reads `cookies()`,
+ * which reads the **request**. Without this a shared `?currency=NGN` link shows
+ * GBP on the first load and NGN only on the second — and the anonymous
+ * conversation key had precisely this bug before it forwarded.
+ *
+ * Recently-viewed does not need it: nothing reads that value back in the request
+ * that writes it.
+ */
+function forwardCookie(headers: Headers, name: string, value: string): void {
+  const existing = headers.get("cookie");
+  headers.set("cookie", existing ? `${existing}; ${name}=${value}` : `${name}=${value}`);
+}
+
+/**
+ * A `?currency=` worth persisting, or `null`.
+ *
+ * Four conditions, and each one is load-bearing:
+ *
+ * 1. **Valid.** `isStorefrontCurrency`, so `?currency=XYZ` stores nothing rather
+ *    than storing a value every reader then has to fall back from.
+ * 2. **Different from what is already stored.** `marketplaceHref` carries
+ *    `currency` on every link once it is in the URL, so without this every
+ *    subsequent page view would emit a redundant `Set-Cookie` — and a response
+ *    carrying `Set-Cookie` is one a shared cache must not store. This keeps the
+ *    write to the one navigation that actually changes something.
+ * 3. **A real visit.** `isRealVisit`, for the reason its docblock gives, applied
+ *    to a different risk: Next prefetches links that scroll into view, so without
+ *    the gate merely having the currency rail on screen would change your
+ *    currency. This is also why the rail's chips are plain `<a>` elements — see
+ *    `filter-rail.tsx`. A `<Link>` click and a prefetch of the same href are
+ *    indistinguishable here.
+ * 4. Nothing about the path. A `?currency=` on any page means the same thing, and
+ *    restricting it to `/marketplace` would silently drop the preference from a
+ *    shared category-landing link.
+ */
+function currencyToPersist(request: NextRequest): StorefrontCurrency | null {
+  const requested = request.nextUrl.searchParams.get("currency");
+  if (!isStorefrontCurrency(requested)) return null;
+  if (request.cookies.get(CURRENCY_COOKIE)?.value === requested) return null;
+  if (!isRealVisit(request)) return null;
+  return requested;
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
   const hasSessionCookie = Boolean(getSessionCookie(request, { cookiePrefix: COOKIE_PREFIX }));
@@ -109,9 +199,31 @@ export function proxy(request: NextRequest): NextResponse {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
+  // Past the redirects, so everything below is decorating a response that will
+  // actually render a page. A `Set-Cookie` on a 307 the browser follows is a
+  // cookie set for a URL nobody looked at.
+  const headers = withRequestId(request, id);
+  const secure = isSecureRequest(request);
+  const pending: CookieToSet[] = [];
+
+  const currency = currencyToPersist(request);
+  if (currency) {
+    pending.push(currencyCookieOptions(currency, secure));
+    // Forwarded, so the page renders in the currency the URL asked for on this
+    // request rather than the one after it.
+    forwardCookie(headers, CURRENCY_COOKIE, currency);
+  }
+
   const productSlug = PRODUCT_PATH.exec(pathname)?.[1];
   if (productSlug && isRealVisit(request)) {
-    return withRecentlyViewed(request, productSlug, id);
+    const next = pushRecentlyViewed(
+      request.cookies.get(RECENTLY_VIEWED_COOKIE)?.value,
+      productSlug,
+    );
+    pending.push({
+      ...recentlyViewedCookieOptions(secure),
+      value: serialiseRecentlyViewed(next),
+    });
   }
 
   /*
@@ -132,13 +244,16 @@ export function proxy(request: NextRequest): NextResponse {
     isAssistantVisit(request) &&
     !request.cookies.get(CONVERSATION_COOKIE)
   ) {
-    return withConversationKey(request, id);
+    const key = nanoid(21);
+    pending.push(conversationCookie(key, secure));
+    forwardCookie(headers, CONVERSATION_COOKIE, key);
   }
 
-  const response = NextResponse.next({ request: { headers: withRequestId(request, id) } });
+  const response = NextResponse.next({ request: { headers } });
   // Also on the response, so the id in a support ticket's screenshot of the
   // network tab is the same one in the logs.
   response.headers.set(REQUEST_ID_HEADER, id);
+  for (const cookie of pending) response.cookies.set(cookie);
   return response;
 }
 
@@ -232,56 +347,6 @@ function isAssistantVisit(request: NextRequest): boolean {
   if (/bot|crawler|spider|slurp/i.test(request.headers.get("user-agent") ?? "")) return false;
 
   return true;
-}
-
-/**
- * Mint the key on the response **and on the forwarded request**.
- *
- * The second half is the part that is easy to miss. `response.cookies.set`
- * tells the *browser* to store it, which is enough for recently-viewed because
- * nothing reads that back in the same request. Here the page renders
- * immediately afterwards and calls `cookies()` — which reads the **request**,
- * not the response — so without forwarding it the page would see no cookie,
- * create no conversation, and the visitor would need a second page load before
- * the assistant worked.
- */
-function withConversationKey(request: NextRequest, id: string): NextResponse {
-  const key = nanoid(21);
-
-  const headers = withRequestId(request, id);
-  const existing = headers.get("cookie");
-  headers.set(
-    "cookie",
-    existing ? `${existing}; ${CONVERSATION_COOKIE}=${key}` : `${CONVERSATION_COOKIE}=${key}`,
-  );
-
-  const response = NextResponse.next({ request: { headers } });
-  response.headers.set(REQUEST_ID_HEADER, id);
-
-  // `x-forwarded-proto` first: behind a TLS terminator the internal hop is
-  // plain HTTP, so `nextUrl.protocol` alone would drop `Secure` from a cookie
-  // on a site the browser reached over HTTPS.
-  const secure =
-    (request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "")) ===
-    "https";
-
-  response.cookies.set(conversationCookie(key, secure));
-
-  return response;
-}
-
-function withRecentlyViewed(request: NextRequest, slug: string, id: string): NextResponse {
-  const response = NextResponse.next({ request: { headers: withRequestId(request, id) } });
-  response.headers.set(REQUEST_ID_HEADER, id);
-
-  const next = pushRecentlyViewed(request.cookies.get(RECENTLY_VIEWED_COOKIE)?.value, slug);
-
-  response.cookies.set({
-    ...recentlyViewedCookieOptions(request.nextUrl.protocol === "https:"),
-    value: serialiseRecentlyViewed(next),
-  });
-
-  return response;
 }
 
 export const config = {

@@ -1,13 +1,12 @@
 import "server-only";
 import { cache } from "react";
-import { cookies } from "next/headers";
-import { CURRENCY_COOKIE, toStorefrontCurrency } from "@/config/storefront";
 import { getSession } from "@/lib/auth/dal";
 import { connectToDatabase } from "@/lib/db/client";
 import { Organization } from "@/lib/db/models/identity";
 import { carts } from "@/repositories/cart.repository";
 import { recalculate, type CartView } from "@/services/cart/cart-service";
 import { readOwnerKey } from "@/services/cart/owner";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 
 /**
  * The cart, priced, for a Server Component.
@@ -37,11 +36,15 @@ export const loadCart = cache(async (): Promise<CartView | null> => {
   });
 });
 
-/** The active storefront currency, for a cart that does not exist yet. */
-export const cartCurrency = cache(async () => {
-  const jar = await cookies();
-  return toStorefrontCurrency(jar.get(CURRENCY_COOKIE)?.value);
-});
+/**
+ * The active storefront currency, for a cart that does not exist yet.
+ *
+ * A one-line alias rather than its own cookie read: the basket and the storefront
+ * are one preference, and this had drifted into the cookie-only half of the split
+ * that made `?currency=NGN` show ₦ prices and a £ basket. No `cache()` of its own —
+ * `resolveStorefrontCurrency` is already per-request memoised.
+ */
+export const cartCurrency = () => resolveStorefrontCurrency();
 
 /**
  * Where the organisation is billed, which is what tax keys on.

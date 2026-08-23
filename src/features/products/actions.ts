@@ -14,6 +14,7 @@ import {
   productDemoSchema,
   productSlugSchema,
   productTestingSchema,
+  templateSiblingSchema,
 } from "@/validators/product-sections";
 import { richTextDocumentSchema, type RichTextDocument } from "@/lib/rich-text/schema";
 import { PRODUCT_STATUSES, type ProductStatus } from "@/lib/db/enums";
@@ -33,6 +34,11 @@ import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
 import * as productService from "@/services/catalog/product-service";
 import * as testingService from "@/services/catalog/testing-service";
+import {
+  createTemplateSibling,
+  unlinkTemplateSibling,
+} from "@/services/catalog/template-sibling";
+import { stepHref } from "./steps";
 import { z } from "zod";
 
 /**
@@ -114,6 +120,82 @@ export async function createProductAction(
   // Straight into the wizard at the next step — the draft exists now, so
   // there is nothing to lose by navigating.
   redirect(`/admin/products/${createdId}/classification` as Route);
+}
+
+/**
+ * Also list the front-end as a website template — the script's review step.
+ *
+ * ## Two permissions, and the intersection is the point
+ *
+ * `product.create` **and** `product.manage_pricing`, because the operation creates
+ * a listing *and* prices it. §77 splits those deliberately: `developer` has create
+ * without pricing, `sales` has pricing without create, so neither can do half of
+ * this and call it done. What is left is `marketplace_manager` and `super_admin`,
+ * which is exactly `marketplace_manager`'s remit — the storefront: what is listed,
+ * at what price.
+ */
+export async function createTemplateSiblingAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<never>> {
+  let createdId: string | undefined;
+
+  const result = await withAction<never>(async () => {
+    const staff = await requirePermission("product.create");
+    await requirePermission("product.manage_pricing");
+
+    const raw = parseNestedFormData(formData);
+    const { productId } = parseInput(productIdSchema, raw);
+    const input = parseInput(templateSiblingSchema, raw);
+
+    const template = await createTemplateSibling(
+      productId,
+      { prices: input.prices },
+      staffActor(staff.user),
+    );
+    createdId = String(template._id);
+    catalogChanged();
+    refreshWizard(productId);
+
+    return ok(undefined as never);
+  });
+
+  if (!result.ok) return result;
+  /*
+   * To `basics`, not `classification` — a deliberate deviation from
+   * `createProductAction` above.
+   *
+   * That one goes to `classification` because `basics` was just typed by hand.
+   * Here `basics` is where the two things needing a human are: a copied summary
+   * that still describes a full application, and an empty description that is a
+   * blocking readiness gap.
+   */
+  redirect(stepHref(createdId!, "basics", "admin"));
+}
+
+/**
+ * Break the link between a website template and its full script.
+ *
+ * `product.update`, not `product.create`: unlinking creates nothing and prices
+ * nothing, and holding it to the create-plus-pricing bar would mean the person who
+ * has to undo a mistake is not the person who can.
+ */
+export async function unlinkTemplateSiblingAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ unlinked: true }>> {
+  return withAction<{ unlinked: true }>(async () => {
+    const staff = await requirePermission("product.update");
+
+    const raw = parseNestedFormData(formData);
+    const { productId } = parseInput(productIdSchema, raw);
+
+    await unlinkTemplateSibling(productId, staffActor(staff.user));
+
+    catalogChanged();
+    refreshWizard(productId);
+    return ok({ unlinked: true as const });
+  });
 }
 
 /* ────────────────────────────────────────────── section saves */

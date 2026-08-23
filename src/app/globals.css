@@ -57,6 +57,17 @@
   --border: rgb(20 19 15 / 0.1);
   --border-strong: rgb(20 19 15 / 0.2);
 
+  /* The scrollbar thumb. An **alias**, so it tracks both themes through the
+     token it points at and needs no `.dark` twin — see `theme-tokens.test.ts`.
+
+     `--border-strong` was the obvious choice and is unusable: at 0.2 alpha it
+     measures about 1.4:1 against the page, and WCAG 1.4.11 asks 3:1 of a
+     non-text control. A scrollbar is a control. `--muted-foreground` measures
+     5.40:1 light and 6.92:1 dark on the page, and 4.95:1 / 6.05:1 on the muted
+     surface, which is the hardest background it sits on. The bar takes its
+     quietness from being thin, not from a colour that fails. */
+  --scrollbar-thumb: var(--muted-foreground);
+
   /* ── Meridian: brand ──
      **`--signal` is the canonical CoSetup orange.** One token, and everything
      else here is derived from its RGB triple rather than picked alongside it:
@@ -254,9 +265,36 @@
     border-color: var(--border);
   }
 
+  /**
+   * One thin scrollbar everywhere, replacing the browser default.
+   *
+   * Both properties **inherit**, so declaring them on `html` covers the document,
+   * the sidebar, both sheets, select and dropdown content, every scrolling table
+   * and the `<pre>` blocks. The alternative is a dozen opt-ins, and the one
+   * everybody forgets is the document itself.
+   *
+   * ## Standard properties only — no `::-webkit-scrollbar`
+   *
+   * Not additive, and deliberately so. Chrome ignores the `::-webkit-scrollbar`
+   * pseudo-elements on any element where a non-`auto` `scrollbar-color` applies,
+   * so writing both means one of them is dead code and it is not obvious which.
+   *
+   * More importantly, a pixel `width` on `::-webkit-scrollbar` **replaces** the
+   * platform gutter rather than narrowing it, and two places in this UI are
+   * measured around the gutter they get today — the horizontal product rail's
+   * `pb-2`, and the 220px taxonomy list on the classification step. `thin` asks
+   * the platform for its own thin variant, which keeps overlay behaviour on macOS
+   * and keeps the gutter a real width on Windows. So: never set a width.
+   *
+   * The track is a literal `transparent` rather than a token. A painted track
+   * would have to work against five different surface colours, and keeping it out
+   * of `:root` keeps it out of the theme-token contract.
+   */
   html {
     scroll-behavior: smooth;
     -webkit-tap-highlight-color: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   body {

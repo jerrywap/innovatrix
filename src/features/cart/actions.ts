@@ -1,11 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { z } from "zod";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { getSession } from "@/lib/auth/dal";
 import { objectIdSchema } from "@/validators/common";
-import { STOREFRONT_CURRENCIES, toStorefrontCurrency } from "@/config/storefront";
+import { usesSecureCookies } from "@/config/env";
+import {
+  currencyCookieOptions,
+  STOREFRONT_CURRENCIES,
+  toStorefrontCurrency,
+} from "@/config/storefront";
 import * as cartService from "@/services/cart/cart-service";
 import { clearGuestCookie, ensureOwnerKey, readOwnerKey } from "@/services/cart/owner";
 import { cartCurrency, loadCart } from "./load";
@@ -165,6 +171,19 @@ export async function switchCartCurrencyAction(
     if (!ownerKey) return fail("There's nothing in your basket.", { code: "NOT_FOUND" });
 
     const result = await cartService.switchCurrency(ownerKey, currency);
+
+    /*
+     * Remember it for the storefront too, not just for the basket.
+     *
+     * The basket and the marketplace are one preference, and switching here used
+     * to change only the cart — so a customer who repriced their basket in ₦ went
+     * back to browsing in £. A Server Action is one of the two things allowed to
+     * set a cookie (`proxy.ts` is the other), which is exactly why this belongs
+     * here and could never have lived in the page that renders the switcher.
+     */
+    const jar = await cookies();
+    jar.set(currencyCookieOptions(currency, usesSecureCookies()));
+
     refreshCart();
 
     return ok({ repriced: result.repriced, unpriceable: result.unpriceable });

@@ -44,7 +44,6 @@ export const STATIC_PATHS: ReadonlyArray<[string, ChangeFrequency, number]> = [
   ["/templates", "daily", 0.9],
   ["/custom-software", "monthly", 0.8],
   ["/services", "monthly", 0.7],
-  ["/pricing", "monthly", 0.7],
   /*
    * Vendor ticket 01. `/sell` is how a developer finds out they can sell here, and it was absent
    * from this list as well as from every visible link — so the one recruitment page on the site

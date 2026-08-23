@@ -3,10 +3,16 @@ import type { LicenceType } from "@/lib/db/enums";
 /**
  * What each §65 licence type means, in a sentence a customer can act on.
  *
- * Shared rather than local because it is now read in two places that must not
- * drift: `/pricing`, where somebody decides what to buy, and the licence screen
+ * Shared rather than local because it was read in two places that must not
+ * drift: `/pricing`, where somebody decided what to buy, and the licence screen
  * under `/dashboard/software`, where they check what they bought. Those two
  * disagreeing is a support conversation at best and a refund at worst.
+ *
+ * `/pricing` has since been removed, so **there is one consumer today** and the
+ * "two places" argument no longer holds on its own. The module stays because the
+ * other two reasons below do — this is presentation, not schema — and because the
+ * next screen that quotes licence terms should find the wording rather than
+ * retype it. If nothing else ever reads it, inline it into the licence page.
  *
  * Deliberately **not** in `enums.ts`. That module is the database's vocabulary
  * and is imported by the proxy and by scripts; this is presentation, and the
@@ -29,8 +35,10 @@ export const LICENCE_COPY: Record<LicenceType, string> = {
   lifetime: "Yours permanently, with no expiry.",
 };
 
-/** The type's own name, for a heading — `multi_installation` → "Multi installation". */
-export function licenceTypeLabel(type: LicenceType): string {
-  const words = type.replace(/_/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
+/*
+ * `licenceTypeLabel()` lived here and was removed with `/pricing`, its only
+ * caller. An exported helper with no callers is not flagged by lint — it looks
+ * used from the outside — so it would have sat here indefinitely being tested by
+ * nothing and read by nobody. The licence screen renders `LICENCE_COPY` directly
+ * and needs no heading built from the enum.
+ */

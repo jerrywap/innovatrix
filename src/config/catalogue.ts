@@ -27,7 +27,26 @@ export interface CatalogueSurface {
    * line is where it starts.
    */
   productPath: string;
+  /**
+   * What one of these **is**, in a customer's words, for a listing card's type
+   * line.
+   *
+   * "Full Script" rather than "Script" because the distinction being drawn is not
+   * script-versus-something-smaller, it is *a whole application* versus *a
+   * front-end you style*. A visitor scanning a mixed grid — search results, a
+   * saved list, a vendor storefront — is deciding which of those two they are
+   * looking at, and "Script" alone does not answer it.
+   */
   label: string;
+  /**
+   * The catalogue as a collection.
+   *
+   * Deliberately **not** wired into `PUBLIC_NAV`, which spells its own labels.
+   * The header sells a destination ("Software & Scripts") and a card states a
+   * fact about one item ("Full Script"); those are different jobs and forcing one
+   * string to do both makes the nav read like a database column. Kept here so the
+   * two live side by side and a change to one prompts a look at the other.
+   */
   plural: string;
 }
 
@@ -36,15 +55,15 @@ export const CATALOGUE_SURFACE: Record<ProductCatalogue, CatalogueSurface> = {
     listingPath: "/marketplace",
     categoryPath: "/marketplace/category",
     productPath: "/marketplace",
-    label: "Script",
-    plural: "Scripts",
+    label: "Full Script",
+    plural: "Software & Scripts",
   },
   template: {
     listingPath: "/templates",
     categoryPath: "/templates/category",
     productPath: "/marketplace",
-    label: "Template",
-    plural: "Templates",
+    label: "Website Template",
+    plural: "Website Templates",
   },
 };
 

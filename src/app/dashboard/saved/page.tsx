@@ -5,11 +5,10 @@ import { PageHeader } from "@/components/page-header";
 import { requireUser } from "@/lib/auth/dal";
 import { connectToDatabase } from "@/lib/db/client";
 import { Product } from "@/lib/db/models/catalog";
-import { CURRENCY_COOKIE, toStorefrontCurrency } from "@/config/storefront";
 import { getCardsBySlug } from "@/services/marketplace";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { listSavedProductIds } from "@/services/marketplace/saved";
 import { ProductCardTile } from "@/features/marketplace/components/product-card";
-import { cookies } from "next/headers";
 import Link from "next/link";
 
 export const metadata: Metadata = { title: "Saved" };
@@ -33,8 +32,7 @@ export const metadata: Metadata = { title: "Saved" };
  */
 export default async function Page() {
   const user = await requireUser();
-  const jar = await cookies();
-  const currency = toStorefrontCurrency(jar.get(CURRENCY_COOKIE)?.value);
+  const currency = await resolveStorefrontCurrency();
 
   const savedIds = await listSavedProductIds(user.id);
 

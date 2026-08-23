@@ -88,6 +88,31 @@ schema so the client and the server agree. Actions return `ActionResult<T>` —
 they never throw across the RSC boundary, because a thrown error reaches the
 client as a redacted digest with no field information.
 
+**A form containing a Radix control must not use `<form action={fn}>`.** React
+runs a function action through `startHostTransition`, which requests a real DOM
+`form.reset()` *before* the action — and Radix's Checkbox, Select and Switch each
+answer a `reset` by restoring a ref captured on first render. Native inputs are
+unaffected, because React writes their fresh `defaultValue` in the same commit, so
+the failure looks like "only the dropdowns misbehave" rather than like the form
+shell. It fires on failed submits too. Making the control *controlled* does not
+help: Radix calls the controlled `onChange` with the stale value instead.
+
+Dispatch by hand — `useManualSubmit`
+(`features/products/components/section-form.tsx`) is the shared version:
+`preventDefault()` puts React on the `action === null` path, which requests no
+reset. Two things then follow that are easy to miss. `useFormStatus` reports
+nothing for a manual dispatch, so `pending` has to travel as a prop; and
+`new FormData(form)` omits the submitter, so use
+`new FormData(form, event.submitter)` or the field distinguishing your submit
+buttons silently disappears.
+
+**"Optional" means the empty string, not `undefined`.** An empty text input
+submits `""`, so `z.url().optional()` and `objectIdSchema.optional()` both reject
+a field the person deliberately left blank. Use `optionalText`, `optionalUrl`,
+`optionalId` and `countFromForm` from `validators/common.ts` — the last because
+`z.coerce.number()` on `""` is `0`, which turns a blank field into a silent zero
+or a spurious "too small".
+
 ## Money, status and dates
 
 - Money renders through `<MoneyDisplay>` → `lib/money.ts`. **Never `toFixed`**:
@@ -156,11 +181,12 @@ Don't add a route just to satisfy a link.
 
 ## Testing
 
-The two halves of the suite are not the same price. `npm run test:unit` is **710
-tests across 45 files in 5.3s**. `npm run test:integration` is **566 tests across
-26 files in 414s** locally — nearly seven minutes, at 35% CPU, because every file
-queues behind one shared mongod. CI runs those same files in **48s** on parallel
-workers. So the slow half is slow *for you specifically*.
+The two halves of the suite are not the same price. `npm run test:unit` is **773
+tests across 49 files in 5–12s** — the spread is module-graph caching, and it is
+seconds either way. `npm run test:integration` is **566 tests across 26 files in
+414s** locally — nearly seven minutes, at 35% CPU, because every file queues
+behind one shared mongod. CI runs those same files in **48s** on parallel workers.
+So the slow half is slow *for you specifically*.
 
 That asymmetry is the rule: **the default altitude is the unit project**, and an
 integration test is earned by something a unit test cannot reach — not by

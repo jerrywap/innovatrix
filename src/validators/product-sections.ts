@@ -11,8 +11,11 @@ import {
 import { richTextDocumentSchema } from "@/lib/rich-text/schema";
 import {
   checkboxSchema,
+  countFromForm,
   objectIdSchema,
+  optionalId,
   optionalText,
+  optionalUrl,
   priceMapSchema,
   slugSchema,
 } from "./common";
@@ -81,8 +84,35 @@ export const productClassificationSchema = z.object({
   categoryIds: idListSchema,
   industryIds: idListSchema,
   technologyIds: idListSchema,
-  productTypeId: objectIdSchema.optional(),
+  /**
+   * Blank is a legitimate answer, and it is also how a type already set gets
+   * cleared — `saveClassification` routes an absent value to `$unset`. It was
+   * `objectIdSchema.optional()`, which refused the `""` a `<select>` submits with
+   * "Not a valid id", making an "(optional)" field mandatory once rendered.
+   */
+  productTypeId: optionalId(),
 });
+
+/**
+ * Also listing the front-end as a website template.
+ *
+ * `confirm` is a real field rather than inferred from the price map, so an empty
+ * form submitted by accident is a validation error rather than a product. The
+ * refinement is what turns the checkbox from decoration into a gate.
+ */
+export const templateSiblingSchema = z
+  .object({
+    confirm: checkboxSchema,
+    prices: priceMapSchema,
+  })
+  .refine((value) => value.confirm, {
+    path: ["confirm"],
+    error: "Tick the box to create the website template listing.",
+  })
+  .refine((value) => value.prices.length > 0, {
+    path: ["prices"],
+    error: "Give the template listing a price in at least one currency.",
+  });
 
 /* ────────────────────────────────────────────── 3. content */
 
@@ -107,10 +137,10 @@ export const productMediaSchema = z.object({
       z.object({
         kind: z.enum(PRODUCT_MEDIA_KINDS),
         storageKey: optionalText(400),
-        url: z.url().optional(),
+        url: optionalUrl(),
         /** Required for a screenshot: an unlabelled image fails AA. */
         alt: optionalText(200),
-        sortOrder: z.coerce.number().int().min(0).default(0),
+        sortOrder: countFromForm(0, { max: 999 }),
         isPrimary: checkboxSchema,
       }),
     )
@@ -131,9 +161,15 @@ export const licencePackageFormSchema = z.object({
   name: z.string().trim().min(1).max(80),
   description: optionalText(400),
   licenceType: z.enum(LICENCE_TYPES),
-  activationLimit: z.coerce.number().int().min(1).max(10_000).default(1),
-  supportMonths: z.coerce.number().int().min(0).max(120).default(12),
-  updateMonths: z.coerce.number().int().min(0).max(120).default(12),
+  /*
+   * `countFromForm`, not `z.coerce.number()`: a blank Activations field reported
+   * "Too small: expected >=1" because `Number("")` is 0, and blank support and
+   * update periods silently became **zero months** rather than the 12 the
+   * placeholder shows. Each keeps the default it always advertised.
+   */
+  activationLimit: countFromForm(1, { min: 1, max: 10_000 }),
+  supportMonths: countFromForm(12, { max: 120 }),
+  updateMonths: countFromForm(12, { max: 120 }),
   prices: priceMapSchema,
 });
 
@@ -219,7 +255,7 @@ export const productSeoSchema = z.object({
     .object({
       title: optionalText(70),
       description: optionalText(160),
-      ogImageUrl: z.url().optional(),
+      ogImageUrl: optionalUrl(),
     })
     .prefault({}),
 });
@@ -229,7 +265,7 @@ export const productSeoSchema = z.object({
 export const demoCredentialFormSchema = z.object({
   role: z.string().trim().min(1, "Name the role, e.g. Administrator").max(60),
   label: optionalText(80),
-  url: z.url().optional(),
+  url: optionalUrl(),
   username: optionalText(160),
   /**
    * Plaintext inbound, sealed before it reaches Mongo.
@@ -245,9 +281,9 @@ export const demoCredentialFormSchema = z.object({
 export const productDemoSchema = z.object({
   demo: z.object({
     exposure: z.enum(DEMO_EXPOSURES).default("authenticated"),
-    publicUrl: z.url().optional(),
-    customerUrl: z.url().optional(),
-    adminUrl: z.url().optional(),
+    publicUrl: optionalUrl(),
+    customerUrl: optionalUrl(),
+    adminUrl: optionalUrl(),
     instructions: optionalText(2000),
     resetSchedule: optionalText(200),
     credentials: z

@@ -101,6 +101,82 @@ export const optionalText = (max = 2000) =>
     .optional()
     .transform((v) => (v === "" ? undefined : v));
 
+/* ────────────────────────────────────────────── "" is not `undefined` */
+
+/**
+ * The gap `optionalText` closed for strings, closed for everything else.
+ *
+ * `z.url().optional()` accepts `undefined` — and **an empty text input submits
+ * `""`**, not `undefined`. So every field written that way is labelled
+ * "(optional)" and then refuses to save while blank, with the message "Invalid
+ * URL" pointing at a field the person deliberately left empty. That shipped on
+ * the SEO share image and on all three demo URLs, whose own hint says "leave
+ * blank if there isn't one".
+ *
+ * `optionalText` above already had the answer; what was missing was a sibling
+ * for the non-string cases, so each call site hand-wrote `.optional()` and
+ * inherited the bug. These live four lines from it so the family is hard to
+ * separate.
+ *
+ * ## Why `z.preprocess` and not `z.union([z.literal(""), inner])`
+ *
+ * A union reports failure as `invalid_union`, which renders as "Invalid input"
+ * and loses the inner schema's message. The whole complaint being fixed here is
+ * that the message was unhelpful, so a fix that degrades the message on a
+ * *genuinely* malformed value trades one bad error for another.
+ *
+ * Trimming happens here rather than in each schema, because `" "` in a URL field
+ * is the same intent as `""` and neither is a URL.
+ */
+const blankToUndefined = <T extends z.ZodType>(inner: T) =>
+  z.preprocess((value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed === "" ? undefined : trimmed;
+  }, inner.optional());
+
+/**
+ * A URL field that is allowed to be empty.
+ *
+ * The default message names the shape wanted instead of judging the input:
+ * "Invalid URL" does not tell somebody who typed `example.com` that the scheme
+ * is what is missing.
+ */
+export const optionalUrl = (error = "Enter a full address, like https://example.com") =>
+  blankToUndefined(z.url(error));
+
+/**
+ * An id field that is allowed to be empty — a `<select>` with nothing chosen.
+ *
+ * A native `<select>` whose selected option has `value=""` submits `""`, which
+ * is precisely the state "no specific type" needs to be expressible. Without
+ * this the field cannot be left alone *or* cleared once set.
+ */
+export const optionalId = () => blankToUndefined(objectIdSchema);
+
+/**
+ * A number field that is allowed to be empty, falling back to a stated default.
+ *
+ * `z.coerce.number()` on `""` is **`0`**, because `Number("")` is `0` — so a
+ * blank "Activations" reported "Too small: expected >=1" and a blank support
+ * period silently became zero months rather than the twelve the placeholder
+ * promised. Coercion has to be reached only once there is something to coerce.
+ *
+ * `min` defaults to 0 rather than being required: the bounds that matter are
+ * always the upper one and the fallback, and a required `min: 0` at every call
+ * site is noise that invites a copy-paste of the wrong number.
+ */
+export const countFromForm = (fallback: number, bounds: { min?: number; max: number }) =>
+  z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce
+      .number()
+      .int()
+      .min(bounds.min ?? 0)
+      .max(bounds.max)
+      .default(fallback),
+  );
+
 export const emailSchema = z.email().toLowerCase().trim();
 
 /* ────────────────────────────────────────────── money from a form */

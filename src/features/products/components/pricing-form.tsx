@@ -62,7 +62,7 @@ export function PricingForm({
         title="Price"
         description="Set each currency deliberately — nothing is converted from a rate."
       >
-        <PriceMatrix name="prices" prices={product.prices} />
+        <PriceMatrix name="prices" prices={product.prices} context="product" />
       </FieldGroup>
 
       <FieldGroup
@@ -96,8 +96,64 @@ export function PricingForm({
   );
 }
 
-/** One input per storefront currency; blank means "not sold in this one". */
-function PriceMatrix({ name, prices }: { name: string; prices: readonly PriceView[] }) {
+/**
+ * What a blank means, per place this control appears.
+ *
+ * One sentence was shown at all four call sites, and it was only true at one of
+ * them: *"Leave a currency blank to not sell in it. The marketplace shows 'price
+ * on request' rather than a zero."* On a **licence package** row a blank does not
+ * mean "not sold" — it means the package is unbuyable in that currency and
+ * publishing is refused (`unbuyable_currency`). On an **add-on** row a blank is
+ * how a quote-required service is expressed, so "not sold in it" reads as the
+ * opposite of what it does. It also never mentioned Free, which is what a zero
+ * actually renders as, and it was the one place the phrase was lowercase while
+ * every customer-facing surface capitalises it.
+ *
+ * Keeping the copy here, keyed, is what makes it impossible to show the wrong
+ * one: the `context` prop below has **no default**, so the compiler names every
+ * call site the day a fifth is added. A default is how one sentence stayed wrong
+ * in three places.
+ */
+const BLANK_MEANS = {
+  product: (
+    <>
+      Leave a currency blank to not sell in it — the marketplace shows &ldquo;Price on
+      request&rdquo;. A zero is a price: it shows as &ldquo;Free&rdquo;.
+    </>
+  ),
+  licencePackage: (
+    <>
+      Every currency you sell the product in needs an amount here, or this package shows as
+      &ldquo;On request&rdquo; and cannot be published. A zero shows as &ldquo;Free&rdquo;.
+    </>
+  ),
+  addon: (
+    <>
+      Leave every currency blank for a quote-required service. Any amount here makes it buyable,
+      and a zero makes it a free extra.
+    </>
+  ),
+} satisfies Record<string, React.ReactNode>;
+
+export type PriceMatrixContext = keyof typeof BLANK_MEANS;
+
+/**
+ * One input per storefront currency; blank means whatever `context` says it means.
+ *
+ * Exported because the template-sibling panel needs the same control. Duplicating
+ * fifteen lines would duplicate the sentence that makes "not sold here"
+ * expressible, and that sentence is the whole reason a blank is not a zero.
+ */
+export function PriceMatrix({
+  name,
+  prices,
+  context,
+}: {
+  name: string;
+  prices: readonly PriceView[];
+  /** Required, undefaulted — see `BLANK_MEANS`. */
+  context: PriceMatrixContext;
+}) {
   const byCurrency = new Map(prices.map((price) => [price.currency, price.amount]));
 
   return (
@@ -110,10 +166,7 @@ function PriceMatrix({ name, prices }: { name: string; prices: readonly PriceVie
           defaultAmount={byCurrency.get(currency)}
         />
       ))}
-      <p className="text-subtle text-[12.5px]">
-        Leave a currency blank to not sell in it. The marketplace shows &ldquo;price on
-        request&rdquo; rather than a zero.
-      </p>
+      <p className="text-subtle text-[12.5px]">{BLANK_MEANS[context]}</p>
     </div>
   );
 }
@@ -170,27 +223,44 @@ function LicencePackageRow({ pkg, index }: { pkg: LicencePackageView; index: num
       </label>
 
       <div className="grid gap-2 sm:grid-cols-3">
+        {/*
+          The bounds are the schema's bounds. They used to be `min={0} max={10_000}`
+          for all three while `licencePackageFormSchema` asks for `1…10_000`,
+          `0…120` and `0…120` — so the browser accepted 0 activations and 900 months
+          of support, and the server refused them. A form that says yes and an
+          action that says no about the same value is the worst of both.
+        */}
         <NumberField
           name={`licencePackages[${index}][activationLimit]`}
           label="Activations"
           defaultValue={pkg.activationLimit}
+          min={1}
+          max={10_000}
         />
         <NumberField
           name={`licencePackages[${index}][supportMonths]`}
           label="Support (months)"
           defaultValue={pkg.supportMonths}
+          min={0}
+          max={120}
         />
         <NumberField
           name={`licencePackages[${index}][updateMonths]`}
           label="Updates (months)"
           defaultValue={pkg.updateMonths}
+          min={0}
+          max={120}
         />
       </div>
 
       <div>
         <p className="text-[12.5px] font-medium">Price</p>
         <div className="mt-1.5">
-          <PriceMatrix name={`licencePackages[${index}][prices]`} prices={pkg.prices} />
+          <PriceMatrix
+            name={`licencePackages[${index}][prices]`}
+            prices={pkg.prices}
+            context="licencePackage"
+          />
         </div>
       </div>
     </div>
@@ -254,14 +324,15 @@ function AddonRow({ addon, index }: { addon: AddonView; index: number }) {
       </label>
 
       <div>
-        <p className="text-[12.5px] font-medium">
-          Price{" "}
-          <span className="text-subtle font-normal">
-            — leave blank for a quote-required service
-          </span>
-        </p>
+        {/* The "leave blank" rider moved into `BLANK_MEANS.addon`, so it is stated
+            once, beside the fields it describes, rather than twice with a gap. */}
+        <p className="text-[12.5px] font-medium">Price</p>
         <div className="mt-1.5">
-          <PriceMatrix name={`addons[${index}][prices]`} prices={addon.prices} />
+          <PriceMatrix
+            name={`addons[${index}][prices]`}
+            prices={addon.prices}
+            context="addon"
+          />
         </div>
       </div>
     </div>
@@ -272,15 +343,19 @@ function NumberField({
   name,
   label,
   defaultValue,
+  min,
+  max,
 }: {
   name: string;
   label: string;
   defaultValue: number;
+  min: number;
+  max: number;
 }) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[12.5px] font-medium">{label}</span>
-      <Input name={name} type="number" min={0} max={10_000} defaultValue={defaultValue} />
+      <Input name={name} type="number" min={min} max={max} defaultValue={defaultValue} />
     </label>
   );
 }

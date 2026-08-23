@@ -1,6 +1,6 @@
 import "server-only";
 import { parseFacet } from "@/lib/db/models/catalog";
-import type { TaxonomyKind } from "@/lib/db/enums";
+import type { ProductCatalogue, TaxonomyKind } from "@/lib/db/enums";
 import type { StorefrontCurrency } from "@/config/storefront";
 import type { ProductCard, TaxonomyIndex } from "./index";
 
@@ -17,6 +17,8 @@ export interface RawCard {
   slug: string;
   name: string;
   summary: string;
+  /** Absent on a row written before the field existed — read as `script`. */
+  catalogue?: ProductCatalogue;
   facets?: string[];
   media?: Array<{ url?: string; storageKey?: string; alt?: string }>;
   activePrice?: { amount: number; currency: string; compareAtAmount?: number } | null;
@@ -56,6 +58,10 @@ export function toCard(
     slug: row.slug,
     name: row.name,
     summary: row.summary,
+    // Defaulted rather than optional on the card: every product is in exactly one
+    // catalogue, so a card with no type is a card that cannot render its own
+    // label. The fallback matches the schema default and the backfill.
+    catalogue: row.catalogue ?? "script",
     categories: byKind("category", "cat"),
     technologies: byKind("technology", "tech"),
     ...(image?.url ? { image: { url: image.url, alt: image.alt ?? row.name } } : {}),

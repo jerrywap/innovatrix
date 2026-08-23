@@ -7,6 +7,7 @@ import { StarRating } from "@/components/star-rating";
 import { money } from "@/lib/money";
 import type { Route } from "next";
 import type { ProductCard as Card } from "@/services/marketplace";
+import { CATALOGUE_SURFACE } from "@/config/catalogue";
 
 /**
  * One product in the grid.
@@ -48,7 +49,16 @@ export function ProductCardTile({
      */
     <article className="group border-border bg-surface relative flex flex-col overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-[var(--ring)] hover:border-[var(--signal)]/40">
       <Link
-        href={`/marketplace/${card.slug}` as Route}
+        /*
+         * Through `CATALOGUE_SURFACE`, not a literal.
+         *
+         * Both catalogues resolve to `/marketplace` today, so this changes nothing
+         * yet — which is the point of doing it now. When a template's detail page
+         * moves, that is one table entry and a compiler walk rather than a hunt
+         * through the 80-odd `/marketplace/` literals in the tree, and this card is
+         * the highest-traffic one of them.
+         */
+        href={`${CATALOGUE_SURFACE[card.catalogue].productPath}/${card.slug}` as Route}
         className="absolute inset-0 z-0 rounded-xl focus:outline-none"
       >
         {/* The accessible name for the overlay. The visible heading is not inside the link, so
@@ -84,19 +94,40 @@ export function ProductCardTile({
       {/* `pointer-events-none` on the body, re-enabled on the vendor link: the overlay is what
           takes a click anywhere else, and without this the text would swallow it. */}
       <div className="pointer-events-none flex flex-1 flex-col gap-2.5 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-display text-[15px] leading-tight tracking-[-0.01em]">
-            {card.name}
-          </h3>
-          {card.customisable && (
-            <span
-              className="text-subtle flex shrink-0 items-center gap-1 font-mono text-[9.5px] tracking-[0.12em] uppercase"
-              title="Can be adapted to your requirements"
-            >
-              <Sparkles className="size-3" aria-hidden />
-              Adaptable
-            </span>
-          )}
+        {/*
+          The type — "Full Script" or "Website Template".
+
+          Above the title rather than down with the category pills, because it is
+          not another tag: the pills say what a thing is *about* and this says what
+          it *is*, and a buyer needs the second one before the first means anything.
+          A grid that mixes the two catalogues — search results, a saved list, a
+          vendor storefront — is where a card has to answer it on its own.
+
+          Same mono/uppercase idiom as "Featured" and "Adaptable", so it reads as
+          metadata about the listing rather than as content of it.
+        */}
+        {/* One block with the title, at `gap-1`: the body's own `gap-2.5` would
+            float the eyebrow midway between the image and the name and it would
+            read as a caption on the screenshot instead of a label on the listing. */}
+        <div className="flex flex-col gap-1">
+          <span className="text-subtle font-mono text-[9.5px] tracking-[0.14em] uppercase">
+            {CATALOGUE_SURFACE[card.catalogue].label}
+          </span>
+
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="font-display text-[15px] leading-tight tracking-[-0.01em]">
+              {card.name}
+            </h3>
+            {card.customisable && (
+              <span
+                className="text-subtle flex shrink-0 items-center gap-1 font-mono text-[9.5px] tracking-[0.12em] uppercase"
+                title="Can be adapted to your requirements"
+              >
+                <Sparkles className="size-3" aria-hidden />
+                Adaptable
+              </span>
+            )}
+          </div>
         </div>
 
         {/*

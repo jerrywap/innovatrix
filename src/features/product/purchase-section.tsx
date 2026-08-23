@@ -1,6 +1,5 @@
 import "server-only";
-import { cookies } from "next/headers";
-import { CURRENCY_COOKIE, toStorefrontCurrency } from "@/config/storefront";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { getSession } from "@/lib/auth/dal";
 import { isSaved } from "@/services/marketplace/saved";
 import type { ProductDetail } from "@/services/marketplace/detail";
@@ -16,8 +15,7 @@ import { SaveButton } from "./save-button";
  * prerenderable.
  */
 export async function PurchaseSection({ product }: { product: ProductDetail }) {
-  const jar = await cookies();
-  const currency = toStorefrontCurrency(jar.get(CURRENCY_COOKIE)?.value);
+  const currency = await resolveStorefrontCurrency();
   const session = await getSession();
 
   const saved = session ? await isSaved(session.user.id, product.id) : false;

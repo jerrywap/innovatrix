@@ -1,6 +1,5 @@
 import "server-only";
-import { cookies } from "next/headers";
-import { CURRENCY_COOKIE, toStorefrontCurrency } from "@/config/storefront";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { getRelatedProducts, type ProductDetail } from "@/services/marketplace/detail";
 import { ProductCardTile } from "@/features/marketplace/components/product-card";
 
@@ -12,8 +11,7 @@ import { ProductCardTile } from "@/features/marketplace/components/product-card"
  * product with no siblings is a normal state in a young catalogue.
  */
 export async function RelatedProducts({ product }: { product: ProductDetail }) {
-  const jar = await cookies();
-  const currency = toStorefrontCurrency(jar.get(CURRENCY_COOKIE)?.value);
+  const currency = await resolveStorefrontCurrency();
 
   const related = await getRelatedProducts(product, currency, 3);
   if (related.length === 0) return null;

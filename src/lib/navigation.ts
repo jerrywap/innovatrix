@@ -575,15 +575,34 @@ export const ADMIN_NAV: readonly NavSection[] = [
 
 /* ────────────────────────────────────────────── public */
 
+/**
+ * Three items, and each one says what you get rather than what we call it.
+ *
+ * "Marketplace" describes our side of the transaction; "Software & Scripts"
+ * describes the customer's. Same for the other two — a visitor scanning a header
+ * is matching words against what they came for, and "Custom build" only reads as
+ * an offer once you already know what it means.
+ *
+ * ## Two things left
+ *
+ * `/services` is still a page and is still linked from the footer; it came out of
+ * the header because it competes for attention with the three doors that actually
+ * lead to a purchase (§100's progressive complexity — a visitor should not have to
+ * rule out a service page before finding the catalogue).
+ *
+ * `/pricing` is **gone**, not hidden. It had no tiers to show — a marketplace
+ * product is priced individually, custom work is quoted after scoping — so it
+ * explained the *shape* of pricing and sent people to the catalogue for numbers.
+ * The catalogue does that itself, and a page whose job is to point elsewhere is a
+ * hop, not a destination.
+ */
 export const PUBLIC_NAV: readonly NavItem[] = [
-  { label: "Marketplace", href: "/marketplace", icon: "store" },
-  // The template catalogue's front door. Second, after Marketplace: scripts are
+  { label: "Software & Scripts", href: "/marketplace", icon: "store" },
+  // The template catalogue's front door. Second, after the scripts: scripts are
   // the platform's main business and templates are the adjacent one, and the two
   // are separate storefronts rather than two views of one.
-  { label: "Templates", href: "/templates", icon: "tags" },
-  { label: "Custom build", href: "/custom-software", icon: "wrench" },
-  { label: "Services", href: "/services", icon: "settings" },
-  { label: "Pricing", href: "/pricing", icon: "receipt" },
+  { label: "Website Templates", href: "/templates", icon: "tags" },
+  { label: "Request Custom Build", href: "/custom-software", icon: "wrench" },
 ];
 
 /* ────────────────────────────────────────────── filtering */

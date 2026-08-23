@@ -8,6 +8,7 @@ import { DEFAULT_CURRENCY } from "@/config/storefront";
 import { SearchBox } from "@/features/marketplace/components/search-box";
 import { ProductCardTile } from "@/features/marketplace/components/product-card";
 import { getPublishedProductCount, getRail, getTaxonomyIndex } from "@/services/marketplace";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 
 /**
  * The home page had **no metadata of its own** before ticket 27.
@@ -172,6 +173,15 @@ async function CatalogueSummary() {
   // The home page is the *scripts* brand. Its category chips and its product
   // count are about that catalogue; templates have their own front door.
   const [count, taxonomy] = await Promise.all([
+    /*
+     * `DEFAULT_CURRENCY` here is correct, not an oversight — leave it.
+     *
+     * This is a *count* with no price filter, so it is currency-invariant: the
+     * same number for every viewer. Resolving the viewer's currency would produce
+     * three cache entries holding one identical integer, and make a boundary that
+     * prerenders today depend on a cookie. The parameter exists because the
+     * function shares a pipeline with the price-filtered reads.
+     */
     getPublishedProductCount(DEFAULT_CURRENCY, "script"),
     getTaxonomyIndex("script"),
   ]);
@@ -559,9 +569,22 @@ function Marketplace() {
  *
  * `ProductCardTile` is the tile the marketplace and its rails already use, so
  * this section now cannot drift from them by construction.
+ *
+ * ## The currency is the viewer's, not the default
+ *
+ * It was `DEFAULT_CURRENCY`, which meant somebody who had switched to ₦ on the
+ * marketplace came back to the home page and saw £ — the preference silently not
+ * applying on the one page most likely to be visited twice. Unlike the count
+ * above, these are prices, so the currency genuinely changes the output.
+ *
+ * The cost is that this boundary now reads a cookie, so it renders per request
+ * rather than prerendering. Acceptable *here specifically*: it is already inside
+ * `<Suspense>` with a skeleton, so the static shell is untouched, and the read
+ * underneath is cached over a closed set of three currencies.
  */
 async function FeaturedProducts() {
-  const cards = await getRail("featured", DEFAULT_CURRENCY, 4, "script");
+  const currency = await resolveStorefrontCurrency();
+  const cards = await getRail("featured", currency, 4, "script");
 
   if (cards.length === 0) return null;
 

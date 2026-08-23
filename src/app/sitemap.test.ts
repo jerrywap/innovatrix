@@ -26,7 +26,7 @@ import { STATIC_PATHS } from "./sitemap";
 
 const APP = join(process.cwd(), "src", "app");
 
-/** `/pricing` → `src/app/(public)/pricing/page.tsx`, whatever the group. */
+/** `/services` → `src/app/(public)/services/page.tsx`, whatever the group. */
 const ROUTE_GROUPS = ["", "(public)", "(auth)"];
 
 function routeExists(path: string): boolean {
@@ -57,7 +57,7 @@ describe("sitemap", () => {
     const paths = STATIC_PATHS.map(([path]) => path);
 
     expect(new Set(paths).size).toBe(paths.length);
-    // `/pricing` and `/pricing/` are two URLs to a crawler and one page to us.
+    // `/services` and `/services/` are two URLs to a crawler and one page to us.
     expect(paths.filter((path) => path !== "/" && path.endsWith("/"))).toEqual([]);
   });
 });

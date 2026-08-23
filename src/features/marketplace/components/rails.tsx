@@ -2,11 +2,7 @@ import "server-only";
 import Link from "next/link";
 import type { Route } from "next";
 import { cookies } from "next/headers";
-import {
-  CURRENCY_COOKIE,
-  RECENTLY_VIEWED_COOKIE,
-  toStorefrontCurrency,
-} from "@/config/storefront";
+import { RECENTLY_VIEWED_COOKIE, type StorefrontCurrency } from "@/config/storefront";
 import { getCardsBySlug, getRail } from "@/services/marketplace";
 import type { CatalogueScope } from "@/config/catalogue";
 import { parseRecentlyViewed } from "@/services/marketplace/recently-viewed";
@@ -28,10 +24,25 @@ import { ProductCardTile } from "./product-card";
  * criterion — "survives a page refresh and does not require login" — true, and
  * it is also why the cookie's contents are treated as untrusted on the way in:
  * `parseRecentlyViewed` drops anything that is not a slug.
+ *
+ * ## The currency is a prop, not a cookie read
+ *
+ * It used to resolve its own, from the cookie alone, while the grid beside it
+ * resolved from the URL first. So `/marketplace?currency=NGN` rendered "Featured"
+ * in £ next to results in ₦ — one page quoting two currencies, which reads as a
+ * pricing error rather than a bug.
+ *
+ * Taking it as a prop is not merely tidier, it makes the disagreement
+ * *impossible*: there is one resolution per request and this component is not it.
  */
-export async function DiscoveryRails({ catalogue }: { catalogue: CatalogueScope }) {
+export async function DiscoveryRails({
+  catalogue,
+  currency,
+}: {
+  catalogue: CatalogueScope;
+  currency: StorefrontCurrency;
+}) {
   const jar = await cookies();
-  const currency = toStorefrontCurrency(jar.get(CURRENCY_COOKIE)?.value);
   const recentSlugs = parseRecentlyViewed(jar.get(RECENTLY_VIEWED_COOKIE)?.value);
 
   const [recent, featured, popular] = await Promise.all([
@@ -47,7 +58,7 @@ export async function DiscoveryRails({ catalogue }: { catalogue: CatalogueScope 
       {recent.length > 0 && (
         <Rail
           title="Where you left off"
-          description="The last few products you looked at. Kept on this device only."
+          description="The last few products you looked at."
           cards={recent.slice(0, 3)}
         />
       )}

@@ -57,6 +57,21 @@ export interface CreateDraftInput {
    * categories.
    */
   catalogue?: ProductCatalogue;
+  /**
+   * Derive the slug from this instead of from `name`.
+   *
+   * Two listings of one application share a name — "Atlas CRM" the full script and
+   * "Atlas CRM" the website template — and `uniqueSlug`'s collision fallback is a
+   * **random** four-character suffix, deliberately ("`acme-2` tells the world that
+   * `acme` exists… and a counter needs a read-then-write that races"). So the second
+   * listing would get `atlas-crm-k7m2`: opaque, and non-deterministic, so it cannot
+   * even be asserted in a test.
+   *
+   * A seed of `atlas-crm-template` is readable, predictable, and discloses nothing
+   * the script's own public slug does not. The unique index is still the authority
+   * and the random suffix still catches a genuine collision.
+   */
+  slugSeed?: string;
 }
 
 /**
@@ -73,7 +88,9 @@ export async function createDraft(
 ): Promise<ProductDoc> {
   await connectToDatabase();
 
-  const slug = await uniqueSlug(input.name, (candidate) => products.slugExists(candidate));
+  const slug = await uniqueSlug(input.slugSeed ?? input.name, (candidate) =>
+    products.slugExists(candidate),
+  );
 
   let created: ProductDoc;
   try {
@@ -244,6 +261,29 @@ export async function saveClassification(
    */
   const owner = await products.findScoped(productId, scope);
   if (!owner) throw new NotFoundError("product", { id: productId });
+
+  /*
+   * A linked website template cannot be moved out of the template catalogue.
+   *
+   * `scriptListingId` only means anything on a `template`, so allowing the move
+   * would leave a script carrying a pointer that says it is the front-end of
+   * something. Inert — the banner gates on catalogue — but false, and false state
+   * in the one write that exists to keep placement consistent is the thing this
+   * function is for.
+   *
+   * A **refusal**, not a silent `$unset`: clearing the link because somebody
+   * changed a dropdown is invisible data loss. `unlinkTemplateSibling` is the
+   * button that makes this a step rather than a wall, and it is why that function
+   * shipped in the same change.
+   *
+   * Free — `owner` is already read above for the vendor slug.
+   */
+  if (owner.scriptListingId && input.catalogue !== "template") {
+    throw new ValidationError(
+      "This listing is the front-end of a full script. Unlink it before moving it to another catalogue.",
+      { catalogue: ["A linked website template must stay in the template catalogue."] },
+    );
+  }
 
   /*
    * A term from the other catalogue is refused, not dropped.
@@ -748,6 +788,27 @@ export async function softDelete(productId: string, actor: AuditActor): Promise<
     throw new ValidationError("This product has versions. Archive it instead of deleting it.", {
       versions: [`${versions.length} version(s) exist.`],
     });
+  }
+
+  /*
+   * A website template listing points at this one — refuse, do not cascade.
+   *
+   * `restrict` rather than `cascade` because the two listings are separately
+   * saleable things with separate artefacts, and deleting one because somebody
+   * deleted the other is not a decision this function gets to make. `unlink` is a
+   * button on the template's own review step, which is what makes this refusal
+   * something the person can act on rather than a dead end.
+   *
+   * Note this only fires for a *draft* script with no versions — the two checks
+   * above — which is exactly the state the checkbox can be used in, so the case is
+   * reachable rather than theoretical.
+   */
+  const siblings = await products.countTemplateSiblingsOf(productId);
+  if (siblings > 0) {
+    throw new ValidationError(
+      "A website template listing is linked to this product. Unlink it first, or delete it too.",
+      { scriptListingId: ["A template listing points at this product."] },
+    );
   }
 
   await products.deleteById(productId);

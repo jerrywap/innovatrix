@@ -3,7 +3,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import type { PipelineStage } from "mongoose";
 import { connectToDatabase } from "@/lib/db/client";
 import { Product, Taxonomy } from "@/lib/db/models/catalog";
-import type { TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
+import type { ProductCatalogue, TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 import { DEFAULT_CURRENCY, type StorefrontCurrency } from "@/config/storefront";
 import {
   productCatalogueFilter,
@@ -14,6 +14,7 @@ import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG } from "@/services/catalog/cac
 import {
   buildMarketplacePipeline,
   dimensionsWithHonestCounts,
+  queryKey,
   toFacetCounts,
   type FacetCount,
   type MarketplaceQueryInput,
@@ -47,6 +48,15 @@ export interface ProductCard {
   slug: string;
   name: string;
   summary: string;
+  /**
+   * Which catalogue it is in, rendered on the card as its type line.
+   *
+   * Not optional. The grid on `/templates` knows what it is showing, but search
+   * results, a saved list and a vendor storefront all mix the two — and there the
+   * type is the difference between a front-end you style and an application you
+   * run. `CATALOGUE_SURFACE` holds the wording.
+   */
+  catalogue: ProductCatalogue;
   /** Already resolved against the taxonomy — no `$lookup`, see below. */
   categories: Array<{ slug: string; name: string }>;
   technologies: Array<{ slug: string; name: string }>;
@@ -190,9 +200,21 @@ export async function getTaxonomyTerm(
 export async function searchMarketplace(
   input: MarketplaceQueryInput,
 ): Promise<MarketplaceResult> {
+  /*
+   * Normalised **here**, not at the call site.
+   *
+   * Callers pass a `ParsedMarketplaceQuery`, which carries the whole query string
+   * along in `raw` for the filter rail to build links from — and that was going
+   * into the cache key, so `?utm_source=…` and even a different ordering of the
+   * same parameters each minted their own entry. `queryKey` keeps only what
+   * decides the rows. Doing it inside the entry point rather than at each caller
+   * is what makes it impossible for the next caller to forget.
+   */
+  const key = queryKey(input);
+
   // Free text bypasses the cache entirely — unbounded key space. Everything
   // else goes through `cachedSearch`, whose inputs come from a closed set.
-  return input.q ? runSearch(input) : cachedSearch(input);
+  return key.q ? runSearch(key) : cachedSearch(key);
 }
 
 async function cachedSearch(input: MarketplaceQueryInput): Promise<MarketplaceResult> {
@@ -231,6 +253,52 @@ async function runSearch(input: MarketplaceQueryInput): Promise<MarketplaceResul
     facetCounts: toFacetCounts(result?.facetCounts ?? []),
     countableDimensions: [...dimensionsWithHonestCounts(input)],
   };
+}
+
+/**
+ * One page of cards and nothing else — for appending to a grid already on screen.
+ *
+ * ## Why not just call `searchMarketplace` and take `.products`
+ *
+ * Because that computes the facet counts and the total, and neither can have
+ * changed: they describe the whole filtered set, which appending page three does
+ * not narrow. Recomputing them costs an `$unwind` over the matched set and a
+ * `$group`, to produce numbers that are already rendered. So the counts are
+ * skipped for the same reason they are computed in the first place — accuracy
+ * about what the numbers mean.
+ *
+ * Same cache, same tags, same `queryKey` normalisation, so page two of a filtered
+ * listing is one entry whether it was reached by clicking "2" or by scrolling.
+ *
+ * `q` bypasses the cache exactly as `searchMarketplace` does — free text is
+ * attacker-controlled and would make the key space unbounded.
+ */
+export async function searchMarketplaceRows(
+  input: MarketplaceQueryInput,
+): Promise<ProductCard[]> {
+  const key = queryKey(input);
+  return key.q ? runRows(key) : cachedRows(key);
+}
+
+async function cachedRows(input: MarketplaceQueryInput): Promise<ProductCard[]> {
+  "use cache";
+  cacheTag(CATALOG_TAG, TAXONOMY_TAG);
+  cacheLife(CACHE_PROFILE.listing);
+
+  return runRows(input);
+}
+
+async function runRows(input: MarketplaceQueryInput): Promise<ProductCard[]> {
+  await connectToDatabase();
+
+  // `counts: false` flattens the rows branch, so the aggregation returns card
+  // documents rather than a single `$facet` wrapper.
+  const rows = await Product.aggregate<RawCard>(
+    buildMarketplacePipeline(input, { counts: false }) as unknown as PipelineStage[],
+  );
+  const taxonomy = await getTaxonomyIndex();
+
+  return rows.map((row) => toCard(row, taxonomy, input.currency));
 }
 
 /* ────────────────────────────────────────────── rails */
