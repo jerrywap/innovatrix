@@ -592,6 +592,7 @@ async function main() {
             { title: "Reporting dashboard" },
             { title: "Email notifications" },
           ],
+          media: seedMedia(p.slug, p.name),
           prices: everyCurrency(p.price),
           licencePackages: [
             {
@@ -1008,6 +1009,69 @@ async function main() {
   console.log(`  password:   ${DEMO_PASSWORD}  (every account)`);
 
   await mongoose.disconnect();
+}
+
+/**
+ * Screenshots for a seeded product — and one video, on purpose.
+ *
+ * ## Why the seed had none at all
+ *
+ * `seed.ts` wrote no `media`, so on a freshly seeded database the product page's
+ * entire hero block — the `<Image priority>` LCP element and the gallery beside
+ * it — was `{hero && …}` with `hero` undefined, and simply never rendered. Every
+ * change to either was therefore verified against `seed-bulk`'s catalogue or
+ * against nothing.
+ *
+ * ## 1600×900, not 800×500
+ *
+ * The hero renders at up to 780px wide on a `lg` layout and the lightbox at up to
+ * 1280px, so an 800px source is a 1.6× upscale in the one place somebody opens to
+ * look closely. `picsum.photos/seed/<slug>-<n>` is deterministic, so the
+ * catalogue looks the same on every machine.
+ *
+ * ## The video entry, and where it sits in the array
+ *
+ * `roster` gets one, because a mixed list is the only thing that makes the
+ * `screenshots()` filter observable: at `sortOrder: 0` it sorts to the front of
+ * `ProductDetail.media`, which is exactly the arrangement that used to render an
+ * `<Image src="…mp4">` as the LCP element and hand the same URL to every crawler
+ * as the Open Graph image.
+ *
+ * It is placed **last in the array** even so, which looks inconsistent and is
+ * deliberate: `CARD_PROJECTION` takes the card thumbnail with
+ * `{ $slice: ["$media", 1] }` — document order, with no way to filter by `kind` —
+ * so a video first in the array would give `roster` a broken image on every
+ * marketplace grid. That is a real bug, in a different file, waiting for its own
+ * diff; seeding data that triggers it would make the whole grid look broken and
+ * teach everyone to ignore it.
+ */
+function seedMedia(slug: string, name: string) {
+  // Atlas is the walkthrough product, so it is the one that needs enough
+  // screenshots for the strip, the counter and wrap-around to be worth looking at.
+  const count = slug === "atlas-crm" ? 5 : 3;
+
+  const shots = Array.from({ length: count }, (_, index) => ({
+    kind: "screenshot" as const,
+    url: `https://picsum.photos/seed/${slug}-${index + 1}/1600/900`,
+    // Never blank: an unlabelled screenshot fails AA, and the seed should look
+    // like what the admin form would have written rather than like a shortcut.
+    alt: `${name} — screenshot ${index + 1}`,
+    sortOrder: index + 1,
+    isPrimary: index === 0,
+  }));
+
+  if (slug !== "roster") return shots;
+
+  return [
+    ...shots,
+    {
+      kind: "video" as const,
+      url: "https://example.test/roster-walkthrough.mp4",
+      alt: `${name} — product walkthrough`,
+      sortOrder: 0,
+      isPrimary: false,
+    },
+  ];
 }
 
 main().catch(async (error) => {

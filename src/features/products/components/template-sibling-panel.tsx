@@ -1,14 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useActionState } from "react";
-import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import type { Route } from "next";
 import { ArrowRight, Layout } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/status-badge";
-import { FormErrors } from "./section-form";
+import { FormErrors, useManualSubmit } from "./section-form";
 import { PriceMatrix } from "./pricing-form";
 import { createTemplateSiblingAction, unlinkTemplateSiblingAction } from "../actions";
 import type { ProductStatus } from "@/lib/db/enums";
@@ -119,7 +117,16 @@ function CreateForm({
   licencePackageCount: number;
   action: typeof createTemplateSiblingAction;
 }) {
-  const [state, formAction] = useActionState(action, null);
+  /*
+    `useManualSubmit`, not `<form action={…}>` — same reason as the wizard steps,
+    and this form is the sharpest case of it. `confirm` is a *controlled* Radix
+    checkbox, and Radix answers React's pre-action form reset by calling our
+    `onCheckedChange` with the value captured at first render: `false`. So a
+    validation failure unticked the box, which unmounted the price matrix, which
+    lost the price that had just been typed — while displaying the error asking
+    for it.
+  */
+  const { state, pending, onSubmit } = useManualSubmit(action);
   const [confirmed, setConfirmed] = useState(false);
   const failed = state && !state.ok ? state : null;
 
@@ -135,7 +142,7 @@ function CreateForm({
         </p>
       </div>
 
-      <form action={formAction} className="flex flex-col gap-3">
+      <form onSubmit={onSubmit} className="flex flex-col gap-3">
         <input type="hidden" name="productId" value={productId} />
 
         <label className="flex items-start gap-2.5">
@@ -152,7 +159,7 @@ function CreateForm({
         {confirmed && (
           <div className="flex flex-col gap-2 pl-7">
             <span className="text-[12.5px] font-medium">Template price</span>
-            <PriceMatrix name="prices" prices={[]} />
+            <PriceMatrix name="prices" prices={[]} context="product" />
 
             {/*
               Said before the click, not after.
@@ -175,7 +182,12 @@ function CreateForm({
 
         {failed && <FormErrors error={failed.error} fieldErrors={failed.fieldErrors} />}
 
-        <Submit disabled={!confirmed} label="Create the template listing" pending="Creating…" />
+        <Submit
+          disabled={!confirmed}
+          label="Create the template listing"
+          pendingLabel="Creating…"
+          pending={pending}
+        />
       </form>
     </section>
   );
@@ -190,7 +202,7 @@ function LinkedNotice({
   productId: string;
   action: typeof unlinkTemplateSiblingAction;
 }) {
-  const [state, formAction] = useActionState(action, null);
+  const { state, pending, onSubmit } = useManualSubmit(action);
   const failed = state && !state.ok ? state : null;
 
   return (
@@ -201,7 +213,7 @@ function LinkedNotice({
         Its product page offers the complete application, and links there.
       </p>
 
-      <form action={formAction} className="flex flex-col gap-2">
+      <form onSubmit={onSubmit} className="flex flex-col gap-2">
         <input type="hidden" name="productId" value={productId} />
         {failed && <FormErrors error={failed.error} fieldErrors={failed.fieldErrors} />}
         {/*
@@ -209,24 +221,26 @@ function LinkedNotice({
           *refuse* a catalogue change on a linked template rather than silently
           clearing the pointer. A refusal with no way forward would be a wall.
         */}
-        <Submit variant="ghost" label="Unlink" pending="Unlinking…" />
+        <Submit variant="ghost" label="Unlink" pendingLabel="Unlinking…" pending={pending} />
       </form>
     </section>
   );
 }
 
+/** `pending` is a prop: `useFormStatus` reports nothing for a manual dispatch. */
 function Submit({
   label,
-  pending: pendingLabel,
+  pendingLabel,
+  pending,
   disabled,
   variant = "primary",
 }: {
   label: string;
-  pending: string;
+  pendingLabel: string;
+  pending: boolean;
   disabled?: boolean;
   variant?: "primary" | "ghost";
 }) {
-  const { pending } = useFormStatus();
   return (
     <button
       type="submit"

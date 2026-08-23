@@ -1,7 +1,6 @@
 import "server-only";
-import { cookies } from "next/headers";
-import { CURRENCY_COOKIE, toStorefrontCurrency } from "@/config/storefront";
 import { getTaxonomyIndex, searchMarketplace } from "@/services/marketplace";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import {
   activeFilterCount,
   currencyMustBeInUrl,
@@ -24,12 +23,12 @@ import { Results } from "./components/results";
  * Cache Components, and reading either one in the page would stop the shell
  * prerendering.
  *
- * ## Currency resolution, in order
+ * ## Currency
  *
- * URL → cookie → default. Explicitly **not** `Accept-Language` or geo-IP:
- * language is not currency (an `en-GB` browser in Lagos is a normal case for
- * this business, not an edge case), and both make the response vary on a header
- * — which poisons any shared cache and makes "copy the URL" stop working.
+ * Resolved once, here, and passed **down** — including to `DiscoveryRails`, which
+ * used to read the cookie for itself and so showed £ beside a ₦ grid on
+ * `?currency=NGN`. The policy that used to be described in this docblock now lives
+ * with the function that implements it, in `services/marketplace/currency.ts`.
  */
 export async function MarketplaceResults({
   searchParams,
@@ -55,11 +54,7 @@ export async function MarketplaceResults({
   locked?: ReadonlyArray<"category" | "industry" | "technology" | "productType">;
 }) {
   const raw = await searchParams;
-  const jar = await cookies();
-
-  const currency = toStorefrontCurrency(
-    firstOf(raw.currency) ?? jar.get(CURRENCY_COOKIE)?.value,
-  );
+  const currency = await resolveStorefrontCurrency(raw.currency);
 
   const query = parseMarketplaceQuery(raw, {
     currency,
@@ -151,21 +146,22 @@ export async function MarketplaceResults({
       <div className="hidden lg:block">{rail}</div>
 
       <div className="flex flex-col gap-12">
-        {isBrowsing && <DiscoveryRails catalogue={catalogue} />}
+        {/* The currency travels as a prop. One resolution per request means the
+            rails and the grid cannot quote different currencies — which they did,
+            on the same page, for every visitor who switched. */}
+        {isBrowsing && <DiscoveryRails catalogue={catalogue} currency={currency} />}
         <Results
           result={result}
           raw={raw}
           basePath={basePath}
           taxonomy={taxonomy}
+          appendSearch={appendSearch(raw, forced)}
+          catalogue={catalogue}
           {...(query.q ? { query: query.q } : {})}
         />
       </div>
     </div>
   );
-}
-
-function firstOf(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
 }
 
 /**
@@ -176,6 +172,41 @@ function firstOf(value: string | string[] | undefined): string | undefined {
  * `URLSearchParams`, because `raw` is what this component was handed and going back to the request
  * would be a second source of truth for the same fact.
  */
+/**
+ * The query string the append action is given.
+ *
+ * A landing page pins its own term through `forced`, which never appears in the
+ * URL — so an append built from `raw` alone would widen the results to the whole
+ * catalogue the moment somebody scrolled a category page.
+ *
+ * Merged into the string rather than passed to the action as options, and that is
+ * the security-relevant half: `parseMarketplaceQuery` deliberately **bypasses**
+ * `slugs()` for `forced`, because it is the page's own decision rather than the
+ * visitor's, and the value lands in an `$in`. Arriving as an ordinary parameter it
+ * goes through the slug regex and the per-dimension cap like anything else.
+ *
+ * `page` is left out: the client sets it per batch, and carrying the current one
+ * would make the first append re-fetch the page already on screen.
+ */
+function appendSearch(
+  raw: RawSearchParams,
+  forced?: { category?: string[]; industry?: string[] },
+): string {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === "page" || value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) params.append(key, item);
+  }
+
+  // Duplicates are harmless — `facetMatch` de-duplicates into a set — so this
+  // needs no membership check, and a check is the kind of thing that goes stale.
+  for (const slug of forced?.category ?? []) params.append("category", slug);
+  for (const slug of forced?.industry ?? []) params.append("industry", slug);
+
+  return params.toString();
+}
+
 function drawerKey(raw: RawSearchParams): string {
   return Object.entries(raw)
     .flatMap(([key, value]) =>

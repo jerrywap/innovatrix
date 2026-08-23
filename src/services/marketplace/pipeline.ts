@@ -130,25 +130,134 @@ const CARD_PROJECTION = {
   ratingCount: 1,
 } as const;
 
+/**
+ * The subset of a query that decides the results — nothing else.
+ *
+ * ## Why this exists
+ *
+ * `parseMarketplaceQuery` returns a `ParsedMarketplaceQuery`, which is a
+ * `MarketplaceQueryInput` **plus `raw`** — the whole query string, kept so the
+ * filter rail can build links back out of it. That object was being handed
+ * straight to a `"use cache"` function, so the cache key included `raw`. Three
+ * consequences, none visible from a page that looks correct:
+ *
+ * - `?utm_source=newsletter` and `?fbclid=…` each mint their own entry for
+ *   results identical to the plain URL. Campaign traffic — the traffic most worth
+ *   serving fast — is the traffic guaranteed to miss.
+ * - `?category=crm&industry=retail` and `?industry=retail&category=crm` are two
+ *   entries, because object key order follows insertion order.
+ * - So does `?category=a&category=b` versus `?category=b&category=a`, which is the
+ *   same `$in`.
+ *
+ * The listing then behaves like it has no cache while paying to maintain one.
+ *
+ * ## How it is kept honest
+ *
+ * `NORMALISE` is a mapped type over **every** key of `MarketplaceQueryInput`, with
+ * optionality stripped. Adding a field to that interface without deciding what it
+ * does to the key is a compile error naming the missing property — which is the
+ * only mechanism that survives somebody adding a filter in six months and not
+ * reading this comment.
+ *
+ * Arrays are sorted and de-duplicated because `facetMatch` already treats them as
+ * a set (it builds an `$in`), and an empty one is dropped because `[]` and absent
+ * produce a byte-identical pipeline. Both are safe *because* the pipeline cannot
+ * tell the difference; neither would be safe otherwise.
+ *
+ * Note `q` is kept: `searchMarketplace` routes free text around the cache
+ * entirely, so it never reaches a key. It is normalised here anyway rather than
+ * dropped, because a key that quietly ignores a field is how two different
+ * searches would come to share one entry the day that routing changes.
+ */
+type Normaliser<T> = { [K in keyof T]-?: (value: T[K]) => T[K] };
+
+const keep = <T>(value: T): T => value;
+
+/** Sorted, de-duplicated, and `undefined` when it would filter nothing. */
+function termSet(value: readonly string[] | undefined): readonly string[] | undefined {
+  if (!value || value.length === 0) return undefined;
+  return [...new Set(value)].sort();
+}
+
+const NORMALISE: Normaliser<MarketplaceQueryInput> = {
+  q: keep,
+  category: termSet,
+  industry: termSet,
+  technology: termSet,
+  productType: keep,
+  vendor: termSet,
+  minPrice: keep,
+  maxPrice: keep,
+  free: keep,
+  customisable: keep,
+  catalogue: keep,
+  sort: keep,
+  page: keep,
+  limit: keep,
+  currency: keep,
+};
+
+/**
+ * Two URLs describing the same result set produce one key.
+ *
+ * Key **order** is the declaration order of `NORMALISE` rather than the caller's
+ * insertion order, which is half of what makes that true.
+ */
+export function queryKey(input: MarketplaceQueryInput): MarketplaceQueryInput {
+  const key: Record<string, unknown> = {};
+
+  for (const field of Object.keys(NORMALISE) as Array<keyof MarketplaceQueryInput>) {
+    const normalise = NORMALISE[field] as (value: unknown) => unknown;
+    const value = normalise(input[field]);
+    // Omitted rather than set to `undefined`: a present-but-undefined property
+    // is a different object, and may serialise differently.
+    if (value !== undefined) key[field] = value;
+  }
+
+  return key as unknown as MarketplaceQueryInput;
+}
+
 export function buildMarketplacePipeline(
   input: MarketplaceQueryInput,
+  /**
+   * `{ counts: false }` returns the rows branch **flattened** — no `$facet`, so
+   * the aggregation yields card documents directly rather than one wrapper.
+   *
+   * For appending the next page of an infinite-scroll grid. Skipping the counts
+   * there is not merely cheaper, it is more *correct*: the facet counts describe
+   * the whole filtered set, so appending page three cannot change them, and
+   * recomputing would spend an `$unwind` and a `$group` to arrive at the numbers
+   * already on the screen. Net, an appended page is cheaper than clicking "2".
+   *
+   * The default shape is unchanged byte for byte, because `getCardsBySlug`
+   * depends on it: it slices stage one off with `.slice(1)` and reuses the rest.
+   */
+  options: { counts?: boolean } = {},
 ): Record<string, unknown>[] {
   const page = Math.min(Math.max(1, input.page), MAX_PAGE);
   const limit = Math.min(Math.max(1, input.limit), MAX_LIMIT);
   const skip = (page - 1) * limit;
 
-  return [
+  const filtering = [
     { $match: primaryMatch(input) },
     { $addFields: computedFields(input) },
     ...priceRangeStage(input),
+  ];
+
+  const rows = [
+    { $sort: sortStage(input) },
+    { $skip: skip },
+    { $limit: limit },
+    { $project: CARD_PROJECTION },
+  ];
+
+  if (options.counts === false) return [...filtering, ...rows];
+
+  return [
+    ...filtering,
     {
       $facet: {
-        rows: [
-          { $sort: sortStage(input) },
-          { $skip: skip },
-          { $limit: limit },
-          { $project: CARD_PROJECTION },
-        ],
+        rows,
         // Unwinding `facets` and grouping gives every dimension's counts in one
         // pass. `$unwind` on an indexed array is cheap here because the set is
         // already filtered.

@@ -362,7 +362,13 @@ async function main() {
                 //
                 // Seeded on the slug rather than random, so the catalogue looks
                 // identical on every machine and a screenshot stays valid.
-                url: `https://picsum.photos/seed/${slug}/800/500`,
+                //
+                // 1600×900, not 800×500. The hero renders at up to 780px and the
+                // lightbox at up to 1280px, so an 800px source was a 1.6× upscale
+                // in the one place somebody opens to look closely — and it made
+                // every judgement about image quality here a judgement about a
+                // scaled placeholder.
+                url: `https://picsum.photos/seed/${slug}/1600/900`,
                 alt: `${name} dashboard`,
                 sortOrder: 0,
                 isPrimary: true,

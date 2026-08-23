@@ -4,13 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { MultiSelect } from "@/components/multi-select";
+import { NativeSelect } from "@/components/native-select";
 import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { saveClassificationAction } from "../actions";
 import type { AdminProductView } from "@/services/catalog/product-view";
@@ -31,9 +26,24 @@ export interface TaxonomyOption {
  * `saveClassificationAction` exists separately from the generic section saver
  * because of it.
  *
- * Checkbox lists rather than a combobox: there are tens of taxonomies, not
- * hundreds, and a plain list works inside a `<form>` with no JavaScript at all.
- * A searchable multi-select would be more code and less reliable.
+ * ## Two kinds of control, on purpose
+ *
+ * Categories and Industries are searchable multi-selects; Technologies stays a
+ * checkbox list.
+ *
+ * This reverses the note that used to be here — "a plain list works inside a
+ * `<form>` with no JavaScript at all; a searchable multi-select would be more code
+ * and less reliable". The first half is still true. What it did not know is that
+ * **adding a search box to an uncontrolled checkbox list is a data-loss bug**: a
+ * box hidden by the filter unmounts, submits nothing, and the save writes an empty
+ * array over selections the person can no longer see. So there was never a version
+ * of "search over the existing control"; the selection had to leave the DOM, and
+ * once it has, `MultiSelect` is also immune to the form-reset bug that was wiping
+ * these very fields (see `section-form.tsx`).
+ *
+ * Technologies keeps the list because the trade genuinely differs: it is a
+ * developer's filter with a short vocabulary, usually several ticked at once, and
+ * scanning it is faster than searching it.
  *
  * `action` is a prop so this form serves both wizard surfaces — vendor ticket 04.
  * Defaulted to the staff action, so every existing caller is unchanged and the
@@ -78,19 +88,22 @@ export function ClassificationForm({
         label="Catalogue"
         hint="Templates are browsed at /templates and never appear in script search. Changing this changes which categories are available."
       >
-        <Select
+        {/*
+          `NativeSelect`, not the Radix one — see its docblock. This control was
+          the clearest demonstration of the problem: Radix answers React's
+          pre-action form reset by calling `onValueChange` with the value it saw at
+          first render, so saving snapped the catalogue back and swapped the whole
+          vocabulary underneath the boxes that had just been ticked.
+        */}
+        <NativeSelect
           name="catalogue"
           value={catalogue}
-          onValueChange={(value) => setCatalogue(value as ProductCatalogue)}
+          onChange={(event) => setCatalogue(event.target.value as ProductCatalogue)}
+          containerClassName="w-full sm:w-[280px]"
         >
-          <SelectTrigger className="w-full sm:w-[280px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="script">Application script</SelectItem>
-            <SelectItem value="template">Website template</SelectItem>
-          </SelectContent>
-        </Select>
+          <option value="script">Application script</option>
+          <option value="template">Website template</option>
+        </NativeSelect>
       </Field>
 
       {/*
@@ -120,10 +133,11 @@ export function ClassificationForm({
         title="Categories"
         description="What kind of software this is. Shown as a filter and as a landing page."
       >
-        <CheckboxList
+        <MultiSelect
           name="categoryIds"
+          label="Categories"
           options={options.category.filter(inCatalogue)}
-          selected={product.categoryIds}
+          defaultSelected={product.categoryIds}
         />
       </FieldGroup>
 
@@ -131,10 +145,11 @@ export function ClassificationForm({
         title="Industries"
         description="Who it is for. A business owner filters by this before anything technical."
       >
-        <CheckboxList
+        <MultiSelect
           name="industryIds"
+          label="Industries"
           options={options.industry.filter(inCatalogue)}
-          selected={product.industryIds}
+          defaultSelected={product.industryIds}
         />
       </FieldGroup>
 
@@ -153,18 +168,25 @@ export function ClassificationForm({
         label="Product type"
         hint="One only, and it says what kind of thing this is *within* its catalogue — not which catalogue it is in."
       >
-        <Select name="productTypeId" defaultValue={product.productTypeId ?? ""}>
-          <SelectTrigger className="w-full sm:w-[280px]">
-            <SelectValue placeholder="Choose a type" />
-          </SelectTrigger>
-          <SelectContent>
-            {options.product_type.filter(inCatalogue).map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <NativeSelect
+          name="productTypeId"
+          defaultValue={product.productTypeId ?? ""}
+          containerClassName="w-full sm:w-[280px]"
+        >
+          {/*
+            A real option for "none", which is what makes the "(optional)" label
+            true. Radix reserves `value=""`, so there was no way to express it: the
+            field could not be left alone on a fresh draft, and once set it could
+            not be cleared. `saveClassification` already routes an absent value to
+            `$unset`, so nothing on the server had to change.
+          */}
+          <option value="">No specific type</option>
+          {options.product_type.filter(inCatalogue).map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name}
+            </option>
+          ))}
+        </NativeSelect>
       </Field>
     </SectionForm>
   );

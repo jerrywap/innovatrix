@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { SearchX } from "lucide-react";
+import { AppendOnScroll } from "./append-on-scroll";
 import { ProductCardTile } from "./product-card";
 import { marketplaceHref, type RawSearchParams } from "@/services/marketplace/query";
 import type { MarketplaceResult, TaxonomyIndex } from "@/services/marketplace";
@@ -19,12 +20,25 @@ export function Results({
   basePath,
   taxonomy,
   query,
+  appendSearch,
+  catalogue,
 }: {
   result: MarketplaceResult;
   raw: RawSearchParams;
   basePath: string;
   taxonomy: TaxonomyIndex;
   query?: string;
+  /**
+   * The listing's own query string, with a landing page's forced terms merged in
+   * as ordinary parameters.
+   *
+   * Built by the caller because only it knows the forced terms — and merged into
+   * the string rather than passed separately on purpose: `parseMarketplaceQuery`
+   * trusts `forced` (it is the page's own decision, not the visitor's) and puts it
+   * straight into an `$in`, so it must not be a value the client can supply.
+   */
+  appendSearch: string;
+  catalogue: string;
 }) {
   if (result.total === 0) {
     return <NoResults query={query} taxonomy={taxonomy} />;
@@ -37,12 +51,23 @@ export function Results({
         {result.pageCount > 1 ? ` · page ${result.page} of ${result.pageCount}` : ""}
       </p>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/*
+        The grid lives inside `AppendOnScroll` so appended cards join the same
+        grid and the layout stays continuous — a second grid below the first would
+        restart the columns and leave a seam on any row that was not full.
+      */}
+      <AppendOnScroll
+        search={appendSearch}
+        catalogue={catalogue}
+        basePath={basePath}
+        page={result.page}
+        pageCount={result.pageCount}
+      >
         {result.products.map((card, index) => (
           // The first card is the grid's LCP element, so it skips lazy-loading.
           <ProductCardTile key={card.id} card={card} priority={index === 0} />
         ))}
-      </div>
+      </AppendOnScroll>
 
       <Pagination result={result} raw={raw} basePath={basePath} />
     </div>
@@ -97,12 +122,19 @@ function NoResults({ query, taxonomy }: { query?: string; taxonomy: TaxonomyInde
 }
 
 /**
- * Numbered pages, not infinite scroll.
+ * Numbered pages, **alongside** appending — not instead of it.
  *
- * §93 needs crawlable links; infinite scroll gives a crawler one page. And a
- * bounded page space is deliberate — `$skip` past a hundred pages is a
- * collection scan, and an unbounded one is a crawl trap that costs real money
- * in database time.
+ * This used to read "numbered pages, not infinite scroll", and the reasoning it
+ * gave was right; what changed is the conclusion that the two are alternatives.
+ * `AppendOnScroll` adds the next page above; these links stay in the markup and
+ * stay visible, because they are still the only thing that gives a crawler more
+ * than one page (§93), the only thing that works unhydrated, and the only way to
+ * jump to page 40 or get *back* to page 2 after a reload.
+ *
+ * The bounded page space is untouched and still deliberate — `$skip` past a
+ * hundred pages is a collection scan, and an unbounded one is a crawl trap that
+ * costs real money in database time. Appending does not widen it: it walks the
+ * same pages, one at a time, and stops well short of the ceiling.
  */
 function Pagination({
   result,

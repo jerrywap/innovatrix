@@ -12,11 +12,13 @@ import {
   getCurrentSlugFor,
   getPrerenderSlugs,
   getProductDetail,
+  screenshots,
   type ProductDetail,
 } from "@/services/marketplace/detail";
 import { DemoPanel } from "@/features/product/demo-panel";
 import { Gallery } from "@/features/product/gallery";
 import { ProductJsonLd } from "@/features/product/json-ld";
+import { VendorByline } from "@/features/product/vendor-byline";
 import { BreadcrumbJsonLd, type Crumb } from "@/components/json-ld";
 import { DEFAULT_CURRENCY } from "@/config/storefront";
 import { PurchaseSection } from "@/features/product/purchase-section";
@@ -66,7 +68,14 @@ export async function generateMetadata({
 
   const title = product.seo.title ?? product.name;
   const description = product.seo.description ?? product.summary;
-  const image = product.seo.ogImageUrl ?? product.media[0]?.url;
+  /*
+   * `screenshots()`, not `media[0]`.
+   *
+   * A product whose first media entry is a video advertised the `.mp4` URL to
+   * every crawler as its Open Graph image. One filter, shared with the hero and
+   * the gallery below, so the three cannot disagree about what an image is.
+   */
+  const image = product.seo.ogImageUrl ?? screenshots(product.media)[0]?.url;
 
   return {
     title,
@@ -99,7 +108,14 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
   }
 
   const origin = serverEnv().APP_URL.replace(/\/$/, "");
-  const hero = product.media[0];
+  /*
+   * Screenshots only — a video in an `<Image>` is a broken LCP element, and it
+   * was `media[0]` regardless of kind. Keep the variable called `hero`:
+   * `product-page.test.ts` finds this block by searching for `"{hero &&"`, and a
+   * rename makes that assertion pass vacuously rather than fail.
+   */
+  const images = screenshots(product.media);
+  const hero = images[0];
 
   return (
     <article className="mx-auto w-full max-w-[1180px] px-5 py-10 lg:px-10 lg:py-14">
@@ -132,23 +148,15 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
               {product.name}
             </h1>
             {/*
-              Attribution — vendor ticket 11, and the answer to "who made this".
-              
-              Above the summary and linked, because a buyer weighing a third-party product asks
-              who is behind it *before* reading what it does. Nothing at all for a first-party
-              product: "by CoSetup" on a platform called CoSetup is noise.
+              Attribution — vendor ticket 11. The reasoning, and why the logo is
+              suspended while the name is not, is in `vendor-byline.tsx`.
+
+              Still guarded here rather than inside the component: "nothing at all
+              for a first-party product" is a fact about the *page*, and a
+              component that could render nothing is one somebody wraps in a
+              heading.
             */}
-            {product.vendor && (
-              <p className="text-[13.5px]">
-                <span className="text-subtle">by </span>
-                <Link
-                  href={`/vendors/${product.vendor.slug}` as Route}
-                  className="underline underline-offset-4"
-                >
-                  {product.vendor.name}
-                </Link>
-              </p>
-            )}
+            {product.vendor && <VendorByline vendor={product.vendor} />}
 
             <p className="text-muted-foreground max-w-[62ch] text-[16px] leading-relaxed">
               {product.summary}
@@ -170,7 +178,7 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
                   className="object-cover"
                 />
               </div>
-              <Gallery images={product.media} productName={product.name} />
+              <Gallery images={images} productName={product.name} />
             </div>
           )}
 

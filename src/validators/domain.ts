@@ -18,6 +18,7 @@ import {
   moneySchema,
   objectIdSchema,
   optionalText,
+  optionalUrl,
   paginationSchema,
   positiveMoneySchema,
   slugSchema,
@@ -105,7 +106,7 @@ export const productInputSchema = z.object({
     .object({
       title: optionalText(70),
       description: optionalText(160),
-      ogImageUrl: z.url().optional(),
+      ogImageUrl: optionalUrl(),
     })
     .prefault({}),
 });
@@ -128,16 +129,16 @@ export const publishReadinessSchema = z.object({
 
 export const demoConfigSchema = z.object({
   exposure: z.enum(DEMO_EXPOSURES),
-  publicUrl: z.url().optional(),
-  customerUrl: z.url().optional(),
-  adminUrl: z.url().optional(),
+  publicUrl: optionalUrl(),
+  customerUrl: optionalUrl(),
+  adminUrl: optionalUrl(),
   instructions: optionalText(2000),
   credentials: z
     .array(
       z.object({
         role: z.string().trim().min(1),
         label: optionalText(80),
-        url: z.url().optional(),
+        url: optionalUrl(),
         username: z.string().trim().min(1),
         // Plaintext only ever crosses the boundary inbound; it is encrypted
         // before it reaches the database (§89, ticket 07).

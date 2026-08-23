@@ -3,7 +3,12 @@ import { cacheLife, cacheTag } from "next/cache";
 import { connectToDatabase } from "@/lib/db/client";
 import { Entitlement } from "@/lib/db/models/commerce";
 import { FACET_PREFIX, Product, parseFacet, type ProductDoc } from "@/lib/db/models/catalog";
-import type { LicenceType, ProductCatalogue, TaxonomyKind } from "@/lib/db/enums";
+import type {
+  LicenceType,
+  ProductCatalogue,
+  ProductMediaKind,
+  TaxonomyKind,
+} from "@/lib/db/enums";
 import type { RichTextDocument } from "@/lib/rich-text/schema";
 import { toObjectId } from "@/lib/db/base";
 import type { StorefrontCurrency } from "@/config/storefront";
@@ -95,7 +100,18 @@ export interface ProductDetail {
   description?: RichTextDocument;
   features: Array<{ title: string; detail?: string }>;
   requirements?: string;
-  media: Array<{ kind: string; url: string; alt: string }>;
+  /**
+   * Screenshots **and videos**, in sort order — narrowed from `kind: string`.
+   *
+   * The widened type was not harmless. Every reader treated the list as images:
+   * `media[0]` became the hero `<Image>`, the same entry became the Open Graph
+   * image, and the whole array went to the gallery. So a product whose first
+   * media entry is a video rendered an `<Image src="…mp4">` as its LCP element
+   * and advertised it to every crawler. `screenshots()` below is what readers
+   * should use; the union is what makes forgetting a compile error rather than a
+   * broken page.
+   */
+  media: Array<{ kind: ProductMediaKind; url: string; alt: string }>;
   prices: DetailPrice[];
   licencePackages: DetailLicencePackage[];
   addons: DetailAddon[];
@@ -142,6 +158,21 @@ export interface ProductDetail {
 }
 
 /* ────────────────────────────────────────────── the cached read */
+
+/**
+ * The images, and only the images.
+ *
+ * One function so the hero, the Open Graph tag and the gallery cannot disagree
+ * about what counts as a picture — they each filtered, or failed to filter,
+ * independently, and the one that failed to was the one a crawler reads.
+ *
+ * A pure helper rather than a second field on the DTO: the video entries are
+ * still wanted (a player is the obvious next thing), so dropping them from the
+ * payload would throw away data to save a `.filter`.
+ */
+export function screenshots(media: ProductDetail["media"]): ProductDetail["media"] {
+  return media.filter((item) => item.kind === "screenshot");
+}
 
 export async function getProductDetail(slug: string): Promise<ProductDetail | null> {
   "use cache";
@@ -201,7 +232,11 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
     media: (product.media ?? [])
       .filter((item) => Boolean(item.url))
       .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((item) => ({ kind: item.kind, url: item.url!, alt: item.alt ?? product.name })),
+      .map((item) => ({
+        kind: item.kind as ProductMediaKind,
+        url: item.url!,
+        alt: item.alt ?? product.name,
+      })),
     ...(product.vendorSlug && product.vendorName
       ? { vendor: { slug: product.vendorSlug, name: product.vendorName } }
       : {}),

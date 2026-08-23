@@ -37,6 +37,35 @@ export const DEFAULT_CURRENCY: StorefrontCurrency = "GBP";
  */
 export const CURRENCY_COOKIE = "cosetup_currency";
 
+/**
+ * How that cookie is written — in one place, because two things write it.
+ *
+ * `proxy.ts` writes it when a `?currency=` navigation arrives, and
+ * `switchCartCurrencyAction` writes it when the basket's own switcher is used.
+ * Those are the same preference, and they were not both writing it: for a long
+ * while **nothing** did, which is why the currency switch never survived leaving
+ * the listing. Two independent option literals is how they would come to disagree
+ * about `maxAge` or `path` and produce two cookies with one name.
+ *
+ * `httpOnly: false`, matching the recently-viewed cookie beside it and for the
+ * same reason: this is a display preference, not a credential. `sameSite: "lax"`
+ * so a link shared into a chat app still arrives with the viewer's choice intact.
+ *
+ * Thirty days. Long enough that a returning customer does not have to choose
+ * again, short enough that a shared computer forgets.
+ */
+export function currencyCookieOptions(currency: StorefrontCurrency, secure: boolean) {
+  return {
+    name: CURRENCY_COOKIE,
+    value: currency,
+    httpOnly: false,
+    sameSite: "lax" as const,
+    secure,
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  };
+}
+
 /** Recently-viewed products (§6). Slugs, so nothing internal leaves the server. */
 export const RECENTLY_VIEWED_COOKIE = "cosetup_rv";
 export const RECENTLY_VIEWED_LIMIT = 8;

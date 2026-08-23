@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { initialsOf } from "@/lib/initials";
 import { signOutAction } from "@/features/auth/actions";
 
 /**
@@ -96,14 +97,4 @@ export function AccountMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-function initialsOf(value: string): string {
-  const parts = value
-    .trim()
-    .split(/[\s@.]+/)
-    .filter(Boolean);
-  const first = parts[0]?.[0] ?? "?";
-  const second = parts.length > 1 ? (parts[1]?.[0] ?? "") : "";
-  return (first + second).toUpperCase();
 }

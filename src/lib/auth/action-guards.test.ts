@@ -83,6 +83,18 @@ const GUARD_CALL = new RegExp(`\\b(${GUARDS.join("|")})\\s*\\(`);
 const SESSION_CALL = /\bgetSession\s*\(/;
 
 /**
+ * `.ts` **and** `.tsx` — the second half closes a hole rather than widening scope.
+ *
+ * The walk used to match `.ts` only, which was correct for as long as every
+ * `"use server"` module was plain TypeScript. It is fail-open, though: a server
+ * action that returns JSX has to live in a `.tsx` file, and such a file was
+ * invisible here — so its exported actions were never checked and an unguarded one
+ * would have passed this suite in silence. `marketplace/append-actions.tsx` is the
+ * first of them, and the reason this was found.
+ */
+const IS_SOURCE = (file: string) => file.endsWith(".ts") || file.endsWith(".tsx");
+
+/**
  * Actions that may run without an authenticated caller, and why.
  *
  * Every one of these still *reads* the session and scopes its work by whatever
@@ -121,6 +133,16 @@ const ANONYMOUS_BY_DESIGN: Record<string, string> = {
   "requirements/actions.ts:summariseConversationAction": "anonymous AI conversation",
   "requirements/actions.ts:recordRecommendationChoiceAction": "anonymous AI conversation",
 
+  /*
+   * A public catalogue read — the next page of the marketplace grid, appended as
+   * you scroll. There is nothing to authorise: it returns exactly the cards an
+   * anonymous visitor already sees on the page that called it, and every parameter
+   * goes back through `parseMarketplaceQuery`.
+   *
+   * Also in `READ_ONLY` below, which is the unusual part — see the note there.
+   */
+  "marketplace/append-actions.tsx:appendMarketplacePageAction": "public catalogue read",
+
   // Vendor ticket 03. The one vendor action whose caller is *not* yet a vendor —
   // every `requireVendor*` guard would refuse the very person it is for. It reads
   // the session and refuses without one; the checks that matter (the invitation's
@@ -128,6 +150,30 @@ const ANONYMOUS_BY_DESIGN: Record<string, string> = {
   // `member-service.acceptInvitation`, where a second caller cannot skip them.
   // Assertion 3 below still requires this to reach `getSession`.
   "vendors/actions.ts:acceptVendorInviteAction": "the invitee is not a member yet",
+};
+
+/**
+ * Allowlisted actions that legitimately never look at the session at all.
+ *
+ * The rule below — "an allowlisted action still reads the session" — is a good
+ * one, and it holds because every other entry in `ANONYMOUS_BY_DESIGN` **mutates**
+ * something owned by an anonymous caller: a guest cart has to become the
+ * customer's cart on sign-in, an anonymous conversation has to be claimable. Such
+ * an action that never looked at the session could not tell those apart.
+ *
+ * A **read-only** action is a category that rule does not model. Appending a page
+ * of a public grid returns the same cards to everyone; there is nothing to scope
+ * and nothing to reconcile later. Satisfying the rule would mean writing a
+ * `getSession()` call whose result is discarded — a statement in the source that
+ * this endpoint depends on the session, which is false, and which the next reader
+ * would have to disprove.
+ *
+ * So the exemption is named here rather than faked there. Keep it to genuinely
+ * read-only actions: the moment one writes anything, it belongs under the rule.
+ */
+const READ_ONLY: Record<string, string> = {
+  "marketplace/append-actions.tsx:appendMarketplacePageAction":
+    "returns public cards; nothing is scoped to a caller",
 };
 
 /**
@@ -305,7 +351,7 @@ function walk(dir: string, match: (file: string) => boolean): string[] {
 /* ────────────────────────────────────────────── tests */
 
 describe("every server action reaches a DAL guard — §88", () => {
-  const files = walk(FEATURES, (file) => file.endsWith(".ts")).filter((file) =>
+  const files = walk(FEATURES, IS_SOURCE).filter((file) =>
     readFileSync(file, "utf8").includes('"use server"'),
   );
 
@@ -361,11 +407,21 @@ describe("every server action reaches a DAL guard — §88", () => {
         // `auth` actions are the exception within the exception: `signInAction`
         // has no session to read, because reading one is what it produces.
         if (key.startsWith("auth/")) continue;
+        // And read-only public reads, which have nothing to scope. See `READ_ONLY`.
+        if (id in READ_ONLY) continue;
         if (!reaches(fn, all, aware)) blind.push(id);
       }
     }
 
     expect(blind).toEqual([]);
+  });
+
+  it("never excuses a session read for an action the allowlist does not name", () => {
+    // `READ_ONLY` weakens one rule; it must not become a way around the other.
+    // Every entry has to be in `ANONYMOUS_BY_DESIGN` too, which is also what makes
+    // the stale check below cover both lists with one set of keys.
+    const unlisted = Object.keys(READ_ONLY).filter((id) => !(id in ANONYMOUS_BY_DESIGN));
+    expect(unlisted).toEqual([]);
   });
 
   it("has no stale allowlist entries", () => {
@@ -412,7 +468,7 @@ describe("scope comes from the session, never from the request — §88", () => 
    * Co-location is not the smell; a *customer* action reading a supplied org id
    * is.
    */
-  const files = walk(FEATURES, (file) => file.endsWith(".ts")).filter((file) =>
+  const files = walk(FEATURES, IS_SOURCE).filter((file) =>
     readFileSync(file, "utf8").includes('"use server"'),
   );
 

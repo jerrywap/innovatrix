@@ -1,13 +1,12 @@
 import "server-only";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import type { Route } from "next";
 import { ArrowRight, Boxes } from "lucide-react";
 import { FreeBadge } from "@/components/free-badge";
 import { MoneyDisplay } from "@/components/money-display";
 import { CATALOGUE_SURFACE } from "@/config/catalogue";
-import { CURRENCY_COOKIE, toStorefrontCurrency } from "@/config/storefront";
 import { money } from "@/lib/money";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { getLinkedScriptListing, type ProductDetail } from "@/services/marketplace/detail";
 
 /**
@@ -41,8 +40,7 @@ import { getLinkedScriptListing, type ProductDetail } from "@/services/marketpla
 export async function CompleteApplicationBanner({ product }: { product: ProductDetail }) {
   if (!product.scriptListingId) return null;
 
-  const jar = await cookies();
-  const currency = toStorefrontCurrency(jar.get(CURRENCY_COOKIE)?.value);
+  const currency = await resolveStorefrontCurrency();
 
   const script = await getLinkedScriptListing(product.scriptListingId, product.slug);
   if (!script) return null;

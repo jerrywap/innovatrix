@@ -77,6 +77,22 @@ export function FilterRail({
     facetCounts.map((count) => [`${count.dimension}:${count.slug}`, count.count]),
   );
 
+  /**
+   * Every href in this rail, through one function.
+   *
+   * It exists to honour `currencyInUrl`, which is `currencyMustBeInUrl(query)` —
+   * "there is a price bound, so the URL has to say 50,000 *of what*". That
+   * invariant was declared, tested, and then enforced in exactly one place: the
+   * currency chip. So a rail link that carried a `minPrice` forward without a
+   * `currency` produced precisely the URL the invariant forbids, and two people
+   * opening it saw different result sets.
+   *
+   * `changes` spreads last so a caller can still override — which the currency
+   * chips do, and which is the only reason they can.
+   */
+  const hrefFor = (changes: Parameters<typeof marketplaceHref>[2]) =>
+    marketplaceHref(basePath, raw, currencyInUrl ? { currency, ...changes } : changes);
+
   return (
     <aside className="flex flex-col gap-6" aria-label="Filters">
       <Section title="Sort">
@@ -84,7 +100,7 @@ export function FilterRail({
           {SORTS.map((option) => (
             <RailLink
               key={option.value}
-              href={marketplaceHref(basePath, raw, { sort: option.value })}
+              href={hrefFor({ sort: option.value })}
               active={(raw.sort ?? "latest") === option.value}
               label={option.label}
             />
@@ -116,7 +132,7 @@ export function FilterRail({
                 return (
                   <RailLink
                     key={term.slug}
-                    href={marketplaceHref(basePath, raw, changes)}
+                    href={hrefFor(changes)}
                     active={isSelected}
                     label={term.name}
                     count={showCounts ? count : undefined}
@@ -145,7 +161,7 @@ export function FilterRail({
             {asArray(raw.vendor).map((slug) => (
               <RailLink
                 key={slug}
-                href={marketplaceHref(basePath, raw, { vendor: undefined })}
+                href={hrefFor({ vendor: undefined })}
                 active
                 label={vendorLabels?.get(slug) ?? slug}
               />
@@ -162,14 +178,19 @@ export function FilterRail({
           per currency.
         */}
         <RailLink
-          href={marketplaceHref(basePath, raw, {
-            free: raw.free === "true" ? undefined : true,
-          })}
+          /*
+            `currency` is named in the changes rather than left to `hrefFor`, which
+            would not add it: this link is what *creates* the bound, so while it is
+            being built `currencyInUrl` is still false. "Free" is a bound on the
+            price in this currency, so a shared `?free=true` carrying no currency
+            shows a different catalogue to a viewer whose cookie says otherwise.
+          */
+          href={hrefFor(raw.free === "true" ? { free: undefined } : { free: true, currency })}
           active={raw.free === "true"}
           label="Free"
         />
         <RailLink
-          href={marketplaceHref(basePath, raw, {
+          href={hrefFor({
             customisable: raw.customisable === "true" ? undefined : true,
           })}
           active={raw.customisable === "true"}
@@ -181,29 +202,49 @@ export function FilterRail({
         <PriceFilter basePath={basePath} raw={raw} currency={currency} />
       </Section>
 
+      {/*
+        Currency is the one control here that is not a toggle.
+
+        ## The active chip is not a link
+
+        It used to be, and its href removed the parameter — so **clicking the
+        currency you were already in switched you back to GBP**. That is toggle
+        behaviour, borrowed from the term links around it, and currency has no
+        "off" state to toggle into: you are always seeing prices in something.
+        A `<span>` says so, and cannot be clicked into a surprise.
+
+        ## And the others are plain `<a>`, not `<Link>`
+
+        Load-bearing, not an oversight. The choice is persisted by `proxy.ts`,
+        which can only tell a real navigation from a speculative one by
+        `sec-fetch-dest`. A `<Link>` **click** sends `empty` — byte for byte the
+        same as the **prefetch** Next fires when the same href scrolls into view.
+        There is no header separating them, so a gate that accepted the click
+        would also accept merely looking at the rail, and your currency would
+        change on scroll.
+
+        A document navigation sends `document`, which is unambiguous. The cost is
+        one full page load on an action taken about once a session — cheaper than
+        the alternative, which is a preference that either never sticks or sticks
+        without being asked for.
+      */}
       <Section title="Currency">
         <div className="flex gap-1.5">
-          {STOREFRONT_CURRENCIES.map((code) => (
-            <Link
-              key={code}
-              href={
-                marketplaceHref(basePath, raw, {
-                  // Once a price bound is active the currency **must** ride in
-                  // the URL — "under 50,000" of what? — or the same link gives
-                  // two people different result sets.
-                  currency: currencyInUrl || code !== currency ? code : undefined,
-                }) as Route
-              }
-              aria-current={code === currency ? "true" : undefined}
-              className={`border-border rounded-lg border px-2.5 py-1 font-mono text-[11.5px] ${
-                code === currency
-                  ? "border-[var(--signal)] text-[var(--signal)]"
-                  : "text-subtle"
-              }`}
-            >
-              {code}
-            </Link>
-          ))}
+          {STOREFRONT_CURRENCIES.map((code) =>
+            code === currency ? (
+              <span key={code} aria-current="true" className={`${CHIP} ${CHIP_ACTIVE}`}>
+                {code}
+              </span>
+            ) : (
+              <a
+                key={code}
+                href={hrefFor({ currency: code })}
+                className={`${CHIP} text-subtle`}
+              >
+                {code}
+              </a>
+            ),
+          )}
         </div>
       </Section>
 
@@ -285,6 +326,9 @@ function PriceFilter({
     </form>
   );
 }
+
+const CHIP = "border-border rounded-lg border px-2.5 py-1 font-mono text-[11.5px]";
+const CHIP_ACTIVE = "border-[var(--signal)] text-[var(--signal)]";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
