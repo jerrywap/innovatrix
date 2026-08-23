@@ -374,28 +374,54 @@ and the custom scrollbar in both themes. `AGENTS.md` calls for a
 
 ## 7. Dev database — read this before trusting the catalogue
 
-`npm run db:seed` and `npm run db:seed:bulk` were both run on 2026-08-23.
+`npm run db:seed` and `npm run db:seed:bulk` were both run on 2026-08-23, and the
+catalogue was cleaned up afterwards. **Current state, verified:**
 
-**`db:seed:bulk` is not idempotent across a change in PRNG draw order.** Slugs
-are `${noun}-${kind}-${index+1}` where noun and kind come from
-`mulberry32(20260816)`. Commit `92c1ff6` inserted
-`const isTemplate = random() < TEMPLATE_SHARE` **inside the loop**, which shifted
-every subsequent draw, which changed every slug. So today's run upserted nothing
-and inserted a fresh ~996 products beside the ~996 from the pre-template run.
+```
+total 1016 · published 1010 · script 881 · template 135
+media 1600/900 1009 · media 800/500 0 · no media 3 · duplicate slugs none
+linked script/template pairs 1   (atlas-crm-template -> atlas-crm)
+```
 
-Current state: **2,012 products, 2,006 published**, where the script intends
-1,000. Roughly half are stale pre-template rows, identifiable by `media.url`
-containing `/800/500` (today's carry `/1600/900`) and by `createdAt` of
-2026-08-16. They are not corrupt — the catalogue backfill reached them, so
-`catalogue: { $exists: false }` is 0 — just duplicated.
+That is the intended shape: 1,000 bulk products plus the nine hand-seeded ones and
+a few custom-build rows. The three with no media are `brightpath-dispatch*`, which
+come from the custom-build path rather than the catalogue loop. **Do not run the
+cleanup below — it is already done, and on this catalogue it would delete nothing
+useful or, after a future bulk run, the wrong thing.**
 
-**Nothing has been deleted.** If you want the intended 1,000, drop the stale set
-and re-run — but confirm with the user first, it is their dev data:
+### The trap that got us there, because it will recur
+
+**`db:seed:bulk` is not idempotent across a change in PRNG draw order.** Slugs are
+`${noun}-${kind}-${index+1}`, where noun and kind are drawn from
+`mulberry32(20260816)` — a fixed seed, so the sequence is stable *as long as the
+number and order of `random()` calls in the loop is*. Commit `92c1ff6` inserted
+
+```ts
+const isTemplate = random() < TEMPLATE_SHARE;
+```
+
+**inside** the loop, which shifted every subsequent draw, which changed every noun
+and kind pick, which changed every slug. Slugs are the upsert key. So the
+2026-08-23 run matched nothing and inserted a fresh ~996 products beside the ~996
+from the pre-template run: 2,006 published where the script intends 1,000, half of
+them carrying the old 800×500 placeholder art.
+
+They were dropped after confirming zero inbound references — no order line,
+entitlement, licence, review, saved product, cart line, `ProductVersion`,
+`ProductFile` or `scriptListingId` pointed at any of them — and `db:seed:bulk` was
+re-run, which upserted in place (1,016 → 1,016), confirming the script is
+idempotent again now that nothing about the loop has changed.
 
 ```js
-// stale pre-template bulk rows, by their giveaway image size
+// what was run, for the record. Only correct against a catalogue polluted this way.
 db.products.deleteMany({ "media.url": /800\/500/ })
 ```
+
+**Any future edit that adds or removes a `random()` call in that loop does the same
+thing again**, silently, and the symptom is a doubled catalogue rather than an
+error. Two options if you touch it: re-derive the slug from `index` alone so it is
+independent of the draw order, or budget for a wipe-and-reseed. Preflight either
+way — count `Product` before and after, and check for duplicate slugs.
 
 Also worth knowing: `seed.ts` wrote **no media at all** until COS-3, so the
 product page's hero and gallery block never rendered on a freshly seeded
@@ -415,9 +441,10 @@ ProductDetail.media order: video, screenshot, screenshot, screenshot
   card projection ($slice first):      screenshot
 ```
 
-The ~1,000 `seed-bulk` products still carry `/800/500` art from the older run;
-the `/1600/900` change there only reaches rows a future bulk run actually
-touches.
+`seed-bulk.ts` moved from `/800/500` to `/1600/900` in the same commit and for the
+same reason, so after the cleanup and re-run the whole catalogue is at 1600×900 —
+which matters because an 800px source was a 1.6× upscale in the lightbox, and every
+judgement about image quality here was a judgement about a scaled placeholder.
 
 ---
 
