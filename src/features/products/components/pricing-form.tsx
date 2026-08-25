@@ -58,10 +58,7 @@ export function PricingForm({
 }) {
   return (
     <SectionForm action={action} productId={product.id} nextHref={nextHref}>
-      <FieldGroup
-        title="Price"
-        description="Set each currency deliberately — nothing is converted from a rate."
-      >
+      <FieldGroup title="Price" description="Set each currency price.">
         <PriceMatrix name="prices" prices={product.prices} context="product" />
       </FieldGroup>
 
@@ -116,10 +113,7 @@ export function PricingForm({
  */
 const BLANK_MEANS = {
   product: (
-    <>
-      Leave a currency blank to not sell in it — the marketplace shows &ldquo;Price on
-      request&rdquo;. A zero is a price: it shows as &ldquo;Free&rdquo;.
-    </>
+    <>If you want to list this product as &ldquo;Free&rdquo;, then leave the price blank.</>
   ),
   licencePackage: (
     <>

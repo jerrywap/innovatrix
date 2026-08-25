@@ -9,10 +9,10 @@ import { requireOrg } from "@/lib/auth/dal";
 import { listOwnedSoftware } from "@/services/entitlements/entitlement-service";
 import { SoftwareCard } from "@/features/software/components/software-card";
 
-export const metadata: Metadata = { title: "My software" };
+export const metadata: Metadata = { title: "My Scripts" };
 
 /**
- * My Software — §29.
+ * My Scripts — §29.
  *
  * The long-term relationship between a customer and what they bought, and the
  * anchor for every §105 upsell. Scoped to the **active organisation** through
@@ -24,7 +24,7 @@ export default function Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="My software"
+        title="My Scripts"
         description="What you own, what's included, and what's new since you bought it."
       />
       <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>

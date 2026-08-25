@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTransport } from "nodemailer";
 import { serverEnv } from "@/config/env";
+import { composeEmail } from "@/emails/layout";
 
 /**
  * Transactional email — the port, plus a development implementation.
@@ -218,26 +219,35 @@ export async function sendAuthEmail(message: EmailMessage): Promise<void> {
 
 /* ────────────────────────────────────────────── templates
 
-   Plain-text only for now. Ticket 24 replaces these with real templates; the
-   wording here is already the wording we mean, so that swap is presentational.
+   Each of these is content, not markup: it hands an `EmailContent` to
+   `composeEmail`, which renders the branded HTML and the plain-text part from
+   the same object. `src/emails/layout.ts` holds the shell and the reasons it
+   looks the way it does.
 
    Note none of them state whether an account exists — §88's "generic messages
    that don't disclose whether an email exists" applies to email bodies too,
-   not only to the form response.                                            */
+   not only to the form response. The reset email is the one to read carefully:
+   it says "this address", never "your account".                              */
 
 export function verifyEmailMessage(to: string, url: string): EmailMessage {
   return {
     to,
     kind: "verify-email",
     subject: "Confirm your email address",
-    text: [
-      "Welcome to CoSetup.",
-      "",
-      "Confirm your email address to finish setting up your account:",
-      url,
-      "",
-      "This link expires in 1 hour. If you didn't create an account, you can ignore this message.",
-    ].join("\n"),
+    ...composeEmail({
+      preheader: "One link, and your CoSetup account is ready.",
+      heading: "Confirm your email address",
+      body: [
+        "Welcome to CoSetup.",
+        "Confirming this address finishes setting up your account. You can browse " +
+          "the marketplace without it — you'll need a confirmed address before checking out.",
+      ],
+      action: { label: "Confirm my email", url },
+      notes: [
+        "This link expires in 1 hour.",
+        "If you didn't create an account, you can ignore this message.",
+      ],
+    }),
   };
 }
 
@@ -246,14 +256,16 @@ export function resetPasswordMessage(to: string, url: string): EmailMessage {
     to,
     kind: "reset-password",
     subject: "Reset your password",
-    text: [
-      "We received a request to reset the password for this address.",
-      "",
-      url,
-      "",
-      "This link can be used once and expires in 1 hour.",
-      "If you didn't ask for this, no action is needed — your password hasn't changed.",
-    ].join("\n"),
+    ...composeEmail({
+      preheader: "Set a new password — the link works once, for an hour.",
+      heading: "Reset your password",
+      body: ["We received a request to reset the password for this address."],
+      action: { label: "Choose a new password", url },
+      notes: [
+        "This link can be used once and expires in 1 hour.",
+        "If you didn't ask for this, no action is needed — your password hasn't changed.",
+      ],
+    }),
   };
 }
 
@@ -267,13 +279,16 @@ export function invitationMessage(input: {
     to: input.to,
     kind: "organization-invitation",
     subject: `${input.inviterName} invited you to ${input.organizationName}`,
-    text: [
-      `${input.inviterName} has invited you to join ${input.organizationName} on CoSetup.`,
-      "",
-      input.url,
-      "",
-      "This invitation expires in 48 hours.",
-    ].join("\n"),
+    ...composeEmail({
+      preheader: `Join ${input.organizationName} on CoSetup.`,
+      heading: `${input.inviterName} invited you to ${input.organizationName}`,
+      body: [
+        `${input.inviterName} has invited you to join ${input.organizationName} on CoSetup, ` +
+          "where the team buys and manages its software together.",
+      ],
+      action: { label: "Accept the invitation", url: input.url },
+      notes: ["This invitation expires in 48 hours."],
+    }),
   };
 }
 
@@ -301,16 +316,17 @@ export function vendorInvitationMessage(input: {
     to: input.to,
     kind: "organization-invitation",
     subject: `${input.inviterName} invited you to sell as ${input.vendorName}`,
-    text: [
-      `${input.inviterName} has invited you to join ${input.vendorName} on CoSetup, ` +
-        `as ${input.role === "owner" ? "an owner" : "a team member"}.`,
-      "",
-      "Accepting gives you access to that vendor's products and listings. You'll " +
-        "need a confirmed email address on your CoSetup account first.",
-      "",
-      input.url,
-      "",
-      "This invitation expires in 48 hours.",
-    ].join("\n"),
+    ...composeEmail({
+      preheader: `Sell as ${input.vendorName} on CoSetup.`,
+      heading: `${input.inviterName} invited you to sell as ${input.vendorName}`,
+      body: [
+        `${input.inviterName} has invited you to join ${input.vendorName} on CoSetup, ` +
+          `as ${input.role === "owner" ? "an owner" : "a team member"}.`,
+        "Accepting gives you access to that vendor's products and listings. You'll " +
+          "need a confirmed email address on your CoSetup account first.",
+      ],
+      action: { label: "Accept the invitation", url: input.url },
+      notes: ["This invitation expires in 48 hours."],
+    }),
   };
 }

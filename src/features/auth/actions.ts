@@ -11,6 +11,7 @@ import { getAuth } from "@/lib/auth/auth";
 import { getSession } from "@/lib/auth/dal";
 import { clearSessionCookies } from "@/lib/auth/session-cookies";
 import { connectToDatabase } from "@/lib/db/client";
+import { log } from "@/lib/logger";
 import { Organization } from "@/lib/db/models/identity";
 import {
   acceptInviteSchema,
@@ -163,13 +164,70 @@ async function createInitialOrganization(input: {
     headers: input.headers,
   });
 
-  if (input.isPersonal && created?.id) {
+  if (!created?.id) return;
+
+  if (input.isPersonal) {
     // `isPersonal` is declared `input: false` on the Better Auth side so it
     // cannot be asserted by a client; only this path decides it. Written after
     // creation rather than through the plugin because the plugin's hook has no
     // way to know whether an organization name was supplied.
     await connectToDatabase();
     await Organization.updateOne({ _id: created.id }, { $set: { isPersonal: true } });
+  }
+
+  await adoptActiveOrganization(String(created.id), input.headers);
+}
+
+/**
+ * Point the session's **cached** copy at an organization the database already
+ * knows about.
+ *
+ * ## The bug this exists for
+ *
+ * `session.cookieCache` is enabled, so `getSession()` usually answers from a
+ * signed `session_data` cookie rather than the database. Better Auth mints that
+ * cookie when the session is created and refreshes it when *it* sets a cookie —
+ * and `createOrganization` and `acceptInvitation` both change the active
+ * organization by calling `internalAdapter.updateSession` directly, which
+ * touches the row and never the cookie.
+ *
+ * At registration those two facts compose into a broken signup. The order is
+ * forced: `signUpEmail` creates the session, so the cookie is minted with
+ * `activeOrganizationId: null` because the organization does not exist yet; the
+ * organization is created a moment later and the row is corrected. For the next
+ * `cookieCache.maxAge` seconds every read still comes off the cookie, so
+ * `requireOrg()` sees no organization and `/dashboard` renders "your account
+ * isn't set up yet" — about an account that is, in the database, entirely
+ * correct. It heals itself after a minute, which is exactly long enough for a
+ * new customer to give up.
+ *
+ * `setActiveOrganization` is the one path that does both halves: same row
+ * update, and then `setSessionCookie`, which re-issues the cache. It re-checks
+ * the membership and re-reads the organization, so it costs a few queries — paid
+ * once, at signup or at invitation, and never on a normal request.
+ *
+ * ## Failure is not fatal here
+ *
+ * The database is already right by the time this runs. If it throws, the caller
+ * has still created an account or joined an organization, and the worst case is
+ * the stale minute we were trying to avoid — so this must not turn a successful
+ * registration into an error message. Logged rather than swallowed silently,
+ * because a *persistent* failure looks identical to the original bug.
+ */
+async function adoptActiveOrganization(
+  organizationId: string,
+  requestHeaders: Headers,
+): Promise<void> {
+  try {
+    await getAuth().api.setActiveOrganization({
+      body: { organizationId },
+      headers: requestHeaders,
+    });
+  } catch (error) {
+    log.exception("Could not refresh the session's active organization", error, {
+      code: "auth.active_org_refresh_failed",
+      organizationId,
+    });
   }
 }
 
@@ -413,16 +471,28 @@ export async function acceptInviteAction(
   const result = await withAction<never>(async () => {
     const input = parseInput(acceptInviteSchema, formDataToObject(formData));
 
+    const requestHeaders = await headers();
+    let accepted: Awaited<ReturnType<ReturnType<typeof getAuth>["api"]["acceptInvitation"]>>;
+
     try {
-      await getAuth().api.acceptInvitation({
+      accepted = await getAuth().api.acceptInvitation({
         body: { invitationId: input.invitationId },
-        headers: await headers(),
+        headers: requestHeaders,
       });
     } catch (error) {
       if (isAPIError(error)) {
         return fail("That invitation is no longer valid.", { code: "VALIDATION" });
       }
       throw error;
+    }
+
+    // Accepting makes the new organization active — in the row only. Same
+    // stale-cache problem as registration, and the same repair; see
+    // `adoptActiveOrganization`. Milder here, because the invitee already had a
+    // personal organization, so for a minute the dashboard shows the *previous*
+    // workspace rather than an apology.
+    if (accepted?.member?.organizationId) {
+      await adoptActiveOrganization(String(accepted.member.organizationId), requestHeaders);
     }
 
     return ok(undefined as never);

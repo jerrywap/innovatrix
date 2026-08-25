@@ -27,7 +27,7 @@ export class ProductVersionRepository extends BaseRepository<ProductVersionDoc> 
   /**
    * Versions for several products, in one query.
    *
-   * My Software needs every product's version list to decide which rows show
+   * My Scripts needs every product's version list to decide which rows show
    * "Update available". Asking per row is the N+1 that turns a fifty-item page
    * into fifty round trips — and the 1.5s first-paint criterion into a miss.
    */

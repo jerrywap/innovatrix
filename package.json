@@ -29,6 +29,7 @@
     "storage:media-probe": "tsx --conditions=react-server --env-file=.env.local scripts/media-upload-probe.ts",
     "ai:probe": "tsx --conditions=react-server --env-file=.env.local scripts/ai-probe.ts",
     "requests:probe": "tsx --conditions=react-server --env-file=.env.local scripts/request-probe.ts",
+    "email:preview": "tsx --conditions=react-server --env-file=.env.local scripts/email-preview.ts",
     "db:explain:queues": "tsx --conditions=react-server --env-file=.env.local scripts/explain-queues.ts",
     "jobs:probe": "tsx --conditions=react-server --env-file=.env.local scripts/jobs-probe.ts",
     "vendors:probe": "tsx --conditions=react-server --env-file=.env.local scripts/vendors-probe.ts",

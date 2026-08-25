@@ -169,13 +169,17 @@ async function deliverOne<K extends DomainEventName>(
     const driver = channel(key);
     if (!driver) continue;
 
+    const url = absolute(href);
+    const written = rule.email?.(payload, { url });
+
     await driver.deliver({
       recipient,
       notificationId: String(row._id),
       title,
       ...(body ? { body } : {}),
-      url: absolute(href),
+      url,
       category: rule.category,
+      ...(written ? { email: written } : {}),
     });
   }
 

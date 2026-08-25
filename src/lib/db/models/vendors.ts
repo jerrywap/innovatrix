@@ -7,6 +7,7 @@ import {
   VENDOR_INVITATION_STATUSES,
   VENDOR_ROLES,
   VENDOR_STATUSES,
+  VENDOR_ACCOUNT_TYPES,
   VENDOR_VERIFICATION_LEVELS,
   VENDOR_VERIFICATION_STATUSES,
   type MemberStatus,
@@ -14,6 +15,7 @@ import {
   type VendorInvitationStatus,
   type VendorRole,
   type VendorStatus,
+  type VendorAccountType,
   type VendorVerificationLevel,
   type VendorVerificationStatus,
 } from "@/lib/db/enums";
@@ -66,6 +68,16 @@ export interface VendorDoc {
   slug: string;
   displayName: string;
   legalName?: string;
+  /**
+   * Sole trader or company — vendor ticket 02, revisited.
+   *
+   * Optional because every vendor who applied before this existed has none, and
+   * the verification screen asks for it rather than guessing. Absent means "not
+   * chosen yet", which is a state the screen renders rather than a default it
+   * invents: defaulting to `individual` would quietly stop asking a company for
+   * its registration.
+   */
+  accountType?: VendorAccountType;
   contactEmail: string;
   country: string;
   status: VendorStatus;
@@ -92,6 +104,22 @@ export interface VendorDoc {
   >;
   /** Appended, never replaced. The record of what was decided outlives what was seen. */
   verificationDecisions: VendorVerificationDecision[];
+  /**
+   * Requirements the vendor has declared do not apply to them, as
+   * `${level}.${kind}` — vendor ticket 02, revisited.
+   *
+   * A sole trader in a country where they are below the registration threshold
+   * has no tax reference, and a screen that waits for one waits for ever. The
+   * declaration is theirs and it is recorded, so a reviewer sees "they said this
+   * does not apply" rather than an empty slot that could equally mean they gave
+   * up half way.
+   *
+   * A flat string array rather than a nested object: it is read as a set, it is
+   * written by toggling one member, and the two things a nested shape would buy
+   * — per-entry timestamps and typed keys — are already in the audit log and the
+   * compiler respectively.
+   */
+  verificationWaivers?: string[];
   /**
    * This vendor's commission, overriding the platform default — vendor ticket 07.
    *
@@ -160,6 +188,7 @@ const vendorSchema = new Schema<VendorDoc>(
     slug: { type: String, required: true, lowercase: true, trim: true },
     displayName: { type: String, required: true, trim: true },
     legalName: { type: String, trim: true },
+    accountType: { type: String, enum: VENDOR_ACCOUNT_TYPES },
     contactEmail: { type: String, required: true, lowercase: true, trim: true },
     country: { type: String, required: true, uppercase: true, trim: true },
     status: {
@@ -201,6 +230,7 @@ const vendorSchema = new Schema<VendorDoc>(
         decidedAt: { type: Date },
       },
     },
+    verificationWaivers: { type: [String], default: undefined },
     verificationDecisions: { type: [verificationDecisionSchema], default: [] },
     commissionBasisPoints: {
       type: Number,

@@ -96,6 +96,22 @@ export type VendorInvitationStatus = (typeof VENDOR_INVITATION_STATUSES)[number]
 export const VENDOR_VERIFICATION_LEVELS = values(["identity", "business"] as const);
 export type VendorVerificationLevel = (typeof VENDOR_VERIFICATION_LEVELS)[number];
 
+/**
+ * Who the vendor is, which decides what the second level asks for.
+ *
+ * Not a *third* verification level and not a status: it is a fact about the
+ * seller that the same two levels are then read against. A sole trader and a
+ * limited company both have to prove who they are and that the payout account is
+ * theirs; only one of them has a certificate of incorporation to send.
+ *
+ * The payout gate is unchanged either way — `payout-service.ts` still requires
+ * the `business` level approved before money moves. An individual is not exempt
+ * from proving where the money is going; they are exempt from being asked for a
+ * company number they do not have.
+ */
+export const VENDOR_ACCOUNT_TYPES = values(["individual", "business"] as const);
+export type VendorAccountType = (typeof VENDOR_ACCOUNT_TYPES)[number];
+
 export const VENDOR_VERIFICATION_STATUSES = values([
   "unstarted",
   "pending",
@@ -755,6 +771,12 @@ export const DOMAIN_EVENTS = values([
   "VendorApplied",
   "VendorVerified",
   "VendorRejected",
+  /*
+   * One *level* decided, which is not the same as the application being decided.
+   * A vendor can be verified overall while their payout details are still being
+   * read, and the two answers arrive days apart — so they are two events.
+   */
+  "VendorVerificationDecided",
   "VendorSuspended",
   // Vendor ticket 13.
   "VendorSupportThreadOpened",

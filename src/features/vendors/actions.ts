@@ -27,6 +27,10 @@ import {
   inviteMemberSchema,
   invitationIdSchema,
   memberIdSchema,
+  accountTypeSchema,
+  documentRemoveSchema,
+  verificationSubmitSchema,
+  verificationWaiverSchema,
   payoutAccountSchema,
   reviewApplicationSchema,
   vendorApplicationSchema,
@@ -433,11 +437,125 @@ export async function reviewApplicationAction(
 }
 
 /**
- * Approve or reject one verification level, then purge what was read.
+ * Choose sole trader or company — the first question of verification.
  *
- * The purge runs after the decision and its failure is tolerated — see
- * `purgeDecidedDocuments`. Refusing the decision because a bucket policy denies
- * `DeleteObject` would be the wrong failure to choose.
+ * Owner-only: it decides what documents the vendor is asked for and it is the
+ * claim the payout account is checked against, which is the one capability the
+ * two-role split exists to keep away from a `member`.
+ */
+export async function setAccountTypeAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ saved: true }>> {
+  return withAction(async () => {
+    const context = await requireVendorOwner();
+    const input = parseInput(accountTypeSchema, formDataToObject(formData));
+
+    await vendorService.setAccountType(context.vendorId, input.accountType, {
+      type: "customer",
+      userId: context.user.id,
+      ...(context.user.name ? { name: context.user.name } : {}),
+    });
+
+    refreshSelling();
+    return ok({ saved: true as const });
+  });
+}
+
+/**
+ * Mark a requirement not applicable, or take that back.
+ *
+ * Owner-only, like every other statement about what this vendor is: a waiver is a
+ * declaration a reviewer will rely on.
+ */
+export async function setVerificationWaiverAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ saved: true }>> {
+  return withAction(async () => {
+    const context = await requireVendorOwner();
+    const input = parseInput(verificationWaiverSchema, formDataToObject(formData));
+
+    await vendorService.setVerificationWaiver(
+      context.vendorId,
+      `${input.level}.${input.kind}`,
+      input.waived,
+      vendorActor(context.user, context.vendorId),
+    );
+
+    refreshSelling();
+    return ok({ saved: true as const });
+  });
+}
+
+/**
+ * Take back a document that has not been read yet.
+ *
+ * Owner-only and scoped to the caller's own vendor inside the service — the
+ * `documentId` arrives from the client, so it is a claim about which document,
+ * never about whose.
+ */
+export async function removeDocumentAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ removed: true }>> {
+  return withAction(async () => {
+    const context = await requireVendorOwner();
+    const input = parseInput(documentRemoveSchema, formDataToObject(formData));
+
+    await documentService.removeDocument(
+      input.documentId,
+      context.vendorId,
+      vendorActor(context.user, context.vendorId),
+    );
+
+    refreshSelling();
+    return ok({ removed: true as const });
+  });
+}
+
+/** Hand one level to a reviewer. See `submitVerificationLevel`. */
+export async function submitVerificationAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ submitted: true }>> {
+  return withAction(async () => {
+    const context = await requireVendorOwner();
+    const input = parseInput(verificationSubmitSchema, formDataToObject(formData));
+
+    await vendorService.submitVerificationLevel(
+      context.vendorId,
+      input.level,
+      vendorActor(context.user, context.vendorId),
+    );
+
+    refreshSelling();
+    return ok({ submitted: true as const });
+  });
+}
+
+/**
+ * Approve or reject one verification level.
+ *
+ * ## The documents are kept
+ *
+ * This used to call `purgeDecidedDocuments` immediately after the decision, and
+ * the verification screen promised as much. That was the wrong default for a
+ * marketplace that pays people: anti-money-laundering and know-your-customer
+ * regimes require the identity evidence behind a payout to be **retained**,
+ * typically for five years after the relationship ends, and a platform that
+ * destroyed it the moment a reviewer clicked "approve" could not answer the one
+ * question those rules exist to ask.
+ *
+ * GDPR and the NDPR do not conflict with that — both carry an exemption for
+ * processing necessary to comply with a legal obligation, and both are satisfied
+ * by *bounded* retention rather than by deletion on sight. So the erasure path
+ * still exists and is still audited (`purgeDecidedDocuments`); what changed is
+ * that it is now a deliberate act — an erasure request, or the end of a
+ * retention period — instead of a side effect of a decision.
+ *
+ * The hashes are still recorded with the decision. They cost nothing and they
+ * are what makes a stored document provably the one that was read.
  */
 export async function decideVerificationAction(
   _previous: ActionResult<unknown> | null,
@@ -462,12 +580,6 @@ export async function decideVerificationAction(
         ...(input.note ? { note: input.note } : {}),
       },
       { ...staffActor(staff.user), userId: staff.user.id },
-    );
-
-    await documentService.purgeDecidedDocuments(
-      input.vendorId,
-      input.level,
-      staffActor(staff.user),
     );
 
     refreshStaffVendors(input.vendorId);

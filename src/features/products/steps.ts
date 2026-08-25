@@ -73,7 +73,7 @@ export const PRODUCT_WIZARD_STEPS: readonly WizardStep[] = [
   {
     id: "classification",
     label: "Classification",
-    description: "Where this sits in the marketplace — category, industry, technology.",
+    description: "Product Classification",
     segment: "classification",
     permission: "product.update",
   },

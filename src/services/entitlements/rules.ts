@@ -3,7 +3,7 @@
  *
  * **Pure.** No database, no request. This is the rule that decides whether
  * somebody who paid gets a file, and it is the one place it is written — the
- * download route, the My Software list and the version history all ask this
+ * download route, the My Scripts list and the version history all ask this
  * same function, so what the UI shows and what the server allows cannot drift.
  */
 
@@ -87,7 +87,7 @@ export function canDownload(
 /**
  * Is there a newer version this entitlement is entitled to?
  *
- * Drives the "Update available" badge in My Software, and the acceptance
+ * Drives the "Update available" badge in My Scripts, and the acceptance
  * criterion is that it appears **only when the newer version is genuinely
  * within the update window** — so it runs the same `canDownload` rather than
  * comparing version numbers and hoping.

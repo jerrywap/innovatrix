@@ -303,6 +303,17 @@ Other COS-3 changes worth knowing about before touching the relevant file:
   for the append-on-scroll path. **The default shape is byte-identical on
   purpose** — `getCardsBySlug` slices stage one off with `.slice(1)` and reuses
   the rest.
+- **`<Pagination>` is always rendered and conditionally visible.** It is
+  server-rendered on every request, so a crawler still walks deep results (§93)
+  and a no-JS visitor still gets working links — but `AppendOnScroll` receives it
+  as a prop and keeps it `hidden` while appending can continue, revealing it at
+  the ceiling or on a failure. Do not "tidy" this into conditional rendering: the
+  markup has to reach a crawler on every request, and `hidden` is what keeps the
+  server and first-client render identical so there is no hydration mismatch.
+  Appending is fully automatic — there is no "Show more" button, and
+  `MAX_APPENDED_PAGES` (5) is the only bound. An earlier version had a second,
+  lower bound that handed over to a button; it put three controls on one screen
+  competing to do one job.
 - `screenshots(media)` in `detail.ts` is shared by the hero, the OG image and the
   gallery. `ProductDetail.media` is now typed `ProductMediaKind`. Before this, a
   video-first product rendered `<Image src="…mp4">` as its LCP element and handed
