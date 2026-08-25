@@ -7,6 +7,7 @@ import { MonitorPlay, Sparkles } from "lucide-react";
 import { FreeBadge } from "@/components/free-badge";
 import { MoneyDisplay } from "@/components/money-display";
 import { AddToCart } from "@/features/cart/components/add-to-cart";
+import { GetItFree } from "@/features/checkout/components/get-it-free";
 import { money } from "@/lib/money";
 import type { StorefrontCurrency } from "@/config/storefront";
 
@@ -60,6 +61,8 @@ export function PurchasePanel({
   customisable,
   typicalTurnaround,
   demo,
+  signedIn,
+  owned,
   saveButton,
 }: {
   productId: string;
@@ -69,6 +72,10 @@ export function PurchasePanel({
   addons: readonly DetailAddon[];
   customisable: boolean;
   typicalTurnaround?: string;
+  /** Whether there is a session — a free claim needs one, adding to the basket does not. */
+  signedIn: boolean;
+  /** Whether this organisation already has an active entitlement for the product. */
+  owned: boolean;
   /**
    * Enough to decide whether there is anything to try, and where to send
    * somebody who wants to. **Never a credential** — the panel further down the
@@ -247,14 +254,41 @@ export function PurchasePanel({
       </div>
 
       <div className="flex flex-col gap-2">
-        {/* Live as of ticket 10. The selection above decides what goes in —
-            the licence, and whichever add-ons are ticked. */}
-        <AddToCart
-          productId={productId}
-          {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
-          addonKeys={[...chosenAddons]}
-          disabled={!selected}
-        />
+        {/*
+          Nothing to pay, so nothing to check out — COS-12.
+
+          Gated on the **selection's** total rather than on the product, because a
+          product can carry a free licence beside a paid one, and ticking a paid
+          add-on turns a free basket into a payable one. `total === 0` is already
+          what the Total row above uses to render "Free", so the button and the
+          price can never disagree.
+
+          And on *no add-ons at all*, not merely on a zero total. A
+          `quote_required` add-on adds nothing to the total — it is priced later —
+          so it would slip through a total-only check, and the free claim carries
+          no add-ons. "I want this quoted" is real information for the order, and
+          dropping it silently while the row is still ticked is worse than sending
+          them through the basket, which is what that row is for.
+        */}
+        {total === 0 && chosenAddons.size === 0 ? (
+          <GetItFree
+            productId={productId}
+            {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
+            signedIn={signedIn}
+            owned={owned}
+            productPath={`/marketplace/${slug}`}
+            disabled={!selected}
+          />
+        ) : (
+          /* Live as of ticket 10. The selection above decides what goes in —
+             the licence, and whichever add-ons are ticked. */
+          <AddToCart
+            productId={productId}
+            {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
+            addonKeys={[...chosenAddons]}
+            disabled={!selected}
+          />
+        )}
 
         {customisable && (
           <Link

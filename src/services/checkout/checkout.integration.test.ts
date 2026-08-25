@@ -13,6 +13,7 @@ let mongoose: typeof import("mongoose").default;
 let checkout: typeof import("./checkout-service");
 let cartService: typeof import("@/services/cart/cart-service");
 let provisioning: typeof import("./provisioning-service");
+let freeClaim: typeof import("./free-claim");
 let catalog: typeof import("@/lib/db/models/catalog");
 let commerce: typeof import("@/lib/db/models/commerce");
 
@@ -40,6 +41,7 @@ beforeAll(async () => {
   checkout = await import("./checkout-service");
   cartService = await import("@/services/cart/cart-service");
   provisioning = await import("./provisioning-service");
+  freeClaim = await import("./free-claim");
   catalog = await import("@/lib/db/models/catalog");
   commerce = await import("@/lib/db/models/commerce");
 
@@ -51,6 +53,7 @@ beforeAll(async () => {
     commerce.Order.syncIndexes(),
     commerce.DiscountCode.syncIndexes(),
     commerce.TaxRule.syncIndexes(),
+    commerce.Entitlement.syncIndexes(),
   ]);
 }, 180_000);
 
@@ -67,6 +70,9 @@ afterEach(async () => {
     commerce.DiscountCode.deleteMany({}),
     commerce.TaxRule.deleteMany({}),
     commerce.PaymentSettings.deleteMany({}),
+    commerce.Entitlement.deleteMany({}),
+    commerce.Payment.deleteMany({}),
+    commerce.Licence.deleteMany({}),
     mongoose.connection.collection("vendors").deleteMany({}),
     mongoose.connection.collection("counters").deleteMany({}),
     mongoose.connection.collection("auditLogs").deleteMany({}),
@@ -740,5 +746,106 @@ describe("plugin provisioning", () => {
 
     // And it left the queue.
     expect(await provisioning.listPending({ vendorId: VENDOR })).toHaveLength(0);
+  });
+});
+
+/* ────────────────────────────────────────────── COS-12: taking a free listing */
+
+/**
+ * Claiming a free product without going through checkout.
+ *
+ * Integration, and specifically for the **cross-collection invariant**: a claim
+ * spans `Cart` → `Order` → `Payment` → `Entitlement` → `Licence`, and the thing
+ * worth proving is that clicking twice does not produce two of the last two. No
+ * unit test can see that, because the rows are the assertion.
+ *
+ * Appended to this file rather than given its own, so it inherits the preamble
+ * already paid for above instead of writing a twenty-seventh copy of it.
+ */
+describe("taking a free listing", () => {
+  const CONTEXT = { userId: USER, organizationId: ORG, currency: "GBP" as const };
+
+  it("grants one entitlement, and a second click grants no more", async () => {
+    const free = await product({ amount: 0 });
+
+    const first = await freeClaim.claimFreeProduct(
+      { productId: String(free._id) },
+      CONTEXT,
+      ACTOR,
+    );
+    expect(first.alreadyOwned).toBe(false);
+
+    const second = await freeClaim.claimFreeProduct(
+      { productId: String(free._id) },
+      CONTEXT,
+      ACTOR,
+    );
+
+    // The point of the whole test. `Entitlement`'s unique index is on
+    // `(orderId, orderLineId)`, which stops one order fulfilling twice and says
+    // nothing at all about a second order for the same product — so without the
+    // already-owned check this would be two orders and two entitlements.
+    expect(second.alreadyOwned).toBe(true);
+    expect(second.entitlementId).toBe(first.entitlementId);
+    expect(await commerce.Entitlement.countDocuments({ productId: free._id })).toBe(1);
+    expect(await commerce.Order.countDocuments({})).toBe(1);
+  });
+
+  it("settles the order as paid, at zero, through the free provider", async () => {
+    const free = await product({ amount: 0 });
+
+    await freeClaim.claimFreeProduct({ productId: String(free._id) }, CONTEXT, ACTOR);
+
+    const order = await commerce.Order.findOne({}).lean();
+    expect(order!.total.amount).toBe(0);
+    expect(order!.status).toBe("paid");
+
+    // The same rows a £0 checkout produces — not a second fulfilment path.
+    const payment = await commerce.Payment.findOne({}).lean();
+    expect(payment!.provider).toBe("free");
+    expect(await commerce.Licence.countDocuments({})).toBe(1);
+  });
+
+  it("refuses a product that is not free, without leaving an order behind", async () => {
+    const paid = await product({ amount: 29_999 });
+
+    await expect(
+      freeClaim.claimFreeProduct({ productId: String(paid._id) }, CONTEXT, ACTOR),
+    ).rejects.toThrow(/not free in this currency/);
+
+    // Refused before anything was written, which is what makes the button safe
+    // to draw from a price the client was handed.
+    expect(await commerce.Order.countDocuments({})).toBe(0);
+    expect(await commerce.Entitlement.countDocuments({})).toBe(0);
+  });
+
+  it("refuses a currency the product is not priced in at all", async () => {
+    // Absent is not zero. A product priced only in GBP must not be given away
+    // to somebody browsing in USD.
+    const free = await product({ amount: 0 });
+
+    await expect(
+      freeClaim.claimFreeProduct(
+        { productId: String(free._id) },
+        { ...CONTEXT, currency: "USD" },
+        ACTOR,
+      ),
+    ).rejects.toThrow(/not free in this currency/);
+  });
+
+  it("leaves the customer's own basket alone", async () => {
+    // The claim builds its own throwaway cart precisely so this holds: ordering
+    // the real basket would have checked out whatever paid items were in it.
+    const paid = await basketWith(29_999);
+    const free = await product({ amount: 0, slug: "free-thing" });
+
+    await freeClaim.claimFreeProduct({ productId: String(free._id) }, CONTEXT, ACTOR);
+
+    const basket = await commerce.Cart.findOne({ ownerKey: OWNER }).lean();
+    expect(basket!.items).toHaveLength(1);
+    expect(String(basket!.items[0]!.productId)).toBe(String(paid._id));
+
+    // And the throwaway cart did not survive the claim.
+    expect(await commerce.Cart.countDocuments({})).toBe(1);
   });
 });

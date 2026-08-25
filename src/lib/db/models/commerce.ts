@@ -321,6 +321,19 @@ export interface OrderDoc {
    */
   idempotencyKey?: string;
   /**
+   * The basket this order was built from.
+   *
+   * Recorded because fulfilment has to empty *that* basket and no other. It used
+   * to derive one as `user:<userId>`, which is right for a checkout and wrong for
+   * anything else that builds a cart to order — COS-12's free claim uses a
+   * throwaway key precisely so it does not order the customer's real basket, and
+   * the derived form emptied it anyway on the way past.
+   *
+   * Optional: orders written before this field fall back to the derived key,
+   * which is what they were created with.
+   */
+  ownerKey?: string;
+  /**
    * How the customer said they would pay.
    *
    * An explicit field rather than "has no payment yet", because those are
@@ -374,6 +387,7 @@ const orderSchema = new Schema<OrderDoc>(
     },
     billingSnapshot: { type: Schema.Types.Mixed, default: {} },
     idempotencyKey: String,
+    ownerKey: String,
     // `online` by default, so every order written before this field existed
     // reads as what it was.
     paymentMethod: { type: String, enum: ["online", "offline"], default: "online" },

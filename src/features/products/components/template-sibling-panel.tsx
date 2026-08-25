@@ -8,11 +8,21 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/status-badge";
 import { FormErrors, useManualSubmit } from "./section-form";
 import { PriceMatrix } from "./pricing-form";
-import { createTemplateSiblingAction, unlinkTemplateSiblingAction } from "../actions";
+import {
+  createScriptSiblingAction,
+  createTemplateSiblingAction,
+  unlinkTemplateSiblingAction,
+} from "../actions";
+import type { ActionResult } from "@/lib/action-result";
 import type { ProductStatus } from "@/lib/db/enums";
 
 /**
- * "Also sell the front-end on its own" — a panel on the **review** step.
+ * "Also sell the other half on its own" — a panel on the **review** step.
+ *
+ * Two directions, one panel. A script offers to spawn its website template; a
+ * website template offers to spawn its backend script (COS-9). Which one is drawn
+ * comes from `catalogue`, and the only difference between them is copy and which
+ * action is dispatched — the pair being created is the same pair either way.
  *
  * ## Why the review step and not classification
  *
@@ -50,6 +60,18 @@ export interface TemplateSiblingView {
   href: Route;
 }
 
+/**
+ * Both create actions, seen from here.
+ *
+ * They differ in the id they name — `templateId` / `scriptId` — and agree on
+ * `href`, which is the only field this component reads. Typed on the agreement so
+ * one form can dispatch either.
+ */
+export type SiblingCreateAction = (
+  previous: ActionResult<unknown> | null,
+  formData: FormData,
+) => Promise<ActionResult<{ href: string }>>;
+
 export function TemplateSiblingPanel({
   productId,
   catalogue,
@@ -57,9 +79,10 @@ export function TemplateSiblingPanel({
   sibling,
   /** The script this listing is the front-end of, if it is one. */
   linkedScript,
-  /** How many licence packages the script has — the copy warns when it is >1. */
+  /** How many licence packages this listing has — the copy warns when it is >1. */
   licencePackageCount,
   action = createTemplateSiblingAction,
+  scriptAction = createScriptSiblingAction,
   unlinkAction = unlinkTemplateSiblingAction,
 }: {
   productId: string;
@@ -67,13 +90,31 @@ export function TemplateSiblingPanel({
   sibling?: TemplateSiblingView;
   linkedScript?: TemplateSiblingView;
   licencePackageCount: number;
-  action?: typeof createTemplateSiblingAction;
+  action?: SiblingCreateAction;
+  /** The reverse direction — a template spawning its backend script. */
+  scriptAction?: SiblingCreateAction;
   unlinkAction?: typeof unlinkTemplateSiblingAction;
 }) {
-  // A template that is the front-end of something: show what, and offer the way out.
   if (catalogue === "template") {
-    if (!linkedScript) return null;
-    return <LinkedNotice script={linkedScript} productId={productId} action={unlinkAction} />;
+    // Already the front-end of something: show what, and offer the way out.
+    if (linkedScript) {
+      return <LinkedNotice script={linkedScript} productId={productId} action={unlinkAction} />;
+    }
+
+    /*
+     * An unlinked template used to render nothing at all here, which is the hole
+     * COS-9 fills: a vendor who listed the front-end first and later built the
+     * backend had no way to say so, even though the pair they need is the one the
+     * script direction has always produced.
+     */
+    return (
+      <CreateForm
+        productId={productId}
+        licencePackageCount={licencePackageCount}
+        action={scriptAction}
+        copy={SCRIPT_DIRECTION}
+      />
+    );
   }
 
   // A script that already has one: point at it rather than offering a second.
@@ -104,18 +145,78 @@ export function TemplateSiblingPanel({
       productId={productId}
       licencePackageCount={licencePackageCount}
       action={action}
+      copy={TEMPLATE_DIRECTION}
     />
   );
 }
+
+/**
+ * Everything that differs between the two directions.
+ *
+ * A table rather than two components, because the *form* is identical — the same
+ * Radix checkbox with the same reset hazard, the same price matrix, the same
+ * created-draft notice. Only the sentences change, and a second copy of the form
+ * would be a second place to fix the next reset bug.
+ */
+interface DirectionCopy {
+  heading: string;
+  blurb: string;
+  checkbox: string;
+  submit: string;
+  pendingSubmit: string;
+  createdHeading: string;
+  /** What the new draft still needs before it can go on sale. */
+  stillNeeded: string;
+}
+
+const TEMPLATE_DIRECTION: DirectionCopy = {
+  heading: "Also sell the front-end on its own",
+  blurb:
+    "Creates a second listing in the website template catalogue — the same design without the backend — at its own price. Buyers of the template see a link back to this one.",
+  checkbox: "Create a website template listing",
+  submit: "Create the template listing",
+  pendingSubmit: "Creating…",
+  createdHeading: "The template listing was created",
+  /*
+    Said before the click, not after.
+
+    The draft is genuinely unfinished: the front-end is a different download, so it
+    needs its own upload, and template categories are a separate vocabulary the
+    script's categories cannot satisfy. A vendor who learns this from a readiness
+    gap afterwards has been surprised by us rather than told.
+  */
+  stillNeeded:
+    "It starts as a draft. Before it can go on sale it needs its own front-end download, its own screenshots and a description, and at least one template category.",
+};
+
+const SCRIPT_DIRECTION: DirectionCopy = {
+  heading: "Also sell it with the backend",
+  blurb:
+    "Creates a second listing in the script catalogue — this design plus a working backend — at its own price. This template's page then offers the complete application, and links to it.",
+  checkbox: "Create a backend script listing",
+  submit: "Create the backend script",
+  pendingSubmit: "Creating…",
+  createdHeading: "The script listing was created",
+  /*
+    The mirror of the note above, and deliberately shorter by one clause: a script
+    needs no category, because `no_template_category` is templates-only and
+    `readiness.ts` says why. Promising a requirement that will never be enforced
+    would be its own kind of surprise.
+  */
+  stillNeeded:
+    "It starts as a draft. Before it can go on sale it needs its own full-stack download, its own screenshots and a description of what the backend does.",
+};
 
 function CreateForm({
   productId,
   licencePackageCount,
   action,
+  copy,
 }: {
   productId: string;
   licencePackageCount: number;
-  action: typeof createTemplateSiblingAction;
+  action: SiblingCreateAction;
+  copy: DirectionCopy;
 }) {
   /*
     `useManualSubmit`, not `<form action={…}>` — same reason as the wizard steps,
@@ -142,18 +243,13 @@ function CreateForm({
   return (
     <section className="border-border bg-surface flex flex-col gap-3 rounded-xl border p-4">
       <div>
-        <h2 className="font-display text-[15.5px] tracking-[-0.01em]">
-          Also sell the front-end on its own
-        </h2>
-        <p className="text-muted-foreground mt-1 text-[13px] leading-relaxed">
-          Creates a second listing in the website template catalogue — the same design without
-          the backend — at its own price. Buyers of the template see a link back to this one.
-        </p>
+        <h2 className="font-display text-[15.5px] tracking-[-0.01em]">{copy.heading}</h2>
+        <p className="text-muted-foreground mt-1 text-[13px] leading-relaxed">{copy.blurb}</p>
       </div>
 
       {created && (
         <div className="border-border bg-surface-muted/40 flex flex-col gap-1.5 rounded-xl border p-3.5">
-          <p className="text-[13.5px] font-medium">The template listing was created</p>
+          <p className="text-[13.5px] font-medium">{copy.createdHeading}</p>
           <p className="text-muted-foreground text-[13px] leading-relaxed">
             It is a <span className="font-medium">draft</span>, so nothing is public yet — and
             you are still on this product&rsquo;s review step. Finish here first if you want to;
@@ -163,7 +259,7 @@ function CreateForm({
             href={created.href}
             className="text-signal-text w-fit text-[13px] underline underline-offset-4"
           >
-            Open the template listing →
+            Open the new listing →
           </a>
         </div>
       )}
@@ -186,29 +282,19 @@ function CreateForm({
             onCheckedChange={(next) => setConfirmed(next === true)}
             className="mt-0.5"
           />
-          <span className="text-[13.5px]">Create a website template listing</span>
+          <span className="text-[13.5px]">{copy.checkbox}</span>
         </label>
 
         {confirmed && (
           <div className="flex flex-col gap-2 pl-7">
-            <span className="text-[12.5px] font-medium">Template price</span>
+            <span className="text-[12.5px] font-medium">Price of the new listing</span>
             <PriceMatrix name="prices" prices={[]} context="product" />
 
-            {/*
-              Said before the click, not after.
-
-              The draft is genuinely unfinished: the front-end is a different
-              download, so it needs its own upload, and template categories are a
-              separate vocabulary the script's categories cannot satisfy. A vendor
-              who learns this from a readiness gap afterwards has been surprised by
-              us rather than told.
-            */}
+            {/* Said before the click, not after — see `DirectionCopy.stillNeeded`. */}
             <p className="text-subtle text-[12.5px] leading-relaxed">
-              It starts as a draft. Before it can go on sale it needs its own front-end
-              download, its own screenshots and a description, and at least one template
-              category.
+              {copy.stillNeeded}
               {licencePackageCount > 1 &&
-                ` This product's ${licencePackageCount} licence packages will all start at the price above — change them on the template's own pricing step.`}
+                ` This product's ${licencePackageCount} licence packages will all start at the price above — change them on the new listing's own pricing step.`}
             </p>
           </div>
         )}
@@ -217,8 +303,8 @@ function CreateForm({
 
         <Submit
           disabled={!confirmed}
-          label="Create the template listing"
-          pendingLabel="Creating…"
+          label={copy.submit}
+          pendingLabel={copy.pendingSubmit}
           pending={pending}
         />
       </form>

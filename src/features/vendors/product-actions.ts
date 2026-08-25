@@ -20,6 +20,7 @@ import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
 import * as productService from "@/services/catalog/product-service";
 import {
+  createScriptSibling,
   createTemplateSibling,
   unlinkTemplateSibling,
 } from "@/services/catalog/template-sibling";
@@ -470,6 +471,43 @@ export async function createVendorTemplateSiblingAction(
   });
 
   return result;
+}
+
+/**
+ * Also list the backend as a full script — the template's review step (COS-9).
+ *
+ * Same guard as its twin: `requireVendorOrForbid()` for the identity, the verified
+ * check because an unverified vendor may draft but not extend their catalogue, and
+ * the **scope** from the session rather than the form — `findScoped` turns a
+ * `productId` someone else owns into a 404.
+ */
+export async function createVendorScriptSiblingAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ scriptId: string; href: string }>> {
+  return withAction<{ scriptId: string; href: string }>(async () => {
+    const context = await requireVendorOrForbid();
+    if (context.vendor.status !== "verified") {
+      throw new ForbiddenError("Your vendor account is not active.");
+    }
+
+    const raw = parseNestedFormData(formData);
+    const { productId } = parseInput(productIdSchema, raw);
+    const input = parseInput(templateSiblingSchema, raw);
+
+    const script = await createScriptSibling(
+      productId,
+      { prices: input.prices },
+      vendorActor(context.user, context.vendorId),
+      { vendorId: context.vendorId },
+    );
+
+    catalogChanged();
+    refresh(productId);
+
+    // The id, not a redirect — the vendor stays on the template's review step.
+    return ok({ scriptId: String(script._id), href: `${BASE}/${script._id}/basics` });
+  });
 }
 
 /**

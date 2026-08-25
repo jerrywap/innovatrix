@@ -33,6 +33,7 @@ import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
 import * as productService from "@/services/catalog/product-service";
 import {
+  createScriptSibling,
   createTemplateSibling,
   unlinkTemplateSibling,
 } from "@/services/catalog/template-sibling";
@@ -169,6 +170,39 @@ export async function createTemplateSiblingAction(
   });
 
   return result;
+}
+
+/**
+ * Also list the backend as a full script — the template's review step (COS-9).
+ *
+ * The same two permissions as its twin above, for the same reason: this creates a
+ * listing *and* prices it, and §77 splits those so neither `developer` nor `sales`
+ * can do half of it and call it done.
+ */
+export async function createScriptSiblingAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ scriptId: string; href: string }>> {
+  return withAction<{ scriptId: string; href: string }>(async () => {
+    const staff = await requirePermission("product.create");
+    await requirePermission("product.manage_pricing");
+
+    const raw = parseNestedFormData(formData);
+    const { productId } = parseInput(productIdSchema, raw);
+    const input = parseInput(templateSiblingSchema, raw);
+
+    const script = await createScriptSibling(
+      productId,
+      { prices: input.prices },
+      staffActor(staff.user),
+    );
+    const createdId = String(script._id);
+    catalogChanged();
+    refreshWizard(productId);
+
+    // The id, not a redirect — same reasoning as `createTemplateSiblingAction`.
+    return ok({ scriptId: createdId, href: stepHref(createdId, "basics", "admin") });
+  });
 }
 
 /**

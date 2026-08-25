@@ -8,6 +8,7 @@ import { SubmitPanel } from "@/features/vendors/components/submit-panel";
 import { TemplateSiblingPanel } from "@/features/products/components/template-sibling-panel";
 import { stepHref } from "@/features/products/steps";
 import {
+  createVendorScriptSiblingAction,
   createVendorTemplateSiblingAction,
   unlinkVendorTemplateSiblingAction,
 } from "@/features/vendors/product-actions";
@@ -87,6 +88,9 @@ export default async function Page({
         catalogue={doc.catalogue ?? "script"}
         licencePackageCount={doc.licencePackages.length}
         action={createVendorTemplateSiblingAction}
+        // Both directions, both vendor-scoped. Letting this default would dispatch
+        // the *staff* action, which asks for `product.create` and 403s a vendor.
+        scriptAction={createVendorScriptSiblingAction}
         unlinkAction={unlinkVendorTemplateSiblingAction}
         {...(sibling
           ? {
