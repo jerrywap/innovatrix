@@ -76,7 +76,7 @@ export function BillingForm({
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
 
       <FieldGroup title="Who is this for" description="This is what appears on the invoice.">
-        <Field label="Organisation" htmlFor="organizationName">
+        <Field label="Organisation" htmlFor="organizationName" required>
           <Input
             id="organizationName"
             name="organizationName"
@@ -98,7 +98,7 @@ export function BillingForm({
             />
           </Field>
 
-          <Field label="Billing email" htmlFor="email" hint="Where the receipt goes.">
+          <Field label="Billing email" htmlFor="email" hint="Where the receipt goes." required>
             <Input
               id="email"
               name="email"
@@ -115,7 +115,7 @@ export function BillingForm({
         title="Billing address"
         description="The country decides which tax applies, so it's the one field we validate."
       >
-        <Field label="Address" htmlFor="line1">
+        <Field label="Address" htmlFor="line1" required>
           <Input
             id="line1"
             name="line1"
@@ -137,7 +137,7 @@ export function BillingForm({
         </Field>
 
         <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Town or city" htmlFor="city">
+          <Field label="Town or city" htmlFor="city" required>
             <Input
               id="city"
               name="city"
@@ -170,7 +170,12 @@ export function BillingForm({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Country" htmlFor="country" hint="Two-letter code — GB, US, NG.">
+          <Field
+            label="Country"
+            htmlFor="country"
+            hint="Two-letter code — GB, US, NG."
+            required
+          >
             <Input
               id="country"
               name="country"

@@ -34,6 +34,20 @@
    ───────────────────────────────────────────────────────────── */
 
 :root {
+  /**
+   * What the browser paints for the things we do not.
+   *
+   * Nothing declared this, so the user agent assumed light — and painted its
+   * *light* scrollbar, form controls and date pickers into a dark UI. That is
+   * half of why the sidebar bar looked like a default: the custom rules were
+   * applying, and everything around them was not.
+   *
+   * It also matters in the one place `::-webkit-scrollbar` cannot reach: Firefox
+   * falls back to `scrollbar-color`, and a themed page without `color-scheme`
+   * gets a light gutter behind a dark thumb.
+   */
+  color-scheme: light;
+
   /* ── Meridian: surfaces — warm paper, never pure white ── */
   --background: #fbfaf7;
   --surface: #ffffff;
@@ -67,6 +81,9 @@
      surface, which is the hardest background it sits on. The bar takes its
      quietness from being thin, not from a colour that fails. */
   --scrollbar-thumb: var(--muted-foreground);
+  /* Hover only, so it can afford the full ink — and it is what tells a pointer the
+     bar is grabbable, which a resting 4px sliver does not. */
+  --scrollbar-thumb-hover: var(--foreground);
 
   /* ── Meridian: brand ──
      **`--signal` is the canonical CoSetup orange.** One token, and everything
@@ -147,6 +164,10 @@
 }
 
 .dark {
+  /* The other half of the pair above. `next-themes` writes this class, so the
+     browser's own chrome follows the theme rather than the OS. */
+  color-scheme: dark;
+
   /* Only the Meridian literals are redeclared — every shadcn alias above
      resolves through them automatically, which is the point of the indirection.
      A shadcn token redefined here would be a token that silently stopped
@@ -266,35 +287,95 @@
   }
 
   /**
-   * One thin scrollbar everywhere, replacing the browser default.
+   * One custom scrollbar everywhere, replacing the browser default.
    *
-   * Both properties **inherit**, so declaring them on `html` covers the document,
-   * the sidebar, both sheets, select and dropdown content, every scrolling table
-   * and the `<pre>` blocks. The alternative is a dozen opt-ins, and the one
-   * everybody forgets is the document itself.
+   * Both standard properties **inherit**, so declaring them on `html` covers the
+   * document, the sidebar, both sheets, select and dropdown content, every
+   * scrolling table and the `<pre>` blocks. The alternative is a dozen opt-ins,
+   * and the one everybody forgets is the document itself.
    *
-   * ## Standard properties only — no `::-webkit-scrollbar`
+   * ## This reverses an earlier decision, on purpose
    *
-   * Not additive, and deliberately so. Chrome ignores the `::-webkit-scrollbar`
-   * pseudo-elements on any element where a non-`auto` `scrollbar-color` applies,
-   * so writing both means one of them is dead code and it is not obvious which.
+   * The previous version of this block used the standard properties **only**, and
+   * argued against `::-webkit-scrollbar` on two grounds. One of them still holds
+   * and shapes what is below; the other turned out to be the reason the bar looked
+   * untouched.
    *
-   * More importantly, a pixel `width` on `::-webkit-scrollbar` **replaces** the
-   * platform gutter rather than narrowing it, and two places in this UI are
-   * measured around the gutter they get today — the horizontal product rail's
-   * `pb-2`, and the 220px taxonomy list on the classification step. `thin` asks
-   * the platform for its own thin variant, which keeps overlay behaviour on macOS
-   * and keeps the gutter a real width on Windows. So: never set a width.
+   * *Still true:* the two are **not additive**. Chrome ignores the
+   * `::-webkit-scrollbar` pseudo-elements on any element where a non-`auto`
+   * `scrollbar-color` applies. Writing both means one is dead code, and it is not
+   * obvious which. That is why `scrollbar-color` is reset to `auto` inside the
+   * `@supports` block — the pseudo-elements would otherwise never run in the
+   * engine they exist for.
    *
-   * The track is a literal `transparent` rather than a token. A painted track
-   * would have to work against five different surface colours, and keeping it out
-   * of `:root` keeps it out of the theme-token contract.
+   * *No longer sufficient:* `scrollbar-width: thin` "asks the platform for its own
+   * thin variant". It does — and the platform's thin variant is still ~11px of
+   * solid thumb, which in a dark sidebar reads as the default bar and was reported
+   * as exactly that. `thin` cannot round a corner, cannot inset a thumb, and
+   * cannot separate a resting state from a hover.
+   *
+   * ## The gutter is still not narrowed
+   *
+   * The old note is right that a pixel `width` **replaces** the platform gutter
+   * rather than narrowing it, and that two places here are measured around the
+   * gutter they get — the horizontal product rail's `pb-2` and the 220px taxonomy
+   * list on the classification step. So the gutter stays at 10px, close to what
+   * the platform gives, and the *thumb* is what shrinks: a 3px transparent border
+   * plus `background-clip: content-box` leaves 4px of visible bar floating in the
+   * middle of it. Quietness from geometry, which is what the token comment above
+   * says it should come from.
+   *
+   * Firefox keeps the standard properties and gets no pseudo-elements — it has no
+   * `::-webkit-scrollbar` and `@supports selector()` is how that is asked rather
+   * than assumed.
+   *
+   * The track is a literal `transparent` rather than a token. A painted track would
+   * have to work against five different surface colours, and keeping it out of
+   * `:root` keeps it out of the theme-token contract.
    */
   html {
     scroll-behavior: smooth;
     -webkit-tap-highlight-color: transparent;
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  @supports selector(::-webkit-scrollbar) {
+    /*
+       `auto`, or Chrome discards every rule below it. This is the one line that
+       makes the pseudo-elements reachable at all — see the docblock.
+    */
+    html {
+      scrollbar-color: auto;
+    }
+
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      /* 10px of gutter, 4px of thumb: the border is transparent and
+         `background-clip` keeps the paint inside it. */
+      background-color: var(--scrollbar-thumb);
+      background-clip: content-box;
+      border: 3px solid transparent;
+      border-radius: 999px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: var(--scrollbar-thumb-hover);
+    }
+
+    /* Where a vertical and a horizontal bar meet. Unstyled it is a small grey
+       square in the corner of every table that scrolls both ways. */
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
   }
 
   body {

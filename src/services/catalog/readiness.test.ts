@@ -35,6 +35,28 @@ describe("the catalogue gate", () => {
   });
 });
 
+describe("an inherited description", () => {
+  const message = (snapshot: Partial<ReadinessSnapshot>) =>
+    computeReadiness({ ...complete, ...snapshot, descriptionInherited: true }).gaps.find(
+      (gap) => gap.code === "description_inherited",
+    )?.message;
+
+  it("tells a template the prose promises a backend it does not have", () => {
+    expect(message({ catalogue: "template" })).toContain("describes a backend");
+  });
+
+  it("tells a script the prose describes only the front-end", () => {
+    /*
+     * COS-9 made the pair buildable from either end, and the two mistakes are
+     * opposites. Wording both from the template's side would tell a backend script
+     * that it lacks a backend.
+     */
+    const script = message({ catalogue: "script" });
+    expect(script).toContain("front-end");
+    expect(script).not.toContain("describes a backend this template does not have");
+  });
+});
+
 describe("computeReadiness", () => {
   it("finds nothing wrong with a complete product", () => {
     const result = computeReadiness(complete);

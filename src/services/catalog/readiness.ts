@@ -150,12 +150,19 @@ export function computeReadiness(snapshot: ReadinessSnapshot): Readiness {
     });
   } else if (snapshot.descriptionInherited) {
     /*
-     * There *is* a description, and it was copied from the script listing.
+     * There *is* a description, and it was copied from the other half of the pair.
      *
      * `createTemplateSibling` used to leave it empty precisely so this gap would
      * fire; prefilling it would have satisfied the gap with prose that describes a
      * backend the template does not have. So the flag keeps the gap alive with its
      * own wording, and the first Basics save clears it.
+     *
+     * **Worded from this listing's catalogue, not from the flag.** The pair can be
+     * built from either end (COS-9), and the two mistakes are opposites: a template
+     * inherits prose promising a backend it does not have, while a backend script
+     * inherits prose describing only the front-end. One sentence covering both
+     * would name neither, and the whole point of this gap over plain
+     * `no_description` is that it says what is wrong with the words already there.
      *
      * `else if`, not a second gap: "write one" and "read this one" are the same
      * blocker at different stages, and showing both would ask the vendor to do two
@@ -164,7 +171,9 @@ export function computeReadiness(snapshot: ReadinessSnapshot): Readiness {
     gaps.push({
       code: "description_inherited",
       message:
-        "Read the description — it was copied from the script listing and describes a backend this template does not have",
+        snapshot.catalogue === "template"
+          ? "Read the description — it was copied from the script listing and describes a backend this template does not have"
+          : "Read the description — it was copied from the template listing and describes the front-end on its own, not the backend this listing adds",
       section: "basics",
     });
   }

@@ -278,6 +278,35 @@ export class ProductRepository extends BaseRepository<ProductDoc> {
       .lean<ProductDoc>();
   }
 
+  /**
+   * Point this template at a script, but only if it is not already pointed
+   * somewhere — COS-9.
+   *
+   * `createTemplateSibling` does not need this: it writes the edge on the document
+   * it has just inserted, which nothing else can be holding. `createScriptSibling`
+   * runs the pair the other way round and writes the edge on the *existing*
+   * template, so two vendors (or two tabs) racing would otherwise have the second
+   * silently overwrite the first's pointer and strand a linked script.
+   *
+   * The `$exists: false` in the **filter** is what makes that impossible: the loser
+   * matches nothing and gets `null` back, which the service turns into the same
+   * `ConflictError` the partial unique index would have raised. A read-then-write
+   * would leave the window open.
+   */
+  async linkScriptListing(templateId: string, scriptId: string) {
+    return this.model
+      .findOneAndUpdate(
+        {
+          _id: toObjectId(templateId),
+          deletedAt: null,
+          scriptListingId: { $exists: false },
+        },
+        { $set: { scriptListingId: toObjectId(scriptId) } },
+        { returnDocument: "after" },
+      )
+      .lean<ProductDoc>();
+  }
+
   /** How many live templates point at this script — for `softDelete`'s refusal. */
   async countTemplateSiblingsOf(scriptId: string): Promise<number> {
     return this.model.countDocuments({

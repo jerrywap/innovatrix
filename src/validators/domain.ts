@@ -150,6 +150,11 @@ export const demoConfigSchema = z.object({
 
 /* ────────────────────────────────────────────── commerce */
 
+/**
+ * Note what is absent: no price, no total. The client states *what* it wants;
+ * the server decides what it costs (§13, ticket 10). A price field here would
+ * be a hole straight through the pricing rules.
+ */
 export const addToCartSchema = z.object({
   productId: objectIdSchema,
   licencePackageKey: z.string().trim().min(1),
@@ -157,26 +162,16 @@ export const addToCartSchema = z.object({
   quantity: z.number().int().min(1).max(999).default(1),
 });
 
-/**
- * Note what is absent: no price, no total. The client states *what* it wants;
- * the server decides what it costs (§13, ticket 10). A price field here would
- * be a hole straight through the pricing rules.
+/*
+ * There was a `checkoutSchema` here, and it was never wired to anything.
+ *
+ * The live one is `billingSchema`/`placeOrderSchema` in `validators/checkout.ts`,
+ * and the two disagreed: this one required `contactName` and `postcode`, which
+ * checkout deliberately treats as optional, and typed `idempotencyKey` as a UUID
+ * while the form sends 32 hex characters. Deleted rather than reconciled — a
+ * second schema for one form is how the next "the label says optional and it
+ * still refuses to submit" gets built (COS-17).
  */
-export const checkoutSchema = z.object({
-  billing: z.object({
-    organizationName: z.string().trim().min(1),
-    contactName: z.string().trim().min(1),
-    line1: z.string().trim().min(1),
-    line2: optionalText(120),
-    city: z.string().trim().min(1),
-    region: optionalText(80),
-    postcode: z.string().trim().min(1),
-    country: z.string().trim().length(2).toUpperCase(),
-    taxId: optionalText(40),
-  }),
-  /** Guards against a double-submit creating two orders (ticket 11). */
-  idempotencyKey: z.uuid(),
-});
 
 /* ────────────────────────────────────────────── requirements & requests */
 

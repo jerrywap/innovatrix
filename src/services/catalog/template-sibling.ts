@@ -39,6 +39,15 @@ import { deriveFacets } from "./facets";
  * A plugin is an `Addon`: bought alongside one listing, handed over out of band,
  * no artefact of its own. This is two listings of the same software at two price
  * points. Nothing here touches `addons` beyond copying them.
+ *
+ * ## The pair can be built from either end (COS-9)
+ *
+ * `createTemplateSibling` starts from the script; `createScriptSibling` starts from
+ * the template, for a vendor who listed the front-end first and later built the
+ * backend. Both produce the *same* pair — `scriptListingId` on the template,
+ * pointing at the script — because that edge already runs in the direction both
+ * need. What differs is only which document is inserted and which is updated, and
+ * the two functions say so at their own write.
  */
 
 /* ────────────────────────────────────────────── the copy map */
@@ -47,8 +56,15 @@ import { deriveFacets } from "./facets";
  * Copied to the new listing.
  *
  * The test a field has to pass is **not** "can it be copied" — it is "is it still
- * true on a listing that has no backend". Everything here is; everything in
- * `EXCLUDED` is not, or cannot be.
+ * true of the *other* half of the pair". Read script→template that means "still
+ * true with no backend"; read template→script it means "still true once a backend
+ * is added". The set is the same either way, because everything in `EXCLUDED` is
+ * excluded for a reason that holds in both directions: it is either an artefact
+ * (`media`, `currentVersionId`), a tally that belongs to one listing
+ * (`orderCount`, `ratingSum`), or a claim about the software's own behaviour that
+ * only its own uploader can make (`features`, `requirements`). The individual
+ * reasons below are phrased for the script→template case, which is the one where
+ * they are least obvious.
  */
 const COPIED = {
   name: true,
@@ -177,8 +193,8 @@ void COPIED;
 void SEEDED_BY_CREATE_DRAFT;
 void EXCLUDED;
 
-/** What `createTemplateSibling` writes on top of the fresh draft. */
-export interface TemplateSiblingCopy {
+/** What the two `create*Sibling` functions write on top of the fresh draft. */
+export interface SiblingCopy {
   industryIds: string[];
   description?: ProductDoc["description"];
   descriptionText?: string;
@@ -192,11 +208,19 @@ export interface TemplateSiblingCopy {
 }
 
 /**
- * Build the copy, given the script and the prices the uploader entered.
+ * Build the copy, given the listing being copied *from* and the prices the
+ * uploader entered.
  *
  * Pure — no database, no request context — so it is unit-testable and so the
  * decisions above are readable in one place rather than spread through a service
  * function.
+ *
+ * **Direction-neutral by construction.** The parameter is a `ProductDoc`, not "the
+ * script": every field it reads is one a template carries too, so the same function
+ * serves script→template and template→script. The one asymmetry is
+ * `descriptionInherited`, which says "this prose came from the other listing" —
+ * true either way, and `computeReadiness` words the resulting gap from the
+ * *recipient's* catalogue rather than from here.
  *
  * The prices are written to `prices` **and** to every copied licence package, which
  * is what makes `unbuyable_currency` structurally impossible on the new listing:
@@ -204,44 +228,44 @@ export interface TemplateSiblingCopy {
  * line in, and here the two lists come from one input. If anyone ever splits those
  * two writes, that gap starts firing on every sibling.
  */
-export function buildTemplateSiblingCopy(
-  script: ProductDoc,
+export function buildSiblingCopy(
+  source: ProductDoc,
   prices: readonly ProductPrice[],
-): TemplateSiblingCopy {
+): SiblingCopy {
   // Shells only: the commercial terms transfer (they are platform defaults), the
   // money does not. A script with three tiers gives three packages all at this
   // one price, and the panel says so before the click.
-  const licencePackages = script.licencePackages.map((pkg) => ({
+  const licencePackages = source.licencePackages.map((pkg) => ({
     ...pkg,
     prices: [...prices],
   }));
 
   return {
-    industryIds: script.industryIds.map(String),
+    industryIds: source.industryIds.map(String),
     /*
      * The prose, marked as unread.
      *
      * `descriptionFields()` writes `description` and `descriptionText` as a pair or
      * neither, so the pair is spread rather than assigned field by field — and the
-     * flag only goes on when there is actually something to review. A script with
+     * flag only goes on when there is actually something to review. A listing with
      * no description gives a sibling with none, and `no_description` fires for the
      * ordinary reason.
      */
-    ...descriptionFields(script.description),
-    ...(isEmptyDoc(script.description) ? {} : { descriptionInherited: true }),
+    ...descriptionFields(source.description),
+    ...(isEmptyDoc(source.description) ? {} : { descriptionInherited: true }),
     // Derived from the packages just built rather than assigned the same literal.
     // Identical today — every package gets the one entered price — and it stays
     // identical the day the panel learns to price tiers separately.
     prices: advertisedPrices(licencePackages),
     licencePackages,
-    addons: script.addons,
-    installation: script.installation,
+    addons: source.addons,
+    installation: source.installation,
     customization: {
-      ...script.customization,
+      ...source.customization,
       // Money quoted for adapting the *whole application*. Never copy money.
       startingPrice: undefined,
     },
-    ...(script.deliveryMethod ? { deliveryMethod: script.deliveryMethod } : {}),
+    ...(source.deliveryMethod ? { deliveryMethod: source.deliveryMethod } : {}),
   };
 }
 
@@ -320,7 +344,7 @@ export async function createTemplateSibling(
     actor,
   );
 
-  const copy = buildTemplateSiblingCopy(script, input.prices);
+  const copy = buildSiblingCopy(script, input.prices);
   const templateId = String(draft._id);
 
   try {
@@ -367,6 +391,132 @@ export async function createTemplateSibling(
 
   const linked = await products.findById(templateId);
   return linked ?? draft;
+}
+
+/**
+ * Create the **backend script** for a website template, and link the template to
+ * it — COS-9, the pair built from the other end.
+ *
+ * A vendor who listed a front-end first and has since built the backend gets the
+ * same pair `createTemplateSibling` produces: `scriptListingId` on the template,
+ * pointing at the script. The edge already runs in that direction, so this needs no
+ * schema change and no second field — a "backend script" is simply
+ * `catalogue: "script"`.
+ *
+ * ## The insert and the update swap places, and that costs something
+ *
+ * Its twin writes the edge on the row it just inserted, so a failure leaves an
+ * unlinked draft and nothing else. Here the edge lands on the *pre-existing*
+ * template, which is a row other requests can be holding. Hence
+ * `products.linkScriptListing`, whose filter carries the "not already linked"
+ * condition: a second caller matches nothing and is refused, rather than
+ * repointing the template and stranding the first script.
+ *
+ * Still not a transaction — `supportsTransactions()` is false on a standalone
+ * mongod, the trade this module already accepts in writing above. If the link write
+ * fails, what is left is a bare draft in `script` with no link: invisible to
+ * customers, no banner, and deletable, because `softDelete` permits a draft with no
+ * versions.
+ */
+export async function createScriptSibling(
+  templateProductId: string,
+  input: { prices: readonly ProductPrice[] },
+  actor: AuditActor,
+  scope: VendorScope = {},
+): Promise<ProductDoc> {
+  await connectToDatabase();
+
+  const template = await products.findScoped(templateProductId, scope);
+  if (!template) throw new NotFoundError("product", { id: templateProductId });
+
+  if ((template.catalogue ?? "script") !== "template") {
+    throw new ValidationError("Only a website template can also be listed as a full script.", {
+      catalogue: ["This listing is not in the website template catalogue."],
+    });
+  }
+
+  if (template.scriptListingId) {
+    throw new ConflictError("This template already has a backend script listing.");
+  }
+
+  if (input.prices.length === 0) {
+    throw new ValidationError("Give the script listing a price in at least one currency.", {
+      prices: ["No currency was priced."],
+    });
+  }
+
+  const draft = await createDraft(
+    {
+      name: template.name,
+      summary: template.summary,
+      catalogue: "script",
+      // Deterministic, for the same reason as the forward direction. A template
+      // created *by* `createTemplateSibling` is already `…-template`, and this
+      // path refuses those anyway (it checks `scriptListingId` above), so there is
+      // no `…-template-script` to trim.
+      slugSeed: `${template.slug}-script`,
+      ...(template.vendorId
+        ? {
+            vendor: {
+              id: String(template.vendorId),
+              slug: template.vendorSlug ?? "",
+              name: template.vendorName ?? "",
+            },
+          }
+        : {}),
+    },
+    actor,
+  );
+
+  const copy = buildSiblingCopy(template, input.prices);
+  const scriptId = String(draft._id);
+
+  await saveSection(
+    scriptId,
+    "template_link",
+    {
+      ...copy,
+      industryIds: copy.industryIds.map((id) => toObjectId(id)),
+      // The ids and the facets in the **same** `$set`, mirroring
+      // `saveClassification`'s invariant.
+      facets: await deriveFacets({
+        industryIds: copy.industryIds,
+        ...(template.vendorSlug ? { vendorSlug: template.vendorSlug } : {}),
+      }),
+    },
+    actor,
+    scope,
+  );
+
+  // The edge, on the template, conditionally. `null` means somebody linked it
+  // between the check above and here.
+  let linked;
+  try {
+    linked = await products.linkScriptListing(templateProductId, scriptId);
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new ConflictError("This template already has a backend script listing.");
+    }
+    throw error;
+  }
+  if (!linked) {
+    throw new ConflictError("This template already has a backend script listing.");
+  }
+
+  await writeAuditLog({
+    action: "product.script_sibling_created",
+    actor,
+    subject: { type: "product", id: scriptId },
+    after: {
+      templateProductId,
+      scriptProductId: scriptId,
+      currencies: input.prices.map((price) => price.currency),
+    },
+    source: "catalog",
+  });
+
+  const created = await products.findById(scriptId);
+  return created ?? draft;
 }
 
 /**

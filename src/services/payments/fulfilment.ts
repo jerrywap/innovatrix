@@ -496,8 +496,12 @@ function addMonths(from: Date, months: number): Date {
  * re-purchasable. This runs when the money is confirmed and not before.
  */
 async function clearTheCart(order: OrderDoc, session: ClientSession): Promise<void> {
+  // The basket the order was actually built from. The `user:` form is the
+  // fallback for orders written before `ownerKey` was recorded — and deriving it
+  // was what let a free claim, built in a throwaway cart, empty the customer's
+  // real basket on the way past (COS-12).
   await Cart.updateOne(
-    { ownerKey: `user:${String(order.userId)}` },
+    { ownerKey: order.ownerKey ?? `user:${String(order.userId)}` },
     { $set: { items: [] }, $unset: { discountCode: "" } },
     { session },
   );

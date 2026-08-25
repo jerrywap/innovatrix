@@ -655,6 +655,78 @@ describe("linked template listings", () => {
     await expect(catalog.softDelete(String(script._id), ACTOR)).resolves.toBeUndefined();
   });
 
+  /*
+   * COS-9 — the same pair, built from the template end.
+   *
+   * Integration rather than unit for the same reason as its neighbours: it is the
+   * partial unique index and `createDraft`'s actual output being asserted, neither
+   * of which `test:unit` can see. `linkScriptListing`'s conditional filter is the
+   * part worth proving, because a plain `$set` would pass every assertion here
+   * except the refusal.
+   */
+  describe("built from the template end", () => {
+    /** A standalone website template — not one `createTemplateSibling` produced. */
+    async function templateDraft(name = "Aurora Storefront") {
+      const doc = await catalog.createDraft({ name, summary: "A storefront." }, ACTOR);
+      await models.Product.updateOne({ _id: doc._id }, { $set: { catalogue: "template" } });
+      return doc;
+    }
+
+    it("creates the script as a draft and links the template to it", async () => {
+      const template = await templateDraft();
+
+      const script = await siblings.createScriptSibling(
+        String(template._id),
+        { prices: PRICES },
+        ACTOR,
+      );
+
+      expect(script.slug).toBe("aurora-storefront-script");
+      expect(script.catalogue).toBe("script");
+      expect(script.status).toBe("draft");
+      expect(script.prices).toEqual(PRICES);
+
+      // The edge lands on the *template* — the same shape the forward direction
+      // produces, which is why the public banner needs no new case.
+      const linked = await models.Product.findById(template._id).lean();
+      expect(String(linked!.scriptListingId)).toBe(String(script._id));
+    });
+
+    it("refuses a template that already has one", async () => {
+      const template = await templateDraft();
+      await siblings.createScriptSibling(String(template._id), { prices: PRICES }, ACTOR);
+
+      await expect(
+        siblings.createScriptSibling(String(template._id), { prices: PRICES }, ACTOR),
+      ).rejects.toThrow(/already has a backend script listing/);
+    });
+
+    it("refuses a script, because only a template is the front-end half", async () => {
+      const script = await draft("Atlas CRM");
+
+      await expect(
+        siblings.createScriptSibling(String(script._id), { prices: PRICES }, ACTOR),
+      ).rejects.toThrow(/Only a website template/);
+    });
+
+    it("unlinks through the existing path, leaving both listings", async () => {
+      const template = await templateDraft();
+      const script = await siblings.createScriptSibling(
+        String(template._id),
+        { prices: PRICES },
+        ACTOR,
+      );
+
+      // `unlinkTemplateSibling` was always direction-neutral — it clears the field
+      // on the template — so COS-9 needed no second unlink path.
+      await siblings.unlinkTemplateSibling(String(template._id), ACTOR);
+
+      const after = await models.Product.findById(template._id).lean();
+      expect(after!.scriptListingId).toBeUndefined();
+      await expect(models.Product.findById(script._id).lean()).resolves.not.toBeNull();
+    });
+  });
+
   it("refuses to move a linked template out of the template catalogue", async () => {
     const script = await draft("Atlas CRM");
     const template = await siblings.createTemplateSibling(

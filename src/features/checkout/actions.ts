@@ -14,6 +14,10 @@ import { staffActor } from "@/services/audit";
 import * as checkout from "@/services/checkout/checkout-service";
 import { initiatePaymentForOrder, settleFreeOrder } from "@/services/payments/payment-service";
 import { readOwnerKey } from "@/services/cart/owner";
+import { claimFreeProduct } from "@/services/checkout/free-claim";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
+import { z } from "zod";
+import { objectIdSchema } from "@/validators/common";
 
 /**
  * Checkout actions — §13.
@@ -154,6 +158,67 @@ export async function placeOrderAction(
   if (offline || free) redirect(`/orders/${reference}/confirmation` as Route);
 
   redirect(`/checkout/processing?order=${reference}` as Route);
+}
+
+const claimFreeSchema = z.object({
+  productId: objectIdSchema,
+  licencePackageKey: z.string().trim().min(1).optional(),
+});
+
+/**
+ * Take a free listing in one click — COS-12.
+ *
+ * ## Guarded like a purchase, because it is one
+ *
+ * It creates an order and grants an entitlement, so it takes the same
+ * `requireUser()` + `requireOrg()` that `placeOrderAction` does. A free thing is
+ * still somebody's property afterwards, and the download route needs both a
+ * session and an active organisation to authorise against.
+ *
+ * That does mean a signed-out visitor cannot take one, unlike adding to the basket
+ * — which works for guests on a cookie owner key. The button says so rather than
+ * letting them find out by clicking.
+ *
+ * ## An href back, not a `redirect()`
+ *
+ * The destination is `/api/downloads/<id>`, a Route Handler that answers `307` to
+ * a short-lived presigned S3 URL. `redirect()` here would hand that to the RSC
+ * router, which is not what turns a `307` into a saved file; the client does a
+ * plain document navigation instead. No bytes pass through the server either way —
+ * the download route is untouched and still authorises, logs, then redirects.
+ */
+export async function claimFreeProductAction(
+  input: unknown,
+): Promise<ActionResult<{ href: string; alreadyOwned: boolean }>> {
+  return withAction<{ href: string; alreadyOwned: boolean }>(async () => {
+    const user = await requireUser();
+    const { organizationId } = await requireOrg();
+
+    const parsed = parseInput(claimFreeSchema, input);
+
+    const claim = await claimFreeProduct(
+      parsed,
+      {
+        userId: user.id,
+        ...(user.name ? { userName: user.name } : {}),
+        organizationId,
+        // From the cookie, like every other price the visitor has been shown.
+        // Passing a currency from the form would let the caller pick whichever
+        // one this product happens to be free in.
+        currency: await resolveStorefrontCurrency(),
+      },
+      staffActor({ id: user.id, name: user.name }),
+    );
+
+    revalidatePath("/", "layout");
+
+    return ok({
+      href: claim.fileId
+        ? `/api/downloads/${claim.fileId}`
+        : `/dashboard/software/${claim.entitlementId}`,
+      alreadyOwned: claim.alreadyOwned,
+    });
+  });
 }
 
 /**

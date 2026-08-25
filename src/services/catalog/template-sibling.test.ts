@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplateSiblingCopy } from "./template-sibling";
+import { buildSiblingCopy } from "./template-sibling";
 import type { ProductDoc, ProductPrice } from "@/lib/db/models/catalog";
 
 /**
  * The copy map, at the only altitude it needs.
  *
- * `buildTemplateSiblingCopy` is pure, so these assertions need no database and no
+ * `buildSiblingCopy` is pure, so these assertions need no database and no
  * request context. What they check is the handful of decisions a reader would
  * otherwise have to reconstruct from the exclusion table: money is replaced rather
  * than copied, and the fields that would be *false* on a front-end-only listing are
@@ -73,12 +73,12 @@ function script(overrides: Partial<ProductDoc> = {}): ProductDoc {
   } as unknown as ProductDoc;
 }
 
-describe("buildTemplateSiblingCopy", () => {
+describe("buildSiblingCopy", () => {
   it("replaces the money rather than copying it, on both price lists", () => {
     // The two lists come from one input, which is what makes `unbuyable_currency`
     // structurally impossible on the new listing: the marketplace cannot advertise
     // a currency the cart has no line for.
-    const copy = buildTemplateSiblingCopy(script(), PRICES);
+    const copy = buildSiblingCopy(script(), PRICES);
 
     expect(copy.prices).toEqual(PRICES);
     for (const pkg of copy.licencePackages) {
@@ -89,12 +89,12 @@ describe("buildTemplateSiblingCopy", () => {
   it("keeps every licence package, so tiers are not silently dropped", () => {
     // All at one price — the panel says so before the click, and the pricing step
     // is where tiers are restored.
-    const copy = buildTemplateSiblingCopy(script(), PRICES);
+    const copy = buildSiblingCopy(script(), PRICES);
     expect(copy.licencePackages.map((pkg) => pkg.key)).toEqual(["single", "multi"]);
   });
 
   it("drops the customization starting price, which is money for the whole app", () => {
-    const copy = buildTemplateSiblingCopy(script(), PRICES);
+    const copy = buildSiblingCopy(script(), PRICES);
     expect(copy.customization.available).toBe(true);
     expect(copy.customization.startingPrice).toBeUndefined();
   });
@@ -103,7 +103,7 @@ describe("buildTemplateSiblingCopy", () => {
     // Industries are seeded `both`, so nothing refuses them. Script categories
     // would be refused outright by `assertTermsInCatalogue`, and a template
     // advertising PostgreSQL is wrong in its own filter rail.
-    const copy = buildTemplateSiblingCopy(script(), PRICES);
+    const copy = buildSiblingCopy(script(), PRICES);
 
     expect(copy.industryIds).toEqual(["6a80c46f6c887b38e2f0e0b4"]);
     expect(copy).not.toHaveProperty("categoryIds");
@@ -129,7 +129,7 @@ describe("buildTemplateSiblingCopy", () => {
         content: [{ type: "paragraph", content: [{ type: "text", text: "A full CRM." }] }],
       },
     };
-    const copy = buildTemplateSiblingCopy(withOne as never, PRICES);
+    const copy = buildSiblingCopy(withOne as never, PRICES);
 
     expect(copy.description).toBeDefined();
     expect(copy.descriptionText).toBeTruthy();
@@ -139,13 +139,13 @@ describe("buildTemplateSiblingCopy", () => {
   it("does not flag a description that was never there", () => {
     // Nothing to review, so `no_description` fires for the ordinary reason and the
     // vendor is not told to read an empty box.
-    const copy = buildTemplateSiblingCopy(script(), PRICES);
+    const copy = buildSiblingCopy(script(), PRICES);
 
     expect(copy.descriptionInherited).toBeUndefined();
   });
 
   it("copies nothing that would be false or unusable on a front-end listing", () => {
-    const copy = buildTemplateSiblingCopy(script(), PRICES);
+    const copy = buildSiblingCopy(script(), PRICES);
 
     // `features` has no readiness gap to force a read, so a copied capability list
     // would reach a customer having never been looked at.
@@ -162,10 +162,9 @@ describe("buildTemplateSiblingCopy", () => {
   it("carries the delivery method only when the script has one", () => {
     // Absent means `archive`, so writing an explicit `undefined` would be a
     // different statement from saying nothing.
-    expect(buildTemplateSiblingCopy(script(), PRICES)).not.toHaveProperty("deliveryMethod");
+    expect(buildSiblingCopy(script(), PRICES)).not.toHaveProperty("deliveryMethod");
     expect(
-      buildTemplateSiblingCopy(script({ deliveryMethod: "vendor_hosted" }), PRICES)
-        .deliveryMethod,
+      buildSiblingCopy(script({ deliveryMethod: "vendor_hosted" }), PRICES).deliveryMethod,
     ).toBe("vendor_hosted");
   });
 });

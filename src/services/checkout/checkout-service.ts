@@ -155,6 +155,9 @@ export async function createOrder(
             paymentMethod: input.paymentMethod ?? "online",
             billingSnapshot: input.billing,
             idempotencyKey,
+            // So fulfilment empties *this* basket rather than deriving one from
+            // the customer. See `OrderDoc.ownerKey`.
+            ownerKey: input.ownerKey,
           },
         ],
         { session, ordered: true },
