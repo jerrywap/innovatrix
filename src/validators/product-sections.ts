@@ -6,9 +6,8 @@ import {
   LICENCE_TYPES,
   PRODUCT_CATALOGUES,
   PRODUCT_MEDIA_KINDS,
-  TESTING_CHECKLIST_STATUSES,
 } from "@/lib/db/enums";
-import { richTextDocumentSchema } from "@/lib/rich-text/schema";
+import { richTextFromForm } from "@/lib/rich-text/schema";
 import {
   checkboxSchema,
   countFromForm,
@@ -18,6 +17,7 @@ import {
   optionalUrl,
   priceMapSchema,
   slugSchema,
+  youTubeId,
 } from "./common";
 
 /**
@@ -49,6 +49,15 @@ const idListSchema = z
 
 /* ────────────────────────────────────────────── 1. basics */
 
+/**
+ * Just the description — `saveDescriptionOnlyAction`'s input.
+ *
+ * A separate schema rather than `productBasicsSchema.pick(...)` because that
+ * action posts no `name` or `summary`, and a picked schema would still demand
+ * them.
+ */
+export const descriptionOnlySchema = z.object({ description: richTextFromForm });
+
 export const productBasicsSchema = z.object({
   name: z.string().trim().min(2, "Give the product a name").max(120),
   summary: z
@@ -59,8 +68,14 @@ export const productBasicsSchema = z.object({
   /**
    * Optional at creation. A draft is allowed to be incomplete; publish is what
    * demands completeness, and it says so specifically (see `readiness.ts`).
+   *
+   * `richTextFromForm`, **not** `richTextDocumentSchema.optional()`. The editor
+   * posts the tree as JSON text, so the bare object schema rejected every save
+   * from this step with "expected object, received string". The decode belongs
+   * here rather than in each action — see the docblock on the schema for the four
+   * private copies this replaced and the silent-wipe hazard in all of them.
    */
-  description: richTextDocumentSchema.optional(),
+  description: richTextFromForm,
 });
 
 /**
@@ -151,7 +166,31 @@ export const productMediaSchema = z.object({
     })
     .refine((items) => items.every((m) => m.storageKey ?? m.url), {
       message: "Every image needs either an uploaded file or a URL.",
-    }),
+    })
+    /*
+     * A video row with no `storageKey` is a link, and the only link we can play is
+     * YouTube.
+     *
+     * Checked here rather than by making `url` a YouTube schema, because the same
+     * field carries three different things: an uploaded screenshot's public URL, an
+     * uploaded video's public URL, and a watch link. Only the third is constrained,
+     * and which one it is depends on the sibling fields — which is exactly what a
+     * refine can see and a field-level schema cannot.
+     *
+     * This is what decides an `<iframe src>`, so it is not cosmetic. `youTubeId`
+     * refuses a lookalike host and anything that is not eleven base64url
+     * characters.
+     */
+    .refine(
+      (items) =>
+        items.every(
+          (m) => m.kind !== "video" || m.storageKey || (m.url && youTubeId(m.url) !== null),
+        ),
+      {
+        message:
+          "A video is either an uploaded file or a YouTube link — paste the address bar's URL, or the one the Share button gives you.",
+      },
+    ),
 });
 
 /* ────────────────────────────────────────────── 5. pricing */
@@ -183,8 +222,16 @@ export const addonFormSchema = z.object({
 
 export const productPricingSchema = z
   .object({
-    prices: priceMapSchema,
-    licencePackages: z.array(licencePackageFormSchema).max(12).default([]),
+    /*
+     * No `prices` here. The advertised price is derived from the packages by
+     * `advertisedPrices` in `section-config.ts`, so there is nothing for the form
+     * to post and nothing for this schema to accept — which is what stops the two
+     * stores drifting apart again.
+     */
+    licencePackages: z
+      .array(licencePackageFormSchema)
+      .min(1, "A product needs at least one licence package — it is what a customer buys.")
+      .max(12),
     addons: z.array(addonFormSchema).max(20).default([]),
   })
   .superRefine((value, ctx) => {
@@ -232,9 +279,6 @@ export const productOptionsSchema = z.object({
       available: checkboxSchema,
       aiWorkflowEnabled: checkboxSchema,
       technicalReviewRequired: checkboxSchema,
-      /** Optional: "from £X" is a hint, and not every product has one. */
-      startingPriceAmount: optionalText(20),
-      startingPriceCurrency: optionalText(3),
       typicalTurnaround: optionalText(120),
       /**
        * §50 — an enum, not free text. Ticket 17's assistant reads these to open
@@ -280,12 +324,18 @@ export const demoCredentialFormSchema = z.object({
 
 export const productDemoSchema = z.object({
   demo: z.object({
-    exposure: z.enum(DEMO_EXPOSURES).default("authenticated"),
+    /*
+     * "Anyone", which is what `public` is labelled in the form.
+     *
+     * A demo exists to be tried. Defaulting it to `authenticated` meant the
+     * common case — a public showcase — required the vendor to notice a radio
+     * group and change it, and the visitor it was built for hit a sign-in wall.
+     */
+    exposure: z.enum(DEMO_EXPOSURES).default("public"),
     publicUrl: optionalUrl(),
     customerUrl: optionalUrl(),
     adminUrl: optionalUrl(),
     instructions: optionalText(2000),
-    resetSchedule: optionalText(200),
     credentials: z
       .array(demoCredentialFormSchema)
       .max(10)
@@ -295,30 +345,3 @@ export const productDemoSchema = z.object({
       }),
   }),
 });
-
-/* ────────────────────────────────────────────── 9. testing (ticket 07) */
-
-export const productTestingSchema = z.object({
-  testingChecklist: z
-    .array(
-      z.object({
-        item: z.string().trim().min(1).max(120),
-        status: z.enum(TESTING_CHECKLIST_STATUSES).default("pending"),
-        notes: optionalText(500),
-      }),
-    )
-    .max(40)
-    .default([]),
-});
-
-/* ────────────────────────────────────────────── types */
-
-export type ProductBasicsInput = z.infer<typeof productBasicsSchema>;
-export type ProductClassificationInput = z.infer<typeof productClassificationSchema>;
-export type ProductContentInput = z.infer<typeof productContentSchema>;
-export type ProductMediaInput = z.infer<typeof productMediaSchema>;
-export type ProductPricingInput = z.infer<typeof productPricingSchema>;
-export type ProductOptionsInput = z.infer<typeof productOptionsSchema>;
-export type ProductSeoInput = z.infer<typeof productSeoSchema>;
-export type ProductDemoInput = z.infer<typeof productDemoSchema>;
-export type ProductTestingInput = z.infer<typeof productTestingSchema>;

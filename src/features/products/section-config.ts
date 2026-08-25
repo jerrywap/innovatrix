@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { Permission } from "@/lib/auth/permissions";
 import { descriptionFields } from "@/lib/db/models/catalog";
+import { advertisedPrices } from "@/services/catalog/advertised-price";
 import {
   productBasicsSchema,
   productContentSchema,
@@ -54,6 +55,20 @@ export const BASICS_SECTION: SectionConfig<typeof productBasicsSchema> = {
     summary: input.summary,
     // Both description fields, or neither — see `descriptionFields`.
     ...descriptionFields(input.description),
+    /*
+     * Saving Basics is the act of having read it.
+     *
+     * A template sibling arrives with the script's description copied and
+     * `descriptionInherited: true`, which keeps `no_description`'s cousin firing so
+     * the prose cannot be published unread. This is the only place that clears it,
+     * and it clears on *any* Basics save — including one that changed nothing,
+     * which is the correct reading of "I have looked at this and it is fine".
+     *
+     * `undefined`, so `setAndUnset` turns it into an `$unset` rather than storing
+     * `false`. A product that never inherited anything should not carry the field
+     * at all.
+     */
+    descriptionInherited: undefined,
   }),
 };
 
@@ -87,7 +102,21 @@ export const PRICING_SECTION: SectionConfig<typeof productPricingSchema> = {
   permission: "product.manage_pricing",
   schema: productPricingSchema,
   toUpdate: (input) => ({
-    prices: input.prices,
+    /*
+     * `prices` is **derived**, never posted.
+     *
+     * There were two independent price stores and nothing reconciled them:
+     * `readiness.ts` says it outright — "the marketplace advertises from
+     * `product.prices`; the cart charges from `licencePackages[].prices`" — and the
+     * package always won, because `product.prices` never became money. No cart
+     * line, no order line, no payment read it.
+     *
+     * Asking a vendor for the same number twice is how a listing comes to
+     * advertise £299 while the basket refuses. Deriving one from the other removes
+     * the disagreement instead of policing it, which is what retired the
+     * `unbuyable_currency` publish gate.
+     */
+    prices: advertisedPrices(input.licencePackages),
     licencePackages: input.licencePackages,
     addons: input.addons,
   }),

@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDateTime } from "@/lib/dates";
-import { Field, FormErrors } from "@/features/products/components/section-form";
+import {
+  Field,
+  FormErrors,
+  useManualSubmit,
+} from "@/features/products/components/section-form";
 import { retryArtefactFetchAction, saveArtefactSourceAction } from "../version-actions";
 
 export interface ArtefactSourceView {
@@ -52,7 +56,16 @@ export function DeliverySource({
   /** A released version's artefact is frozen — §45. */
   editable: boolean;
 }) {
-  const [state, formAction] = useActionState(saveArtefactSourceAction, null);
+  /*
+   * Manual dispatch, for the same reason `section-form.tsx` documents at length:
+   * React 19 requests a DOM `form.reset()` *before* running a function action.
+   * There is no Radix control here, so this is the milder version of that bug —
+   * but every field in this form is `defaultValue`-backed, and on a failed save
+   * the typed URL, the 64-character SHA-256 and a freshly typed token all revert
+   * to what was stored before the error renders. The token cannot be re-derived
+   * from anything, so losing it costs a trip to the vendor's own settings.
+   */
+  const { state, pending, onSubmit } = useManualSubmit(saveArtefactSourceAction);
   const [retryState, retryAction] = useActionState(retryArtefactFetchAction, null);
   const failed = state && !state.ok ? state : null;
   const retryFailed = retryState && !retryState.ok ? retryState : null;
@@ -103,7 +116,7 @@ export function DeliverySource({
       )}
 
       {editable ? (
-        <form action={formAction} className="flex flex-col gap-3">
+        <form onSubmit={onSubmit} className="flex flex-col gap-3">
           {failed && <FormErrors error={failed.error} fieldErrors={failed.fieldErrors} />}
 
           <input type="hidden" name="productId" value={productId} />
@@ -185,7 +198,7 @@ export function DeliverySource({
 
           <ShowToken />
 
-          <Save label={source ? "Save and fetch again" : "Save and fetch"} />
+          <Save label={source ? "Save and fetch again" : "Save and fetch"} pending={pending} />
         </form>
       ) : (
         <p className="text-subtle text-[12.5px]">
@@ -227,8 +240,8 @@ function ShowToken() {
   );
 }
 
-function Save({ label }: { label: string }) {
-  const { pending } = useFormStatus();
+/** `pending` as a prop: `useFormStatus` reports nothing for a manual dispatch. */
+function Save({ label, pending }: { label: string; pending: boolean }) {
   return (
     <Button type="submit" size="sm" className="w-fit" disabled={pending}>
       {pending ? "Saving…" : label}

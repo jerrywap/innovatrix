@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { youTubeId } from "@/validators/common";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { MediaUpload, type MediaUploadProps } from "./media-upload";
@@ -111,23 +112,73 @@ function MediaRow({
   const [url, setUrl] = useState(media.url ?? "");
   const [storageKey, setStorageKey] = useState(media.storageKey ?? "");
 
+  /*
+   * `kind` was a hidden passthrough and `blankMedia()` hard-coded `"screenshot"`,
+   * so nothing in the UI could ever produce the `"video"` the enum, the model and
+   * the public DTO had all supported since they were written.
+   *
+   * Three choices rather than two, because *how it arrives* is the thing a vendor
+   * is actually deciding, and it changes which control appears. `video` covers the
+   * last two; which one it is follows from whether `storageKey` or `url` is set,
+   * exactly as the model's own comment anticipated.
+   */
+  const [source, setSource] = useState<MediaSource>(() =>
+    media.kind === "video" ? (media.storageKey ? "video-file" : "youtube") : "screenshot",
+  );
+  const kind = source === "screenshot" ? "screenshot" : "video";
+
   return (
-    <div className="flex flex-col gap-2">
-      <input type="hidden" name={`media[${index}][kind]`} value={media.kind} />
+    <div className="flex flex-col gap-2.5">
+      <input type="hidden" name={`media[${index}][kind]`} value={kind} />
+
+      <div className="flex flex-wrap gap-1.5">
+        {SOURCES.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={source === option.value}
+            onClick={() => {
+              setSource(option.value);
+              // Switching source abandons whatever the previous one pointed at.
+              // Keeping it would leave a row whose control and whose value
+              // disagree — a YouTube box showing an uploaded object's URL.
+              setUrl("");
+              setStorageKey("");
+            }}
+            className={`rounded-full border px-3 py-1 text-[12px] transition ${
+              source === option.value
+                ? "border-[var(--signal)] text-[var(--signal-text)]"
+                : "border-border hover:bg-surface-muted text-muted-foreground"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
       <input type="hidden" name={`media[${index}][sortOrder]`} value={String(index)} />
       {/* Always rendered, so an upload into a brand-new row has somewhere to
           put the key — it used to be conditional on there already being one. */}
       <input type="hidden" name={`media[${index}][storageKey]`} value={storageKey} />
 
       <div className="flex gap-3">
-        {url && (
+        {url && source !== "video-file" && (
           // A plain <img>, not next/image: the URL is arbitrary and may not be
           // in `remotePatterns`, and a broken optimiser here would hide the
           // preview an admin is checking. Public pages use next/image.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={url}
+            src={source === "youtube" ? thumbnailFor(url) : url}
             alt=""
+            className="border-border bg-surface-muted size-16 shrink-0 rounded-lg border object-cover"
+          />
+        )}
+        {url && source === "video-file" && (
+          // The real file, muted and unautoplayed: a vendor checking they uploaded
+          // the right video needs a frame, not a filename.
+          <video
+            src={url}
+            muted
+            preload="metadata"
             className="border-border bg-surface-muted size-16 shrink-0 rounded-lg border object-cover"
           />
         )}
@@ -143,47 +194,84 @@ function MediaRow({
               // a file it no longer shows.
               setStorageKey("");
             }}
-            type="url"
-            placeholder="https://…"
-            aria-label={`Image ${index + 1} address`}
+            type={source === "youtube" ? "text" : "url"}
+            placeholder={
+              source === "youtube" ? "https://www.youtube.com/watch?v=…" : "https://…"
+            }
+            aria-label={`${source === "screenshot" ? "Image" : "Video"} ${index + 1} address`}
             className="font-mono text-[12.5px]"
           />
 
-          <MediaUpload
-            productId={productId}
-            {...(uploadAction ? { uploadAction } : {})}
-            // Present ⇒ overwrite that object. A wrong image corrected here
-            // replaces the file rather than leaving it behind.
-            {...(storageKey ? { replaceKey: storageKey } : {})}
-            onUploaded={(result) => {
-              setUrl(result.url);
-              setStorageKey(result.storageKey);
-            }}
-          />
+          {source !== "youtube" && (
+            <MediaUpload
+              productId={productId}
+              {...(uploadAction ? { uploadAction } : {})}
+              // Present ⇒ overwrite that object. A wrong image corrected here
+              // replaces the file rather than leaving it behind.
+              {...(storageKey ? { replaceKey: storageKey } : {})}
+              video={source === "video-file"}
+              onUploaded={(result) => {
+                setUrl(result.url);
+                setStorageKey(result.storageKey);
+              }}
+            />
+          )}
 
           <Input
             name={`media[${index}][alt]`}
             defaultValue={media.alt ?? ""}
-            placeholder="Describe the screenshot for someone who cannot see it"
+            placeholder={
+              source === "screenshot"
+                ? "Describe the screenshot for someone who cannot see it"
+                : "Describe what the video shows"
+            }
             maxLength={200}
-            aria-label={`Image ${index + 1} description`}
+            aria-label={`${source === "screenshot" ? "Image" : "Video"} ${index + 1} description`}
             className="text-[13px]"
           />
         </div>
       </div>
 
-      <label className="flex items-center gap-2 text-[12.5px]">
-        <Checkbox
-          name={`media[${index}][isPrimary]`}
-          value="on"
-          defaultChecked={media.isPrimary}
-        />
-        Use as the marketplace card image
-      </label>
+      {/*
+        Card image only for a screenshot. `CARD_PROJECTION` now filters to
+        screenshots before slicing, so ticking this on a video would set a flag
+        that the projection has already decided to ignore — a control that does
+        nothing is worse than one that is absent.
+      */}
+      {source === "screenshot" && (
+        <label className="flex items-center gap-2 text-[12.5px]">
+          <Checkbox
+            name={`media[${index}][isPrimary]`}
+            value="on"
+            defaultChecked={media.isPrimary}
+          />
+          Use as the marketplace card image
+        </label>
+      )}
     </div>
   );
 }
 
 function blankMedia(): MediaView {
   return { kind: "screenshot", sortOrder: 0, isPrimary: false };
+}
+
+/** How the media arrives, which is what the vendor is actually choosing. */
+type MediaSource = "screenshot" | "video-file" | "youtube";
+
+const SOURCES: ReadonlyArray<{ value: MediaSource; label: string }> = [
+  { value: "screenshot", label: "Screenshot" },
+  { value: "video-file", label: "Video file" },
+  { value: "youtube", label: "YouTube link" },
+];
+
+/**
+ * YouTube's own thumbnail for a watch URL, for the row preview.
+ *
+ * `hqdefault` rather than `maxresdefault`: the latter 404s for any video that was
+ * never uploaded at 720p or above, and a missing preview reads as a rejected link.
+ */
+function thumbnailFor(raw: string): string {
+  const id = youTubeId(raw);
+  return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : "";
 }

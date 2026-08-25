@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { countFromForm, optionalId, optionalText, optionalUrl } from "./common";
+import {
+  countFromForm,
+  optionalId,
+  optionalText,
+  optionalUrl,
+  optionalYouTubeUrl,
+  youTubeId,
+} from "./common";
 
 /**
  * The first tests in `src/validators/` — which is why the bugs below shipped.
@@ -95,5 +102,51 @@ describe("optionalText", () => {
     // the three above exist because it had no siblings for the non-string cases.
     expect(optionalText().parse("")).toBeUndefined();
     expect(optionalText().parse("  hello  ")).toBe("hello");
+  });
+});
+
+describe("youTubeId — what ends up inside an iframe src", () => {
+  /**
+   * This decides the `src` of a third-party frame, which is the only place in the
+   * app where user input reaches another origin. `z.url()` would accept
+   * `https://example.test/x`; the CSP would then block it, and "something
+   * downstream refuses it" is not a validation rule.
+   */
+  it.each([
+    ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"],
+    ["https://youtube.com/watch?v=dQw4w9WgXcQ&t=42s", "dQw4w9WgXcQ"],
+    ["https://m.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"],
+    ["https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ"],
+    ["https://www.youtube.com/shorts/dQw4w9WgXcQ", "dQw4w9WgXcQ"],
+    ["https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"],
+    ["  https://youtu.be/dQw4w9WgXcQ  ", "dQw4w9WgXcQ"],
+  ])("reads the id out of %s", (input, expected) => {
+    expect(youTubeId(input)).toBe(expected);
+  });
+
+  it.each([
+    ["a non-YouTube https URL", "https://example.test/watch?v=dQw4w9WgXcQ"],
+    ["a lookalike host", "https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ"],
+    ["javascript:", "javascript:alert(1)"],
+    ["data:", "data:text/html,<script>alert(1)</script>"],
+    ["a channel page", "https://www.youtube.com/@somebody"],
+    ["a watch URL with no id", "https://www.youtube.com/watch"],
+    ["an id of the wrong length", "https://youtu.be/tooshort"],
+    ["a bare id", "dQw4w9WgXcQ"],
+    ["nonsense", "not a url at all"],
+  ])("refuses %s", (_label, input) => {
+    expect(youTubeId(input)).toBeNull();
+  });
+
+  it("treats a blank as absent, and anything unrecognised as an error", () => {
+    const schema = optionalYouTubeUrl();
+
+    expect(schema.safeParse("").data).toBeUndefined();
+    expect(schema.safeParse("   ").data).toBeUndefined();
+    expect(schema.safeParse("https://youtu.be/dQw4w9WgXcQ").success).toBe(true);
+
+    const bad = schema.safeParse("https://example.test/video");
+    expect(bad.success).toBe(false);
+    expect(bad.error?.issues[0]?.message).toMatch(/YouTube/);
   });
 });

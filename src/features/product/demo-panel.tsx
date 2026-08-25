@@ -95,12 +95,6 @@ export async function DemoPanel({ product }: { product: ProductDetail }) {
             slug={product.slug}
           />
         ))}
-
-      {demo.resetSchedule && (
-        <p className="text-subtle text-[12px]">
-          The demo data resets: {demo.resetSchedule}. Anything you change there is temporary.
-        </p>
-      )}
     </section>
   );
 }

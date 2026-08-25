@@ -20,6 +20,7 @@ import {
   payoutEvidenceKey,
   productFileKey,
   productMediaKey,
+  productVideoKey,
   StorageKeyError,
   type StorageScope,
 } from "./keys";
@@ -66,6 +67,10 @@ import { assertBytesMatchDeclared, assertUploadAllowed, STORAGE_POLICY } from ".
  */
 const UPLOAD_TTL_SECONDS: Record<StorageScope, number> = {
   "product-media": 300,
+  // Twenty times the size of a screenshot, so twenty times the window: 300s is
+  // enough for a 10MB image and would fail a 200MB video on a slow connection at
+  // exactly the point the vendor has waited longest.
+  "product-video": 1800,
   "product-file": 3600,
   attachment: 600,
   // A receipt is a small file and a high-trust one. Short window.
@@ -355,6 +360,10 @@ export function productFilePath(
 
 export function productMediaPath(productId: string, filename: string): string {
   return productMediaKey(storageContext(), productId, filename);
+}
+
+export function productVideoPath(productId: string, filename: string): string {
+  return productVideoKey(storageContext(), productId, filename);
 }
 
 /**

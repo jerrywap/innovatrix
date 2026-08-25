@@ -17,7 +17,6 @@ import {
   PRODUCT_CATALOGUES,
   TAXONOMY_CATALOGUES,
   TAXONOMY_KINDS,
-  TESTING_CHECKLIST_STATUSES,
   type AddonPricingType,
   type DemoExposure,
   type FileScanStatus,
@@ -32,7 +31,6 @@ import {
   type ProductCatalogue,
   type TaxonomyCatalogue,
   type TaxonomyKind,
-  type TestingChecklistStatus,
 } from "../enums";
 
 /**
@@ -173,14 +171,6 @@ export interface DemoCredential {
   passwordCipher?: PasswordCipher;
 }
 
-export interface TestingChecklistItem {
-  item: string;
-  status: TestingChecklistStatus;
-  notes?: string;
-  checkedByUserId?: Types.ObjectId;
-  checkedAt?: Date;
-}
-
 /**
  * One entry in a product's review history — vendor ticket 05.
  *
@@ -301,17 +291,6 @@ const demoCredentialSchema = new Schema(
       ciphertext: String,
       keyVersion: { type: Number, default: 1 },
     },
-  },
-  { _id: false },
-);
-
-const testingChecklistItemSchema = new Schema(
-  {
-    item: { type: String, required: true },
-    status: { type: String, enum: TESTING_CHECKLIST_STATUSES, default: "pending" },
-    notes: String,
-    checkedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
-    checkedAt: Date,
   },
   { _id: false },
 );
@@ -470,6 +449,21 @@ export interface ProductDoc {
    * writer is `descriptionFields()`.
    */
   descriptionText?: string;
+  /**
+   * The description was copied from a script listing and nobody has read it yet.
+   *
+   * The template sibling used to leave `description` empty on purpose: copying
+   * prose about a working application is both a duplicate-content risk and a set
+   * of behavioural claims that are false without a backend, and an empty one made
+   * `no_description` force a human to write one.
+   *
+   * Prefilling is a real head start, and losing that gate is not an acceptable
+   * price for it — a front-end listing could then be published advertising a
+   * backend it does not have. So the copy comes with this flag, `no_description`
+   * keeps firing while it is set, and the first Basics save clears it. Prefilled
+   * *and* still blocked, which is the only version of "prefill" that is safe.
+   */
+  descriptionInherited?: boolean;
   status: ProductStatus;
   /**
    * Which storefront this belongs to — `script` or `template`.
@@ -522,7 +516,6 @@ export interface ProductDoc {
     customerUrl?: string;
     adminUrl?: string;
     instructions?: string;
-    resetSchedule?: string;
     credentials: DemoCredential[];
   };
   customization: {
@@ -547,7 +540,6 @@ export interface ProductDoc {
     managedHosting: boolean;
   };
   seo: { title?: string; description?: string; ogImageUrl?: string };
-  testingChecklist: TestingChecklistItem[];
   isFeatured: boolean;
   orderCount: number;
   adaptedCount: number;
@@ -581,6 +573,7 @@ const productSchema = new Schema<ProductDoc>(
     // `richTextDocumentSchema` that could drift from it.
     description: { type: Schema.Types.Mixed, default: undefined },
     descriptionText: String,
+    descriptionInherited: Boolean,
     status: {
       type: String,
       enum: PRODUCT_STATUSES,
@@ -609,12 +602,12 @@ const productSchema = new Schema<ProductDoc>(
     currentVersionId: { type: Schema.Types.ObjectId, ref: "ProductVersion" },
 
     demo: {
-      exposure: { type: String, enum: DEMO_EXPOSURES, default: "authenticated" },
+      // "Anyone". A demo exists to be tried — see the Zod default's note.
+      exposure: { type: String, enum: DEMO_EXPOSURES, default: "public" },
       publicUrl: String,
       customerUrl: String,
       adminUrl: String,
       instructions: String,
-      resetSchedule: String,
       credentials: { type: [demoCredentialSchema], default: [] },
     },
 
@@ -636,7 +629,6 @@ const productSchema = new Schema<ProductDoc>(
     },
 
     seo: { title: String, description: String, ogImageUrl: String },
-    testingChecklist: { type: [testingChecklistItemSchema], default: [] },
 
     // Vendor ticket 05 — appended, never replaced.
     reviewNotes: { type: [productReviewNoteSchema], default: [] },

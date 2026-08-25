@@ -13,10 +13,8 @@ import {
   productBasicsSchema,
   productClassificationSchema,
   productDemoSchema,
-  productTestingSchema,
   templateSiblingSchema,
 } from "@/validators/product-sections";
-import { richTextDocumentSchema, type RichTextDocument } from "@/lib/rich-text/schema";
 import { vendorActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
@@ -26,7 +24,6 @@ import {
   unlinkTemplateSibling,
 } from "@/services/catalog/template-sibling";
 import * as reviewService from "@/services/catalog/review-service";
-import * as testingService from "@/services/catalog/testing-service";
 import { requireOwnedProduct } from "@/services/catalog/ownership";
 import {
   BASICS_SECTION,
@@ -297,49 +294,6 @@ export async function saveVendorDemoAction(
   return result;
 }
 
-/**
- * The §47 testing checklist.
- *
- * A vendor fills this in for their own product, and it is the same checklist and
- * the same gate: `computeReadiness()` refuses submission while it is incomplete
- * (vendor ticket 05), exactly as it refuses publication for a first-party one.
- *
- * `checkedByUserId` is only stamped for a `staff` actor, so a vendor's ticks record
- * the time and not a staff attribution — the audit row carries who it really was.
- */
-export async function saveVendorTestingAction(
-  _previous: ActionResult<unknown> | null,
-  formData: FormData,
-): Promise<ActionResult<{ saved: true }>> {
-  let target: Route | undefined;
-
-  const result = await withAction<{ saved: true }>(async () => {
-    const context = await requireVendorOrForbid();
-    if (context.vendor.status !== "verified") {
-      throw new ForbiddenError("Your vendor account is not active.");
-    }
-
-    const raw = parseNestedFormData(formData);
-    const { productId } = parseInput(productIdSchema, raw);
-    const { testingChecklist } = parseInput(productTestingSchema, raw);
-
-    await testingService.saveChecklist(
-      productId,
-      testingChecklist,
-      vendorActor(context.user, context.vendorId),
-      { vendorId: context.vendorId },
-    );
-
-    refresh(productId);
-    target = continueTo(raw);
-
-    return ok({ saved: true as const });
-  });
-
-  if (result.ok && target) redirect(target);
-  return result;
-}
-
 /* ────────────────────────────────────────────── submission */
 
 /**
@@ -435,10 +389,10 @@ export async function createVendorProductAction(
     }
 
     const raw = parseNestedFormData(formData);
-    const input = parseInput(productBasicsSchema, {
-      ...raw,
-      description: parseDescription(raw.description),
-    });
+    // No pre-decode: `productBasicsSchema.description` is `richTextFromForm`,
+    // which does it — and, unlike the helper this replaces, refuses unreadable
+    // input instead of turning it into an empty description.
+    const input = parseInput(productBasicsSchema, raw);
 
     const product = await productService.createDraft(
       {
@@ -479,10 +433,8 @@ export async function createVendorProductAction(
 export async function createVendorTemplateSiblingAction(
   _previous: ActionResult<unknown> | null,
   formData: FormData,
-): Promise<ActionResult<never>> {
-  let createdId: string | undefined;
-
-  const result = await withAction<never>(async () => {
+): Promise<ActionResult<{ templateId: string; href: string }>> {
+  const result = await withAction<{ templateId: string; href: string }>(async () => {
     const context = await requireVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
@@ -499,16 +451,25 @@ export async function createVendorTemplateSiblingAction(
       { vendorId: context.vendorId },
     );
 
-    createdId = String(template._id);
     catalogChanged();
     refresh(productId);
 
-    return ok(undefined as never);
+    /*
+     * The new id comes back in the result; the vendor is **not** redirected.
+     *
+     * This used to `redirect(`${BASE}/<new id>/basics`)` — out of the script's
+     * Review step, mid-submission, into a different listing's first step. They came
+     * here to submit the script; creating the template is a side decision and must
+     * not take the page away from them. The panel says the draft exists, that it is
+     * a draft, and where it is.
+     *
+     * The redirect still happens where it *is* the right answer: the post-submit
+     * offer, once the vendor has finished and said yes to starting the other one.
+     */
+    return ok({ templateId: String(template._id), href: `${BASE}/${template._id}/basics` });
   });
 
-  if (!result.ok) return result;
-  // `basics`, not `classification` — see the staff twin for why.
-  redirect(`${BASE}/${createdId}/basics` as Route);
+  return result;
 }
 
 /**
@@ -536,16 +497,6 @@ export async function unlinkVendorTemplateSiblingAction(
     refresh(productId);
     return ok({ unlinked: true as const });
   });
-}
-
-/** The rich-text tree arrives as JSON in a hidden field. */
-function parseDescription(value: unknown): RichTextDocument | undefined {
-  if (typeof value !== "string" || value.trim() === "") return undefined;
-  try {
-    return richTextDocumentSchema.parse(JSON.parse(value));
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -589,6 +540,9 @@ export async function createVendorMediaUploadAction(input: unknown): Promise<
         contentType: z.string().trim().min(1).max(120),
         sizeBytes: z.coerce.number().int().positive(),
         replaceKey: z.string().trim().max(400).optional(),
+        // A video rather than a screenshot. See the staff twin for why this is a
+        // boolean and not a scope name.
+        video: z.coerce.boolean().optional(),
       }),
       input,
     );
@@ -601,10 +555,12 @@ export async function createVendorMediaUploadAction(input: unknown): Promise<
 
     const key = parsed.replaceKey
       ? storage.assertProductMediaKey(parsed.replaceKey, parsed.productId)
-      : storage.productMediaPath(parsed.productId, parsed.filename);
+      : parsed.video
+        ? storage.productVideoPath(parsed.productId, parsed.filename)
+        : storage.productMediaPath(parsed.productId, parsed.filename);
 
     const ticket = await storage.createUploadUrl({
-      scope: "product-media",
+      scope: parsed.video ? "product-video" : "product-media",
       key,
       filename: parsed.filename,
       contentType: parsed.contentType,

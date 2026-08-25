@@ -28,7 +28,7 @@ export default async function Page({
       <StepHeading section="options" />
       <OptionsForm
         product={product}
-        nextHref={stepHref(product.id, "testing", "vendor")}
+        nextHref={stepHref(product.id, "seo", "vendor")}
         action={saveVendorOptionsAction}
       />
     </div>

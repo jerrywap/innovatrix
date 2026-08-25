@@ -57,6 +57,15 @@ export interface MediaUploadProps {
   /** The surface's own presigned-PUT action. Staff by default; the vendor wizard passes its own. */
   uploadAction?: typeof createMediaUploadAction;
   maxBytes?: number;
+  /**
+   * Upload into the `product-video` scope instead of `product-media`.
+   *
+   * The two differ in every way that matters to this control — accepted types, the
+   * ceiling, and the wording of a refusal — so it is a flag rather than two
+   * components: everything below the scope choice is identical, and a second copy
+   * is how one of them stops handling the hang the comment further down describes.
+   */
+  video?: boolean;
 }
 
 export function MediaUpload({
@@ -64,7 +73,8 @@ export function MediaUpload({
   replaceKey,
   onUploaded,
   uploadAction = createMediaUploadAction,
-  maxBytes = 10 * 1024 * 1024,
+  video = false,
+  maxBytes = video ? 200 * 1024 * 1024 : 10 * 1024 * 1024,
 }: MediaUploadProps) {
   const [phase, setPhase] = useState<Phase>({ status: "idle" });
   const inputId = useId();
@@ -74,7 +84,7 @@ export function MediaUpload({
     if (file.size > maxBytes) {
       setPhase({
         status: "failed",
-        message: `That image is ${mb(file.size)}. The limit is ${mb(maxBytes)}.`,
+        message: `That ${video ? "video" : "image"} is ${mb(file.size)}. The limit is ${mb(maxBytes)}.`,
       });
       return;
     }
@@ -97,6 +107,7 @@ export function MediaUpload({
         contentType: file.type || "application/octet-stream",
         sizeBytes: file.size,
         ...(replaceKey ? { replaceKey } : {}),
+        ...(video ? { video: true } : {}),
       });
     } catch {
       setPhase({
@@ -143,7 +154,11 @@ export function MediaUpload({
         ref={fileRef}
         id={inputId}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/avif,image/gif"
+        accept={
+          video
+            ? "video/mp4,video/webm,video/quicktime"
+            : "image/png,image/jpeg,image/webp,image/avif,image/gif"
+        }
         className="sr-only"
         // No `name`: this must never be submitted with the form. The bytes have
         // already gone to S3 and the URL field is what the action reads.

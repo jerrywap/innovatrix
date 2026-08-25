@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DELIVERY_METHODS } from "@/lib/db/enums";
 import { PRODUCT_FILE_KINDS } from "@/lib/db/enums";
 import { isSemver } from "@/lib/semver";
 import { checkboxSchema, objectIdSchema, optionalText } from "./common";
@@ -37,6 +38,16 @@ export const updateEligibilitySchema = z.object({
 });
 
 export const versionFormSchema = z.object({
+  /**
+   * The product's delivery method, when the form offers it.
+   *
+   * A **product** field arriving on a *version* form, which is the one thing worth
+   * explaining: it used to have its own form and its own Save, so a vendor made
+   * three saves in an order nobody could infer. It is one decision stated once now.
+   * Optional because the staff surface does not offer the choice, and absent means
+   * "leave it as it is" rather than "reset it to archive".
+   */
+  method: z.enum(DELIVERY_METHODS).optional(),
   productId: objectIdSchema,
   version: versionStringSchema,
   changelog: optionalText(300),

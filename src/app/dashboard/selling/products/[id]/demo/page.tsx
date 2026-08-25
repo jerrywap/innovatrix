@@ -29,7 +29,7 @@ export default async function Page({
       <StepHeading section="demo" />
       <DemoForm
         product={product}
-        nextHref={stepHref(product.id, "testing", "vendor")}
+        nextHref={stepHref(product.id, "options", "vendor")}
         action={saveVendorDemoAction}
       />
     </div>

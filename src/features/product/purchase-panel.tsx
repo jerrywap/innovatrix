@@ -57,7 +57,6 @@ export function PurchasePanel({
   currency,
   licencePackages,
   addons,
-  basePrices,
   customisable,
   typicalTurnaround,
   demo,
@@ -68,7 +67,6 @@ export function PurchasePanel({
   currency: StorefrontCurrency;
   licencePackages: readonly DetailLicencePackage[];
   addons: readonly DetailAddon[];
-  basePrices: readonly DetailPrice[];
   customisable: boolean;
   typicalTurnaround?: string;
   /**
@@ -88,7 +86,20 @@ export function PurchasePanel({
   const priceIn = (prices: readonly DetailPrice[]) =>
     prices.find((price) => price.currency === currency);
 
-  const licencePrice = selected ? priceIn(selected.prices) : priceIn(basePrices);
+  /*
+   * The licence's price, and nothing else.
+   *
+   * This used to fall back to `basePrices` — the product-level price — when no
+   * package was selected. That fallback is what made a package-less product *look*
+   * purchasable: the Total showed the advertised number, the button stayed enabled,
+   * and `addItem` then threw "That product has no licence to buy yet."
+   *
+   * A product cannot reach here without a package now (`createDraft` seeds one and
+   * the pricing schema refuses an empty list), and `product.prices` is derived from
+   * the packages anyway — so a fallback to it would only ever restate the same
+   * number less reliably.
+   */
+  const licencePrice = selected ? priceIn(selected.prices) : undefined;
 
   const total = useMemo(() => {
     if (!licencePrice) return undefined;
@@ -242,7 +253,7 @@ export function PurchasePanel({
           productId={productId}
           {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
           addonKeys={[...chosenAddons]}
-          disabled={licencePackages.length > 0 && !selected}
+          disabled={!selected}
         />
 
         {customisable && (

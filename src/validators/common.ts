@@ -155,6 +155,70 @@ export const optionalUrl = (error = "Enter a full address, like https://example.
 export const optionalId = () => blankToUndefined(objectIdSchema);
 
 /**
+ * A YouTube watch URL, narrowed to the eleven-character id it contains.
+ *
+ * ## Why a narrowing and not `optionalUrl()`
+ *
+ * The id is what the embed builds its `src` from, so this decides what ends up
+ * inside an `<iframe>`. `z.url()` accepts `https://example.test/anything`, and a
+ * value that survives it but is not YouTube would otherwise become a frame to an
+ * arbitrary origin — the CSP allows one host, so it would simply fail to load,
+ * but "it happens to be blocked downstream" is not a validation rule.
+ *
+ * Three shapes, because all three are what a person actually copies: the watch
+ * URL from the address bar, the `youtu.be` link from the share button, and a
+ * Shorts URL. A bare id is **not** accepted — a vendor who pastes eleven
+ * characters has probably pasted the wrong thing.
+ *
+ * `[\w-]{11}` rather than a stricter alphabet: YouTube ids are base64url and have
+ * been eleven characters since the format existed. Length is the check that
+ * matters; guessing at the character set is how a legitimate id gets refused.
+ */
+const YOUTUBE_ID = /^[\w-]{11}$/;
+
+export function youTubeId(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+
+  const host = url.hostname.replace(/^www\./, "").toLowerCase();
+
+  if (host === "youtu.be") {
+    const id = url.pathname.slice(1);
+    return YOUTUBE_ID.test(id) ? id : null;
+  }
+
+  if (host === "youtube.com" || host === "m.youtube.com" || host === "youtube-nocookie.com") {
+    if (url.pathname === "/watch") {
+      const id = url.searchParams.get("v") ?? "";
+      return YOUTUBE_ID.test(id) ? id : null;
+    }
+
+    // `/shorts/<id>` and `/embed/<id>` — the second because a vendor who has
+    // already copied an embed URL has copied something that works.
+    const match = /^\/(?:shorts|embed)\/([^/?#]+)/.exec(url.pathname);
+    const id = match?.[1] ?? "";
+    return YOUTUBE_ID.test(id) ? id : null;
+  }
+
+  return null;
+}
+
+/** The same, as a schema: a blank is absent, anything else must be a YouTube URL. */
+export const optionalYouTubeUrl = () =>
+  blankToUndefined(
+    z.string().refine((value) => youTubeId(value) !== null, {
+      message:
+        "Paste a YouTube link — the address bar's, or the one the Share button gives you.",
+    }),
+  );
+
+/**
  * A number field that is allowed to be empty, falling back to a stated default.
  *
  * `z.coerce.number()` on `""` is **`0`**, because `Number("")` is `0` — so a

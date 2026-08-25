@@ -127,10 +127,23 @@ function contentSecurityPolicy(): string {
     ]
       .filter(Boolean)
       .join(" "),
-    // Nothing is embedded, and nothing embeds us. `frame-ancestors` is the
-    // header that actually stops clickjacking; `X-Frame-Options` below is for
-    // the browsers that predate it.
-    "frame-src 'none'",
+    /*
+     * One embedded host, and nothing embeds us.
+     *
+     * This was `'none'`, with a comment saying nothing is embedded. That stopped
+     * being true when a vendor could put a YouTube walkthrough on a listing.
+     *
+     * `youtube-nocookie.com` rather than `youtube.com`: same player, and it sets
+     * no tracking cookie until the visitor actually presses play. The narrower
+     * host is also the whole point of naming one — `frame-src https:` would let
+     * any injected URL become a frame, which is most of what this directive is
+     * for.
+     *
+     * `frame-ancestors` is unaffected and is the header that actually stops
+     * clickjacking — it governs who may embed *us*. `X-Frame-Options` below is for
+     * the browsers that predate it.
+     */
+    "frame-src https://www.youtube-nocookie.com",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

@@ -21,7 +21,6 @@ let mongoose: typeof import("mongoose").default;
 let catalog: typeof import("./product-service");
 let versionService: typeof import("./version-service");
 let demoService: typeof import("./demo-service");
-let testingService: typeof import("./testing-service");
 let models: typeof import("@/lib/db/models/catalog");
 
 const ACTOR = { type: "staff", userId: "6a80c46f6c887b38e2f0e001", name: "Test" } as const;
@@ -37,7 +36,6 @@ beforeAll(async () => {
   catalog = await import("./product-service");
   versionService = await import("./version-service");
   demoService = await import("./demo-service");
-  testingService = await import("./testing-service");
   models = await import("@/lib/db/models/catalog");
 
   const { connectToDatabase } = await import("@/lib/db/client");
@@ -384,83 +382,5 @@ describe("demo credentials — §9, §89", () => {
       roles: ["Admin"],
       rotated: 1,
     });
-  });
-});
-
-/* ────────────────────────────────────────────── testing checklist */
-
-describe("testing checklist — §47", () => {
-  it("stamps who checked an item and when, and leaves untouched rows alone", async () => {
-    const productId = await product();
-    const doc = await models.Product.findById(productId);
-
-    const items = testingService.checklistFor(doc!).map((entry) => ({
-      item: entry.item,
-      status: entry.status,
-    }));
-
-    await testingService.saveChecklist(
-      productId,
-      items.map((entry, index) =>
-        index === 0 ? { ...entry, status: "pass" as const } : entry,
-      ),
-      ACTOR,
-    );
-
-    const first = await models.Product.findById(productId).lean();
-    const stampedAt = first?.testingChecklist?.[0]?.checkedAt;
-    expect(stampedAt).toBeInstanceOf(Date);
-    expect(String(first?.testingChecklist?.[0]?.checkedByUserId)).toBe(ACTOR.userId);
-    expect(first?.testingChecklist?.[1]?.checkedAt).toBeUndefined();
-
-    // Re-saving with a change to item 2 must not relabel item 1 as checked
-    // today by whoever opened the page.
-    await testingService.saveChecklist(
-      productId,
-      items.map((entry, index) =>
-        index === 0
-          ? { ...entry, status: "pass" as const }
-          : index === 1
-            ? { ...entry, status: "fail" as const }
-            : entry,
-      ),
-      ACTOR,
-    );
-
-    const second = await models.Product.findById(productId).lean();
-    expect(second?.testingChecklist?.[0]?.checkedAt).toEqual(stampedAt);
-    expect(second?.testingChecklist?.[1]?.status).toBe("fail");
-  });
-
-  it("adds §47 items introduced after the product was created", async () => {
-    const productId = await product();
-    await models.Product.updateOne(
-      { _id: productId },
-      { $set: { testingChecklist: [{ item: "Installation", status: "pass" }] } },
-    );
-
-    const doc = await models.Product.findById(productId);
-    const merged = testingService.checklistFor(doc!);
-
-    // Otherwise a product drafted before an item existed would never be asked
-    // about it, and would pass the gate without it.
-    expect(merged.map((entry) => entry.item)).toContain("Security review");
-    expect(merged.find((entry) => entry.item === "Installation")?.status).toBe("pass");
-  });
-
-  it("writes no audit row when nothing changed", async () => {
-    const productId = await product();
-    const doc = await models.Product.findById(productId);
-    const items = testingService
-      .checklistFor(doc!)
-      .map((entry) => ({ item: entry.item, status: entry.status }));
-
-    await testingService.saveChecklist(productId, items, ACTOR);
-
-    const rows = await mongoose.connection.collection("auditLogs").countDocuments({
-      action: "product.testing_updated",
-      subjectId: new mongoose.Types.ObjectId(productId),
-    });
-    expect(rows).toBe(0);
   });
 });

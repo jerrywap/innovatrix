@@ -32,14 +32,14 @@ export type TransitionMap<S extends string> = Readonly<Record<S, readonly S[]>>;
  * submitter.
  *
  * ```
- * draft ──submit──→ submitted ──approve──→ internal_review → testing → ready → published
+ * draft ──submit──→ submitted ──approve──→ internal_review → ready → published
  *   ↑                    │
  *   └── changes_requested ←── request-changes ──┘
  * ```
  *
  * The two new states sit at the **front**. Everything from `internal_review`
  * onwards is untouched, which is the point: a vendor's product joins the pipeline
- * the platform already uses for its own, so the same testing checklist and the same
+ * the platform already uses for its own, so the same
  * readiness gate apply to both.
  *
  * `draft → internal_review` stays, so a first-party product still skips the
@@ -56,9 +56,9 @@ export type TransitionMap<S extends string> = Readonly<Record<S, readonly S[]>>;
  * The route to sale, in order — for showing somebody where they are on it.
  *
  * `PRODUCT_TRANSITIONS` is a graph and says nothing about direction: `internal_review`
- * lists `testing` beside `changes_requested`, `draft` and `archived`, all four equal. That
+ * lists `ready` beside `changes_requested`, `draft` and `archived`, all four equal. That
  * is right for deciding what is *legal* and useless for answering "so how do I publish
- * this", which is what a reviewer asks after approving a submission — publication is three
+ * this", which is what a reviewer asks after approving a submission — publication is two
  * hops away and the screen offered no hint that it was ahead rather than missing.
  *
  * Display only. Nothing authorises against this list, and the graph stays the authority on
@@ -72,7 +72,6 @@ export const PRODUCT_PUBLICATION_PATH = [
   "draft",
   "submitted",
   "internal_review",
-  "testing",
   "ready",
   "published",
 ] as const satisfies readonly ProductStatus[];
@@ -81,9 +80,8 @@ export const PRODUCT_TRANSITIONS: TransitionMap<ProductStatus> = {
   draft: ["submitted", "internal_review", "archived"],
   submitted: ["internal_review", "changes_requested", "draft", "archived"],
   changes_requested: ["submitted", "draft", "archived"],
-  internal_review: ["testing", "changes_requested", "draft", "archived"],
-  testing: ["ready", "internal_review", "archived"],
-  ready: ["published", "testing", "archived"],
+  internal_review: ["ready", "changes_requested", "draft", "archived"],
+  ready: ["published", "internal_review", "archived"],
   published: ["deprecated", "archived"],
   deprecated: ["published", "archived"],
   archived: [],
@@ -539,22 +537,17 @@ export const PRODUCT_TRANSITION_RULES: Readonly<Record<string, ProductTransition
     vendorMay: false,
     label: "Send to review",
   },
-  [productEdge("internal_review", "testing")]: {
+  [productEdge("internal_review", "ready")]: {
     permission: "product.update",
     vendorMay: false,
-    label: "Send to testing",
+    label: "Mark ready",
   },
   [productEdge("internal_review", "draft")]: {
     permission: "product.update",
     vendorMay: false,
     label: "Back to draft",
   },
-  [productEdge("testing", "ready")]: {
-    permission: "product.update",
-    vendorMay: false,
-    label: "Mark ready",
-  },
-  [productEdge("testing", "internal_review")]: {
+  [productEdge("ready", "internal_review")]: {
     permission: "product.update",
     vendorMay: false,
     label: "Back to review",
@@ -563,11 +556,6 @@ export const PRODUCT_TRANSITION_RULES: Readonly<Record<string, ProductTransition
     permission: "product.publish",
     vendorMay: false,
     label: "Publish",
-  },
-  [productEdge("ready", "testing")]: {
-    permission: "product.update",
-    vendorMay: false,
-    label: "Back to testing",
   },
   [productEdge("published", "deprecated")]: {
     permission: "product.unpublish",
@@ -598,11 +586,6 @@ export const PRODUCT_TRANSITION_RULES: Readonly<Record<string, ProductTransition
     label: "Archive",
   },
   [productEdge("internal_review", "archived")]: {
-    permission: "product.unpublish",
-    vendorMay: false,
-    label: "Archive",
-  },
-  [productEdge("testing", "archived")]: {
     permission: "product.unpublish",
     vendorMay: false,
     label: "Archive",

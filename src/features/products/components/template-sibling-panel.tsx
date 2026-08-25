@@ -129,6 +129,15 @@ function CreateForm({
   const { state, pending, onSubmit } = useManualSubmit(action);
   const [confirmed, setConfirmed] = useState(false);
   const failed = state && !state.ok ? state : null;
+  /*
+   * The created draft, reported here rather than navigated to.
+   *
+   * The action used to `redirect()` into the new listing's Basics step, which took
+   * the vendor out of the Review step they were mid-way through. It now returns the
+   * id and the href, so this panel can say what happened and let them decide when
+   * to go.
+   */
+  const created = state && state.ok ? state.data : null;
 
   return (
     <section className="border-border bg-surface flex flex-col gap-3 rounded-xl border p-4">
@@ -142,7 +151,31 @@ function CreateForm({
         </p>
       </div>
 
-      <form onSubmit={onSubmit} className="flex flex-col gap-3">
+      {created && (
+        <div className="border-border bg-surface-muted/40 flex flex-col gap-1.5 rounded-xl border p-3.5">
+          <p className="text-[13.5px] font-medium">The template listing was created</p>
+          <p className="text-muted-foreground text-[13px] leading-relaxed">
+            It is a <span className="font-medium">draft</span>, so nothing is public yet — and
+            you are still on this product&rsquo;s review step. Finish here first if you want to;
+            the draft will wait.
+          </p>
+          <a
+            href={created.href}
+            className="text-signal-text w-fit text-[13px] underline underline-offset-4"
+          >
+            Open the template listing →
+          </a>
+        </div>
+      )}
+
+      <form
+        onSubmit={onSubmit}
+        // Hidden once it has been used: a second submit would be refused by the
+        // partial unique index on `scriptListingId`, and offering it again invites
+        // a click whose only outcome is an error.
+        hidden={Boolean(created)}
+        className="flex flex-col gap-3"
+      >
         <input type="hidden" name="productId" value={productId} />
 
         <label className="flex items-start gap-2.5">

@@ -54,7 +54,7 @@ export function ReviewDecision({
     return (
       <p className="text-muted-foreground text-[13px]">
         {decided
-          ? "Approved, and in our own pipeline now — testing, then the readiness gate, then publishing from the product’s admin screen."
+          ? "Approved. It goes through the readiness gate next, then publishing from the product’s admin screen."
           : "This is past the submission stage — it moves through the ordinary publishing pipeline from here."}
       </p>
     );
@@ -95,7 +95,7 @@ export function ReviewDecision({
         detailLabel="Anything to pass on"
         detailHint="Optional. The vendor reads this."
         submitLabel="Approve into our pipeline"
-        note="Approving is not publishing — it goes into our own testing and readiness checks, exactly like a first-party product."
+        note="Approving is not publishing — it still has to pass the readiness gate, exactly like a first-party product."
       />
     </div>
   );

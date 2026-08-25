@@ -183,7 +183,6 @@ describe("product (§46)", () => {
     const path = [
       "draft",
       "internal_review",
-      "testing",
       "ready",
       "published",
       "deprecated",
@@ -283,7 +282,7 @@ describe("PRODUCT_TRANSITION_RULES covers PRODUCT_TRANSITIONS exactly", () => {
   });
 
   it("never lets a vendor publish, deprecate or archive", () => {
-    for (const to of ["published", "deprecated", "archived", "ready", "testing"]) {
+    for (const to of ["published", "deprecated", "archived", "ready"]) {
       const reachable = Object.entries(PRODUCT_TRANSITION_RULES)
         .filter(([key, rule]) => key.endsWith(`->${to}`) && rule.vendorMay)
         .map(([key]) => key);

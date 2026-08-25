@@ -1,6 +1,6 @@
 import { formatPlain } from "@/lib/money";
 import type { StorefrontCurrency } from "@/config/storefront";
-import type { ProductDetail } from "@/services/marketplace/detail";
+import { screenshots, type ProductDetail } from "@/services/marketplace/detail";
 
 /**
  * `Product` + `Offer` structured data — §93.
@@ -51,6 +51,7 @@ export function ProductJsonLd({
   }>;
 }) {
   const url = `${origin}/marketplace/${product.slug}`;
+  const images = screenshots(product.media);
   const price = product.prices.find((row) => row.currency === currency) ?? product.prices[0];
   const current = product.versions.find((version) => version.isCurrent);
 
@@ -61,7 +62,16 @@ export function ProductJsonLd({
     description: product.seo.description ?? product.summary,
     url,
     applicationCategory: product.taxonomy.categories[0]?.name ?? "BusinessApplication",
-    ...(product.media.length > 0 ? { image: product.media.map((item) => item.url) } : {}),
+    /*
+     * `screenshots()`, not `product.media`.
+     *
+     * This published the whole media array as `SoftwareApplication.image`, so a
+     * video URL — or a YouTube page — was handed to crawlers as an image. It was
+     * the one reader that never got the `kind` filter when `screenshots()` was
+     * introduced, and it is the reader whose output is hardest to notice being
+     * wrong.
+     */
+    ...(images.length > 0 ? { image: images.map((item) => item.url) } : {}),
     ...(current
       ? {
           softwareVersion: current.version,

@@ -115,6 +115,16 @@ const nextConfig: NextConfig = {
       // Seeded placeholder art (`scripts/seed-bulk.ts`). Deterministic per
       // slug, so the catalogue looks the same on every machine.
       { protocol: "https", hostname: "picsum.photos" },
+      /*
+       * YouTube's thumbnail host. A video's poster frame is fetched from here, and
+       * without the entry `/_next/image` returns 400 in production while working
+       * in development behind the catch-all below — the worst kind of difference.
+       *
+       * Narrow by construction: `i.ytimg.com` serves nothing but thumbnails, and
+       * the id in the path comes from `youTubeId`, which has already refused
+       * anything that is not eleven base64url characters.
+       */
+      { protocol: "https", hostname: "i.ytimg.com" },
       ...(imageHost ? [{ protocol: "https" as const, hostname: imageHost }] : []),
       /**
        * Development-only catch-all. `**` is picomatch, matched against the

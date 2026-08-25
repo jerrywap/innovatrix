@@ -111,11 +111,44 @@ describe("buildTemplateSiblingCopy", () => {
     expect(copy).not.toHaveProperty("productTypeId");
   });
 
+  /**
+   * The description is copied **and** flagged.
+   *
+   * It used to be excluded, so `no_description` would force a human to write one.
+   * Prefilling without the flag would have satisfied that gate with prose
+   * describing a backend the template does not have — the exact failure the
+   * exclusion existed to prevent. The flag is what makes prefilling safe.
+   */
+  it("copies the description, marked as unread", () => {
+    // The shared fixture has none, so this one supplies it — the flag must only
+    // appear when there is actually prose to review.
+    const withOne = {
+      ...script(),
+      description: {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "A full CRM." }] }],
+      },
+    };
+    const copy = buildTemplateSiblingCopy(withOne as never, PRICES);
+
+    expect(copy.description).toBeDefined();
+    expect(copy.descriptionText).toBeTruthy();
+    expect(copy.descriptionInherited).toBe(true);
+  });
+
+  it("does not flag a description that was never there", () => {
+    // Nothing to review, so `no_description` fires for the ordinary reason and the
+    // vendor is not told to read an empty box.
+    const copy = buildTemplateSiblingCopy(script(), PRICES);
+
+    expect(copy.descriptionInherited).toBeUndefined();
+  });
+
   it("copies nothing that would be false or unusable on a front-end listing", () => {
     const copy = buildTemplateSiblingCopy(script(), PRICES);
 
-    // False without a backend, and `features` has no readiness gap to force a read.
-    expect(copy).not.toHaveProperty("description");
+    // `features` has no readiness gap to force a read, so a copied capability list
+    // would reach a customer having never been looked at.
     expect(copy).not.toHaveProperty("features");
     expect(copy).not.toHaveProperty("requirements");
     // Hard constraints: a media key and a credential ciphertext are both bound to

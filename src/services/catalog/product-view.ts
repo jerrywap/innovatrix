@@ -8,7 +8,6 @@ import type {
   ProductCatalogue,
   ProductMediaKind,
   ProductStatus,
-  TestingChecklistStatus,
 } from "@/lib/db/enums";
 import type { RichTextDocument } from "@/lib/rich-text/schema";
 
@@ -70,13 +69,6 @@ export interface AddonView {
   prices: PriceView[];
 }
 
-export interface TestingChecklistView {
-  item: string;
-  status: TestingChecklistStatus;
-  notes?: string;
-  checkedAt?: string;
-}
-
 /**
  * The admin's view of a product.
  *
@@ -119,7 +111,6 @@ export interface AdminProductView {
     customerUrl?: string;
     adminUrl?: string;
     instructions?: string;
-    resetSchedule?: string;
     /** Roles only — enough to render the rows, without the secrets. */
     credentialRoles: Array<{
       role: string;
@@ -142,7 +133,6 @@ export interface AdminProductView {
     managedHosting: boolean;
   };
   seo: { title?: string; description?: string; ogImageUrl?: string };
-  testingChecklist: TestingChecklistView[];
   isFeatured: boolean;
   orderCount: number;
   adaptedCount: number;
@@ -252,7 +242,6 @@ export function toAdminProductView(product: ProductDoc): AdminProductView {
       ...(product.demo.customerUrl ? { customerUrl: product.demo.customerUrl } : {}),
       ...(product.demo.adminUrl ? { adminUrl: product.demo.adminUrl } : {}),
       ...(product.demo.instructions ? { instructions: product.demo.instructions } : {}),
-      ...(product.demo.resetSchedule ? { resetSchedule: product.demo.resetSchedule } : {}),
       // The rows an admin edits, minus every secret. `hasPassword` is what lets
       // the form show "•••• (unchanged)" without ever holding the value.
       credentialRoles: product.demo.credentials.map((credential) => ({
@@ -289,12 +278,6 @@ export function toAdminProductView(product: ProductDoc): AdminProductView {
       ...(product.seo?.description ? { description: product.seo.description } : {}),
       ...(product.seo?.ogImageUrl ? { ogImageUrl: product.seo.ogImageUrl } : {}),
     },
-    testingChecklist: product.testingChecklist.map((item) => ({
-      item: item.item,
-      status: item.status,
-      ...(item.notes ? { notes: item.notes } : {}),
-      ...(item.checkedAt ? { checkedAt: item.checkedAt.toISOString() } : {}),
-    })),
     isFeatured: product.isFeatured,
     orderCount: product.orderCount,
     adaptedCount: product.adaptedCount,

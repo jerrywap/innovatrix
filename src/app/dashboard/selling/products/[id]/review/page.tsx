@@ -74,13 +74,14 @@ export default async function Page({
         </div>
       )}
 
-      <SubmitPanel
-        productId={product.id}
-        status={product.status}
-        isPublishable={readiness.isPublishable}
-        attestationText={ATTESTATION_TEXT}
-      />
-
+      {/*
+        The template panel goes **above** the submit button.
+        
+        Selling the front-end separately is a decision about *what is being
+        submitted*, so it belongs before the control that submits it. Below the
+        button it was a footnote to a page whose primary action had already been
+        taken, and the vendor met it after the moment it was relevant.
+      */}
       <TemplateSiblingPanel
         productId={product.id}
         catalogue={doc.catalogue ?? "script"}
@@ -104,6 +105,29 @@ export default async function Page({
                 name: linkedScript.name,
                 status: linkedScript.status,
                 href: stepHref(String(linkedScript._id), "basics", "vendor"),
+              },
+            }
+          : {})}
+      />
+
+      <SubmitPanel
+        productId={product.id}
+        status={product.status}
+        isPublishable={readiness.isPublishable}
+        attestationText={ATTESTATION_TEXT}
+        /*
+          The post-submit offer, and only when it is a real question: a script,
+          with no sibling yet, and something to price the new one at. The page
+          decides that because it is what holds the documents — the panel would
+          otherwise have to re-derive a rule it has no data for.
+        */
+        {...((doc.catalogue ?? "script") === "script" && !sibling && doc.prices.length > 0
+          ? {
+              templateOffer: {
+                productId: product.id,
+                productName: product.name,
+                prices: doc.prices,
+                createAction: createVendorTemplateSiblingAction,
               },
             }
           : {})}

@@ -351,8 +351,21 @@ function walk(dir: string, match: (file: string) => boolean): string[] {
 /* ────────────────────────────────────────────── tests */
 
 describe("every server action reaches a DAL guard — §88", () => {
+  /*
+   * `code()` first, so a *comment* mentioning the directive is not mistaken for it.
+   *
+   * This filter used to read the raw source, which meant any file whose prose said
+   * the words — `section-config.ts` opens with "Pure data and pure functions, no
+   * `"use server"`" — was walked as an action module. It had never fired, because
+   * that file exported only `const` objects; the day it exported a pure helper, the
+   * test demanded a DAL guard on a function that is not reachable over HTTP.
+   *
+   * Tightening it is not a loosening of the guard: `code()` strips comments and
+   * nothing else, and the count assertion below is what proves the walk still
+   * finds the real ones.
+   */
   const files = walk(FEATURES, IS_SOURCE).filter((file) =>
-    readFileSync(file, "utf8").includes('"use server"'),
+    code(readFileSync(file, "utf8")).includes('"use server"'),
   );
 
   it("finds the action files, so the test is looking at something", () => {

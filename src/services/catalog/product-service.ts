@@ -17,12 +17,7 @@ import { productVersions } from "@/repositories/product-version.repository";
 import { statusChange, writeAuditLog, type AuditActor } from "@/services/audit";
 import { emit } from "@/lib/events";
 import { assertTermsInCatalogue, deriveFacets } from "./facets";
-import {
-  DEFAULT_TESTING_CHECKLIST,
-  computeReadiness,
-  type Readiness,
-  type ReadinessSnapshot,
-} from "./readiness";
+import { computeReadiness, type Readiness, type ReadinessSnapshot } from "./readiness";
 
 /**
  * Products — creation, section saves, and the §46 lifecycle.
@@ -75,6 +70,40 @@ export interface CreateDraftInput {
 }
 
 /**
+ * The package every product starts with.
+ *
+ * A licence package is the *only* thing a customer can buy — `addItem` builds its
+ * cart line from one, and refuses when there is none. Yet a draft used to arrive
+ * with zero, so the wizard's pricing step opened on an empty repeater under the
+ * words "No packages yet", and the vendor had to work out that the price they had
+ * just typed into the product-level box was not the price anything would be sold
+ * at.
+ *
+ * Starting with one turns that inside out: the first thing on the step is the
+ * thing being sold, and there is one price to fill in.
+ *
+ * `lifetime` with a single activation is the overwhelming majority of this
+ * catalogue — a script or a template bought once and installed once — and every
+ * field is editable afterwards, including the name. The defaults for support and
+ * updates match the schema's, so the form and the seed cannot disagree.
+ *
+ * Priced in nothing at all, deliberately: an amount here would be a number the
+ * platform invented and the vendor never chose, and `no_price` already blocks
+ * publish until they choose one.
+ */
+function DEFAULT_LICENCE_PACKAGE() {
+  return {
+    key: "lifetime",
+    name: "Lifetime access",
+    licenceType: "lifetime" as const,
+    activationLimit: 1,
+    supportMonths: 12,
+    updateMonths: 12,
+    prices: [],
+  };
+}
+
+/**
  * Create a `draft` and return its id.
  *
  * The slug is derived from the name and made unique here, but the **unique
@@ -117,12 +146,8 @@ export async function createDraft(
       // owned from the moment it exists, and leaving the `vend:` term until the
       // first classification save would hide it from its own storefront in between.
       facets: await deriveFacets(input.vendor ? { vendorSlug: input.vendor.slug } : {}),
-      // §47 — the checklist exists from the start so "not yet tested" is
-      // visible rather than being indistinguishable from "no checklist".
-      testingChecklist: DEFAULT_TESTING_CHECKLIST.map((item) => ({
-        item,
-        status: "pending" as const,
-      })),
+      // A draft arrives with something to sell — see `DEFAULT_LICENCE_PACKAGE`.
+      licencePackages: [DEFAULT_LICENCE_PACKAGE()],
     } as Partial<ProductDoc>);
   } catch (error) {
     if (isDuplicateKey(error)) {
@@ -430,13 +455,9 @@ function snapshotOf(
     licencePackageCount: product.licencePackages.length,
     screenshotCount: product.media.filter((item) => item.kind === "screenshot").length,
     hasDescription: !isEmptyDocument(product.description),
+    ...(product.descriptionInherited ? { descriptionInherited: true } : {}),
     hasReleasedVersion,
     hasReleasedVersionWithPackage,
-    checklist: product.testingChecklist.map((item) => ({
-      status: item.status,
-      ...(item.notes ? { notes: item.notes } : {}),
-    })),
-    currenciesWithoutLicencePrice: currenciesWithoutLicencePrice(product),
     catalogue: product.catalogue ?? "script",
     /*
      * `categoryIds.length` **is** the catalogue-permitted count, without a second
@@ -452,25 +473,6 @@ function snapshotOf(
      */
     catalogueCategoryCount: product.categoryIds.length,
   };
-}
-
-/**
- * Advertised currencies no licence package can actually be bought in.
- *
- * `product.prices` drives the listing; `licencePackages[].prices` drives the
- * cart line. Any currency in the first with no match in the second is a price a
- * customer can see and cannot pay.
- */
-function currenciesWithoutLicencePrice(product: ProductDoc): string[] {
-  if (product.licencePackages.length === 0) return [];
-
-  const buyable = new Set(
-    product.licencePackages.flatMap((pkg) => pkg.prices.map((price) => price.currency)),
-  );
-
-  return [...new Set(product.prices.map((price) => price.currency))].filter(
-    (currency) => !buyable.has(currency),
-  );
 }
 
 /**
@@ -601,7 +603,6 @@ export async function transition(
   }
 
   if (to === "published") await assertPublishable(product);
-  if (to === "ready") await assertTestingComplete(product);
   // The submission gate, and it is the *same* gate as publication: one pure
   // `computeReadiness()` shared by both, so a vendor sees exactly the gaps a
   // reviewer would and "why can't I submit" needs no support thread.
@@ -696,17 +697,6 @@ async function assertSubmittable(product: ProductDoc): Promise<void> {
   throw new ValidationError(
     `This isn't ready to submit yet: ${gaps.map((gap) => gap.message.toLowerCase()).join("; ")}.`,
     Object.fromEntries(gaps.map((gap) => [gap.code, [gap.message]])),
-  );
-}
-
-async function assertTestingComplete(product: ProductDoc): Promise<void> {
-  const { isTestingComplete } = await readinessFor(product);
-  if (isTestingComplete) return;
-
-  throw new ValidationError(
-    "Every item on the internal testing checklist has to pass — or be marked " +
-      "not applicable with a note — before this is ready.",
-    { testing_incomplete: ["The internal testing checklist is not finished."] },
   );
 }
 

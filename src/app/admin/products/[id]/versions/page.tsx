@@ -73,6 +73,7 @@ export default async function Page({ params }: PageProps<"/admin/products/[id]/v
           actions={STAFF_VERSION_ACTIONS}
           productId={product.id}
           suggested={nextPatch(versions)}
+          hasVersions={versions.length > 0}
         />
       </div>
 

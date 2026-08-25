@@ -197,6 +197,72 @@ function measure(nodes: readonly RichTextNode[], depth = 1): { depth: number; no
 
 /* ────────────────────────────────────────────── helpers */
 
+/**
+ * The same document, as it arrives from a form.
+ *
+ * ## The bug this exists to close
+ *
+ * `RichTextEditor` posts the tree as JSON text in a hidden input, and neither
+ * `parseNestedFormData` nor `formDataToObject` decodes a *value* — they parse
+ * field *names*. So `description` reached `richTextDocumentSchema` as a string
+ * and Zod said `Invalid input: expected object, received string`.
+ *
+ * Four separate actions had each grown their own private `JSON.parse` wrapper to
+ * work around that, and the two shared section-save paths had **none** — which
+ * meant every save from the Basics step failed, on both surfaces, for as long as
+ * the step had existed. A helper that four call sites have to remember to call is
+ * a helper three of them will eventually forget.
+ *
+ * So the decode lives *in the schema*. A field declared as `richTextFromForm`
+ * cannot be validated without it.
+ *
+ * ## Three inputs, three different answers
+ *
+ * | Input | Result | Why |
+ * |---|---|---|
+ * | absent, `""`, whitespace | `undefined` | A description genuinely cleared. `descriptionFields()` turns this into `$unset`, which is correct. |
+ * | JSON matching the schema | the parsed tree | Zod strips unknown keys, so this is a filter and not merely a check. |
+ * | anything else | **a validation error** | Never `undefined`. |
+ *
+ * That last row is the one that matters. Every private wrapper this replaces
+ * mapped unreadable input to `undefined` — and `undefined` is indistinguishable
+ * from "cleared", so a corrupted payload **silently erased a description that was
+ * fine a moment earlier**. `saveDescriptionOnlyAction` had already discovered
+ * that and worked around it locally; now the shape of the schema makes the
+ * mistake unavailable.
+ *
+ * An object passes straight through, so a caller that has already decoded (or a
+ * future JSON API) is not broken by this.
+ */
+export const richTextFromForm = z
+  .unknown()
+  .transform((value, ctx) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "object") return value;
+
+    if (typeof value !== "string") {
+      ctx.addIssue({ code: "custom", message: "That description could not be read." });
+      return z.NEVER;
+    }
+
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+
+    try {
+      return JSON.parse(trimmed) as unknown;
+    } catch {
+      // Deliberately actionable: the one thing a person can do about a corrupted
+      // editor payload is not lose what they typed.
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "The editor sent something we could not read. Copy your text somewhere safe, then reload the page.",
+      });
+      return z.NEVER;
+    }
+  })
+  .pipe(richTextDocumentSchema.optional());
+
 export const EMPTY_DOCUMENT: RichTextDocument = { type: "doc", content: [] };
 
 /**

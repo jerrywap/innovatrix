@@ -131,7 +131,6 @@ async function seedReadyProduct(overrides: Record<string, unknown> = {}) {
       { kind: "screenshot", url: "https://example.test/a.png", sortOrder: 0, isPrimary: true },
     ],
     currentVersionId: VERSION,
-    testingChecklist: [{ item: "Installs cleanly", status: "pass" }],
     reviewNotes: [],
     ...overrides,
   });
@@ -356,7 +355,7 @@ describe("what a vendor cannot do", () => {
     expect(doc!.status).toBe("ready");
   });
 
-  it.each(["internal_review", "testing", "ready", "archived", "deprecated"] as const)(
+  it.each(["internal_review", "ready", "archived", "deprecated"] as const)(
     "cannot move a product to %s",
     async (target) => {
       // Seeded in a state from which the edge exists for *staff*, so the refusal is
@@ -364,13 +363,11 @@ describe("what a vendor cannot do", () => {
       const from =
         target === "internal_review"
           ? "submitted"
-          : target === "testing"
+          : target === "ready"
             ? "internal_review"
-            : target === "ready"
-              ? "testing"
-              : target === "deprecated"
-                ? "published"
-                : "draft";
+            : target === "deprecated"
+              ? "published"
+              : "draft";
 
       await seedReadyProduct({ status: from });
 

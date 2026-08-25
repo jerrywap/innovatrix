@@ -20,7 +20,7 @@ export interface RawCard {
   /** Absent on a row written before the field existed — read as `script`. */
   catalogue?: ProductCatalogue;
   facets?: string[];
-  media?: Array<{ url?: string; storageKey?: string; alt?: string }>;
+  media?: Array<{ kind?: string; url?: string; storageKey?: string; alt?: string }>;
   activePrice?: { amount: number; currency: string; compareAtAmount?: number } | null;
   hasPrice?: boolean;
   customization?: { available?: boolean };
@@ -51,7 +51,18 @@ export function toCard(
     );
   };
 
-  const image = (row.media ?? []).find((item) => item.url);
+  /*
+   * `kind` is checked here as well as in the projection.
+   *
+   * Belt and braces, and cheap: `CARD_PROJECTION` filters to screenshots, and this
+   * mapper also serves `getCardsBySlug`, which reuses the pipeline via `.slice(1)`
+   * and is the sort of call site that grows its own projection one day. A video URL
+   * reaching `next/image` is a broken card image, which nothing in the suite would
+   * notice.
+   */
+  const image = (row.media ?? []).find(
+    (item) => item.url && (item.kind === undefined || item.kind === "screenshot"),
+  );
 
   return {
     id: String(row._id),

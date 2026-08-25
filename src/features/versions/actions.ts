@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { parseNestedFormData } from "@/lib/form-data";
 import { requirePermission } from "@/lib/auth/dal";
-import { richTextDocumentSchema, type RichTextDocument } from "@/lib/rich-text/schema";
+import { richTextFromForm, type RichTextDocument } from "@/lib/rich-text/schema";
 import { objectIdSchema } from "@/validators/common";
 import {
   confirmUploadSchema,
@@ -35,15 +35,25 @@ function refresh(productId: string) {
   revalidatePath("/admin/products");
 }
 
-/** Parse the editor's hidden JSON field. Unreadable input is refused, not dropped. */
-function parseNotes(value: unknown): RichTextDocument | undefined {
-  if (typeof value !== "string" || value.trim() === "") return undefined;
-  try {
-    const result = richTextDocumentSchema.safeParse(JSON.parse(value));
-    return result.success ? result.data : undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * The release notes, from the editor's hidden JSON field.
+ *
+ * One line, because `richTextFromForm` is the decoder — this only decides what a
+ * failure means here. Two private copies of a `JSON.parse` wrapper used to live in
+ * this file and its twin, and both **dropped** unreadable input to `undefined`
+ * while one of them carried a comment claiming it refused. `undefined` is how you
+ * say "no notes", so dropping meant a corrupted payload silently erased notes that
+ * were fine.
+ */
+function readNotes(
+  value: unknown,
+): { ok: true; notes: RichTextDocument | undefined } | { ok: false; message: string } {
+  const parsed = richTextFromForm.safeParse(value);
+  if (parsed.success) return { ok: true, notes: parsed.data };
+  return {
+    ok: false,
+    message: parsed.error.issues[0]?.message ?? "Those release notes could not be read.",
+  };
 }
 
 /* ────────────────────────────────────────────── versions */
@@ -58,11 +68,26 @@ export async function createVersionAction(
     const raw = parseNestedFormData(formData);
     const input = parseInput(versionFormSchema, raw);
 
+    const notes = readNotes(raw.releaseNotes);
+    if (!notes.ok) {
+      return fail(notes.message, {
+        code: "VALIDATION",
+        fieldErrors: { releaseNotes: [notes.message] },
+      });
+    }
+
+    /*
+     * `method` is dropped rather than passed on. The staff form offers no delivery
+     * choice — first-party products are always `archive` — and a field the surface
+     * does not show is one the body should not be trusted for. Deleted from the
+     * object rather than destructured out, because an unused binding is a lint
+     * warning and this is a deliberate discard, not a leftover.
+     */
+    const versionInput = { ...input };
+    delete versionInput.method;
+
     const version = await versionService.createVersion(
-      {
-        ...input,
-        ...(parseNotes(raw.releaseNotes) ? { releaseNotes: parseNotes(raw.releaseNotes) } : {}),
-      },
+      { ...versionInput, ...(notes.notes ? { releaseNotes: notes.notes } : {}) },
       staffActor(staff.user),
     );
 
@@ -93,14 +118,17 @@ export async function updateVersionAction(
       ? parseInput(versionFormSchema.omit({ version: true }), raw)
       : parseInput(releasedVersionEditSchema, raw);
 
+    const notes = readNotes(raw.releaseNotes);
+    if (!notes.ok) {
+      return fail(notes.message, {
+        code: "VALIDATION",
+        fieldErrors: { releaseNotes: [notes.message] },
+      });
+    }
+
     await versionService.updateVersion(
       versionId,
-      {
-        ...input,
-        ...(parseNotes(raw.releaseNotes) !== undefined
-          ? { releaseNotes: parseNotes(raw.releaseNotes) }
-          : {}),
-      },
+      { ...input, ...(notes.notes !== undefined ? { releaseNotes: notes.notes } : {}) },
       staffActor(staff.user),
     );
 

@@ -18,7 +18,7 @@ export default async function Page({ params }: PageProps<"/admin/products/[id]/o
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="options" />
-      <OptionsForm product={product} nextHref={stepHref(product.id, "testing")} />
+      <OptionsForm product={product} nextHref={stepHref(product.id, "seo")} />
     </div>
   );
 }

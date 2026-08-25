@@ -7,7 +7,6 @@ import { loadVersions } from "@/features/versions/view";
 import { nextPatch } from "@/features/versions/suggest";
 import { NewVersionForm } from "@/features/versions/components/new-version-form";
 import { VersionPanel } from "@/features/versions/components/version-panel";
-import { DeliveryMethodPicker } from "@/features/vendors/components/delivery-method-picker";
 import { DeliverySource } from "@/features/vendors/components/delivery-source";
 import type { VersionActionSet } from "@/features/versions/action-set";
 import {
@@ -70,20 +69,24 @@ export default async function Page({
     <div className="flex flex-col gap-6">
       <StepHeading section="versions" />
 
-      <DeliveryMethodPicker productId={product.id} method={method} />
+      <p className="text-muted-foreground text-[13px]">
+        {versions.length === 0
+          ? "A product needs one released version with an application package before it can be submitted."
+          : `${versions.length} version${versions.length === 1 ? "" : "s"}.`}
+      </p>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted-foreground text-[13px]">
-          {versions.length === 0
-            ? "A product needs one released version with an application package before it can be submitted."
-            : `${versions.length} version${versions.length === 1 ? "" : "s"}.`}
-        </p>
-        <NewVersionForm
-          actions={VENDOR_VERSION_ACTIONS}
-          productId={product.id}
-          suggested={nextPatch(versions)}
-        />
-      </div>
+      {/*
+        The delivery method is a fieldset of the form now rather than its own
+        save — see `NewVersionForm`. It is still a product field; what changed is
+        that a vendor states it once, alongside the version it applies to.
+      */}
+      <NewVersionForm
+        actions={VENDOR_VERSION_ACTIONS}
+        productId={product.id}
+        suggested={nextPatch(versions)}
+        method={method}
+        hasVersions={versions.length > 0}
+      />
 
       <div className="flex flex-col gap-3">
         {versions.map((version, index) => (

@@ -1,4 +1,4 @@
-import type { ProductCatalogue, ProductStatus, TestingChecklistStatus } from "@/lib/db/enums";
+import type { ProductCatalogue, ProductStatus } from "@/lib/db/enums";
 
 /**
  * What is stopping this product going live — §46, §47.
@@ -22,10 +22,8 @@ export type ReadinessGapCode =
   | "no_screenshot"
   | "no_released_version"
   | "no_package_file"
-  | "testing_incomplete"
-  | "testing_failed"
   | "no_description"
-  | "unbuyable_currency"
+  | "description_inherited"
   | "no_template_category";
 
 export interface ReadinessGap {
@@ -46,7 +44,6 @@ export type ProductSection =
   | "options"
   | "demo"
   | "versions"
-  | "testing"
   | "seo"
   | "review";
 
@@ -64,18 +61,16 @@ export interface ReadinessSnapshot {
   licencePackageCount: number;
   screenshotCount: number;
   hasDescription: boolean;
+  /**
+   * The description is a copy from the script listing that nobody has read.
+   *
+   * A separate signal from `hasDescription`, because the two need different words:
+   * one says "write something", the other says "read what we wrote for you". Both
+   * block publish.
+   */
+  descriptionInherited?: boolean;
   hasReleasedVersion: boolean;
   hasReleasedVersionWithPackage: boolean;
-  checklist: ReadonlyArray<{ status: TestingChecklistStatus; notes?: string }>;
-  /**
-   * Currencies on `product.prices` that no licence package is priced in.
-   *
-   * The marketplace advertises from `product.prices`; the cart charges from
-   * `licencePackages[].prices`. When those disagree the listing shows a price
-   * in a currency the basket can never build a line in — see
-   * `unbuyable_currency` below.
-   */
-  currenciesWithoutLicencePrice: readonly string[];
   /** Which storefront it will appear in. */
   catalogue: ProductCatalogue;
   /**
@@ -92,8 +87,6 @@ export interface Readiness {
   gaps: ReadinessGap[];
   /** Nothing missing — `publish` will not be refused on completeness grounds. */
   isPublishable: boolean;
-  /** The §47 checklist is done, which is what gates entry to `ready`. */
-  isTestingComplete: boolean;
 }
 
 export function computeReadiness(snapshot: ReadinessSnapshot): Readiness {
@@ -141,32 +134,6 @@ export function computeReadiness(snapshot: ReadinessSnapshot): Readiness {
     });
   }
 
-  /**
-   * The advertised price and the chargeable price must agree on currency.
-   *
-   * Also not in the ticket, and found the same way — by a customer being unable
-   * to buy. `product.prices` is what the marketplace lists and filters on;
-   * `licencePackages[].prices` is what the cart builds a line from. Give a
-   * product a USD price but leave its licence package GBP-only and the listing
-   * advertises $483, the product page shows it, and Add to basket refuses —
-   * with a currency-conflict message, which sends the customer looking for a
-   * conflict that isn't there.
-   *
-   * A gap rather than a validation error on save, so a half-finished product
-   * can still be saved; it blocks publishing, which is the point at which a
-   * customer could hit it.
-   */
-  if (snapshot.currenciesWithoutLicencePrice.length > 0) {
-    const list = [...snapshot.currenciesWithoutLicencePrice].sort().join(", ");
-    gaps.push({
-      code: "unbuyable_currency",
-      message:
-        `Priced in ${list} but no licence package is — the listing would show a price ` +
-        `nobody can check out with`,
-      section: "pricing",
-    });
-  }
-
   if (snapshot.screenshotCount === 0) {
     gaps.push({
       code: "no_screenshot",
@@ -179,6 +146,25 @@ export function computeReadiness(snapshot: ReadinessSnapshot): Readiness {
     gaps.push({
       code: "no_description",
       message: "Write the full description",
+      section: "basics",
+    });
+  } else if (snapshot.descriptionInherited) {
+    /*
+     * There *is* a description, and it was copied from the script listing.
+     *
+     * `createTemplateSibling` used to leave it empty precisely so this gap would
+     * fire; prefilling it would have satisfied the gap with prose that describes a
+     * backend the template does not have. So the flag keeps the gap alive with its
+     * own wording, and the first Basics save clears it.
+     *
+     * `else if`, not a second gap: "write one" and "read this one" are the same
+     * blocker at different stages, and showing both would ask the vendor to do two
+     * things when there is one.
+     */
+    gaps.push({
+      code: "description_inherited",
+      message:
+        "Read the description — it was copied from the script listing and describes a backend this template does not have",
       section: "basics",
     });
   }
@@ -199,61 +185,5 @@ export function computeReadiness(snapshot: ReadinessSnapshot): Readiness {
     });
   }
 
-  const testing = checklistState(snapshot.checklist);
-  if (testing === "failed") {
-    gaps.push({
-      code: "testing_failed",
-      message: "Resolve the failed testing checks",
-      section: "testing",
-    });
-  } else if (testing === "incomplete") {
-    gaps.push({
-      code: "testing_incomplete",
-      message: "Complete the internal testing checklist",
-      section: "testing",
-    });
-  }
-
-  return {
-    gaps,
-    isPublishable: gaps.length === 0,
-    isTestingComplete: testing === "complete",
-  };
+  return { gaps, isPublishable: gaps.length === 0 };
 }
-
-/**
- * §47's rule, which is stricter than it first looks.
- *
- * An empty checklist is **not** complete. A product that has never been tested
- * and one that passed every check would otherwise be indistinguishable, and the
- * whole point of the checklist is that somebody looked.
- *
- * `na` counts as done **only with a note**. Without one it is indistinguishable
- * from clicking through, which is how a checklist becomes theatre.
- */
-function checklistState(
-  checklist: ReadinessSnapshot["checklist"],
-): "complete" | "incomplete" | "failed" {
-  if (checklist.length === 0) return "incomplete";
-  if (checklist.some((item) => item.status === "fail")) return "failed";
-
-  const settled = checklist.every(
-    (item) => item.status === "pass" || (item.status === "na" && Boolean(item.notes?.trim())),
-  );
-
-  return settled ? "complete" : "incomplete";
-}
-
-/** The §47 checklist an administrator starts from. */
-export const DEFAULT_TESTING_CHECKLIST: readonly string[] = [
-  "Installation",
-  "Authentication",
-  "Major workflows",
-  "Demo credentials",
-  "Database setup",
-  "Documentation",
-  "Security review",
-  "Download package integrity",
-  "Environment requirements",
-  "Payment integrations",
-];

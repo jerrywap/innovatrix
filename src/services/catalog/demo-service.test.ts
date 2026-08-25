@@ -55,7 +55,6 @@ describe("publicDemoView — what leaves the server for everyone", () => {
       customerUrl: "https://demo.example.test/app",
       adminUrl: "https://demo.example.test/admin",
       instructions: "Sign in as the administrator.",
-      resetSchedule: "Nightly",
       credentials: [
         {
           role: "Administrator",

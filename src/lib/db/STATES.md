@@ -19,9 +19,8 @@ which for `order.paid` means fulfilling twice.
 | `draft` | `submitted` · `internal_review` · `archived` |  |
 | `submitted` | `internal_review` · `changes_requested` · `draft` · `archived` |  |
 | `changes_requested` | `submitted` · `draft` · `archived` |  |
-| `internal_review` | `testing` · `changes_requested` · `draft` · `archived` |  |
-| `testing` | `ready` · `internal_review` · `archived` |  |
-| `ready` | `published` · `testing` · `archived` |  |
+| `internal_review` | `ready` · `changes_requested` · `draft` · `archived` |  |
+| `ready` | `published` · `internal_review` · `archived` |  |
 | `published` | `deprecated` · `archived` |  |
 | `deprecated` | `published` · `archived` |  |
 | `archived` | — | **terminal** |
@@ -38,15 +37,12 @@ stateDiagram-v2
     changes_requested --> submitted
     changes_requested --> draft
     changes_requested --> archived
-    internal_review --> testing
+    internal_review --> ready
     internal_review --> changes_requested
     internal_review --> draft
     internal_review --> archived
-    testing --> ready
-    testing --> internal_review
-    testing --> archived
     ready --> published
-    ready --> testing
+    ready --> internal_review
     ready --> archived
     published --> deprecated
     published --> archived

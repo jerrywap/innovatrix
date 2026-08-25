@@ -2,9 +2,10 @@
 
 import { useCallback, useRef, useState } from "react";
 import Image from "next/image";
-import { ChevronLeft, ChevronRight, Expand, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Expand, Play, X } from "lucide-react";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { youTubeId } from "@/validators/common";
 
 /**
  * Screenshots, with a lightbox — §8.
@@ -36,6 +37,17 @@ import { cn } from "@/lib/utils";
  * that opened it, the background stops **scrolling**, and Escape works no matter
  * what is focused rather than only while the container itself is.
  *
+ * ## Video, in the same strip
+ *
+ * `PRODUCT_MEDIA_KINDS` has had `"video"` since it was written and nothing in the
+ * UI could produce one, so this component had no `kind` at all and put everything
+ * through `next/image`. It now branches at the leaves — `Thumbnail` and `Viewer` —
+ * and nowhere else: a video is one more item in the strip, with the same counter,
+ * arrows and swipe.
+ *
+ * `screenshots()` is deliberately unchanged. The hero and the OG image must stay
+ * a still — an `<img>` is the only thing either can be.
+ *
  * ## No pixel zoom, deliberately
  *
  * `deviceSizes` caps at 1920 and there is one URL per image, so past roughly 1.5×
@@ -49,7 +61,16 @@ export function Gallery({
   images,
   productName,
 }: {
-  images: ReadonlyArray<{ url: string; alt: string }>;
+  /**
+   * Screenshots and videos, in `sortOrder`.
+   *
+   * `kind` decides how an item renders and nothing else — the counter, the strip,
+   * the arrows and the swipe all treat a video as one more item. A `video` with a
+   * `storageKey` is one of ours and plays in a `<video>`; one without is a YouTube
+   * link and plays in an iframe. That is the same distinction the model's own
+   * comment draws, so nothing new has to be stored.
+   */
+  images: ReadonlyArray<{ kind: "screenshot" | "video"; url: string; alt: string }>;
   productName: string;
 }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
@@ -113,15 +134,9 @@ export function Gallery({
                 onClick={() => setOpenIndex(index)}
                 className="border-border focus-visible:ring-ring relative block aspect-[4/3] w-full overflow-hidden rounded-lg border focus-visible:ring-2 focus-visible:outline-none"
               >
-                <Image
-                  src={image.url}
-                  alt={image.alt}
-                  fill
-                  sizes="120px"
-                  className="object-cover"
-                />
+                <Thumbnail item={image} sizes="120px" />
                 <span className="sr-only">
-                  Open screenshot {index + 1} of {total}
+                  Open {image.kind === "video" ? "video" : "screenshot"} {index + 1} of {total}
                 </span>
               </button>
             </li>
@@ -211,13 +226,7 @@ export function Gallery({
                 if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
               }}
             >
-              <Image
-                src={open.url}
-                alt={open.alt}
-                fill
-                sizes="(min-width: 1280px) 1280px, 100vw"
-                className="object-contain"
-              />
+              <Viewer item={open} />
             </div>
 
             {total > 1 && (
@@ -241,14 +250,10 @@ export function Gallery({
                             : "border-border opacity-60 hover:opacity-100",
                         )}
                       >
-                        <Image
-                          src={image.url}
-                          alt=""
-                          fill
-                          sizes="56px"
-                          className="object-cover"
-                        />
-                        <span className="sr-only">Screenshot {index + 1}</span>
+                        <Thumbnail item={image} sizes="56px" />
+                        <span className="sr-only">
+                          {image.kind === "video" ? "Video" : "Screenshot"} {index + 1}
+                        </span>
                       </button>
                     </li>
                   ))}
@@ -259,6 +264,115 @@ export function Gallery({
         )}
       </Dialog>
     </>
+  );
+}
+
+type GalleryItem = { kind: "screenshot" | "video"; url: string; alt: string };
+
+/**
+ * Is this one of our objects, or a YouTube link?
+ *
+ * Derived from the URL rather than stored, because the model already draws the
+ * distinction that way — `storageKey` for an upload, `url` for an external video —
+ * and the public DTO only carries the URL. `youTubeId` refuses anything that is
+ * not a YouTube address, so a `null` here means "our file".
+ */
+function youTubeIdOf(item: GalleryItem): string | null {
+  return item.kind === "video" ? youTubeId(item.url) : null;
+}
+
+/**
+ * A still for the strip, whatever the item is.
+ *
+ * A YouTube item uses YouTube's own poster frame — `hqdefault`, not
+ * `maxresdefault`, which 404s for anything never uploaded above 720p. An uploaded
+ * video has no poster, so the `<video>` element supplies its own first frame:
+ * `preload="metadata"` fetches enough for that and no more.
+ */
+function Thumbnail({ item, sizes }: { item: GalleryItem; sizes: string }) {
+  const youTube = youTubeIdOf(item);
+
+  if (item.kind === "screenshot") {
+    return <Image src={item.url} alt={item.alt} fill sizes={sizes} className="object-cover" />;
+  }
+
+  return (
+    <>
+      {youTube ? (
+        <Image
+          src={`https://i.ytimg.com/vi/${youTube}/hqdefault.jpg`}
+          alt={item.alt}
+          fill
+          sizes={sizes}
+          className="object-cover"
+        />
+      ) : (
+        <video
+          src={item.url}
+          muted
+          preload="metadata"
+          className="absolute inset-0 size-full object-cover"
+        />
+      )}
+      {/* The play badge is what distinguishes a video from a screenshot at
+          thumbnail size, where a first frame looks exactly like a still. */}
+      <span
+        aria-hidden
+        className="absolute inset-0 flex items-center justify-center bg-black/25"
+      >
+        <Play className="size-4 fill-white text-white" />
+      </span>
+    </>
+  );
+}
+
+/**
+ * The item, full size, inside the lightbox.
+ *
+ * The iframe is only built for an id `youTubeId` has already accepted, so its
+ * `src` cannot be an arbitrary origin — which matters, because `frame-src` allows
+ * exactly one host and a mismatch would be a silently blank panel.
+ *
+ * `youtube-nocookie.com` sets no tracking cookie until the visitor presses play,
+ * and it is the host the CSP names. `controls` on our own `<video>` rather than
+ * autoplay: a demo that starts talking on open is the thing people close.
+ */
+function Viewer({ item }: { item: GalleryItem }) {
+  const youTube = youTubeIdOf(item);
+
+  if (item.kind === "screenshot") {
+    return (
+      <Image
+        src={item.url}
+        alt={item.alt}
+        fill
+        sizes="(min-width: 1280px) 1280px, 100vw"
+        className="object-contain"
+      />
+    );
+  }
+
+  if (youTube) {
+    return (
+      <iframe
+        src={`https://www.youtube-nocookie.com/embed/${youTube}?rel=0`}
+        title={item.alt || "Product video"}
+        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+        allowFullScreen
+        className="absolute inset-0 size-full border-0"
+      />
+    );
+  }
+
+  return (
+    <video
+      src={item.url}
+      controls
+      preload="metadata"
+      className="absolute inset-0 size-full object-contain"
+    >
+      {item.alt}
+    </video>
   );
 }
 

@@ -207,6 +207,19 @@ function SavedNotice() {
  * Field errors are listed rather than only shown inline because a long form
  * scrolls: an inline message on a field three screens down is a form that
  * silently refuses to save.
+ *
+ * ## Each line names its field
+ *
+ * It used to print `messages.join(" ")` and nothing else, which is how a vendor
+ * came to report *"Please check the highlighted fields. Invalid input: expected
+ * object, received string"* with no idea which field, and no highlighted field to
+ * check either. A Zod type error is unreadable on its own and perfectly readable
+ * with a name in front of it.
+ *
+ * `FIELD_LABELS` covers the paths a person would not recognise; anything else is
+ * de-camel-cased, which handles `websiteUrl` and `supportEmail` without an entry.
+ * A dotted or indexed path — `licencePackages.0.prices` — keeps its shape, because
+ * "the first licence package" is a guess and the path is not.
  */
 export function FormErrors({
   error,
@@ -235,12 +248,42 @@ export function FormErrors({
       {entries.length > 0 && (
         <ul className="text-destructive/90 ml-5 list-disc text-[12.5px]">
           {entries.map(([field, messages]) => (
-            <li key={field}>{messages.join(" ")}</li>
+            <li key={field}>
+              <span className="font-medium">{fieldLabel(field)}:</span> {messages.join(" ")}
+            </li>
           ))}
         </ul>
       )}
     </div>
   );
+}
+
+/** Paths whose de-camel-cased form would still not read as English. */
+const FIELD_LABELS: Record<string, string> = {
+  description: "Description",
+  seo: "Search listing",
+  demo: "Demo",
+  prices: "Price",
+  licencePackages: "Licence packages",
+  addons: "Add-ons",
+  media: "Screenshots and video",
+  categoryIds: "Categories",
+  industryIds: "Industries",
+  technologyIds: "Technologies",
+  productTypeId: "Product type",
+  releaseNotes: "Release notes",
+};
+
+function fieldLabel(path: string): string {
+  const [head] = path.split(".");
+  const known = head ? FIELD_LABELS[head] : undefined;
+  if (known) return path.includes(".") ? `${known} (${path})` : known;
+
+  // `websiteUrl` → `Website url`. Crude, and right far more often than a lookup
+  // table somebody has to remember to extend.
+  return path
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^./, (character) => character.toUpperCase());
 }
 
 /**
