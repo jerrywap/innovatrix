@@ -129,6 +129,15 @@ export function registerNotificationHandlers(): void {
     await dispatch("VendorRejected", payload, { vendorId: payload.vendorId });
   });
 
+  /*
+   * One level, decided. Needs the explicit `on` rather than a place in `GENERIC`
+   * because its audience is the vendor's own members, which is a query from
+   * `vendorId` rather than a permission.
+   */
+  on("VendorVerificationDecided", async (payload) => {
+    await dispatch("VendorVerificationDecided", payload, { vendorId: payload.vendorId });
+  });
+
   on("VendorSuspended", async (payload) => {
     await dispatch("VendorSuspended", payload, { vendorId: payload.vendorId });
   });

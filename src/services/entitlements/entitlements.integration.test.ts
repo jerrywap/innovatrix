@@ -152,7 +152,7 @@ async function entitle(
 
 /* ────────────────────────────────────────────── tests */
 
-describe("My Software is scoped to the active organisation — §29", () => {
+describe("My Scripts is scoped to the active organisation — §29", () => {
   it("lists only the caller's own entitlements", async () => {
     const mine = await published("mine");
     const theirs = await published("theirs");

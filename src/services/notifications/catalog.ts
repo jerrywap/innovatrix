@@ -1,6 +1,8 @@
 import "server-only";
 import type { NotificationCategory } from "@/lib/db/enums";
 import type { DomainEventMap, DomainEventName } from "@/lib/events";
+import type { EmailContent } from "@/emails/layout";
+import { BRAND } from "@/config/brand";
 
 /**
  * §69's event → notification table, as data.
@@ -59,9 +61,43 @@ export interface NotificationRule<K extends DomainEventName = DomainEventName> {
   body?: (payload: DomainEventMap[K]) => string;
   /** Deep link to the record itself, per audience — §69. */
   href: (payload: DomainEventMap[K]) => string;
+  /**
+   * A written email for this rule, instead of the generic one.
+   *
+   * Every rule without this gets `notificationEmail` — a heading, the body, and
+   * an "Open in CoSetup" button — which is right for a notification: it is a
+   * nudge towards a screen, and forty bespoke templates for forty nudges is a
+   * maintenance burden with no reader benefit.
+   *
+   * A few messages are not nudges. "Your application is in, here is what happens
+   * next" is the first thing a new vendor hears from us and it has to carry the
+   * next step, not a link to go and find it. Those rules write their own, and
+   * the in-app row still comes from `title`/`body` above — one event, two
+   * renderings, each suited to where it lands.
+   *
+   * The `url` is passed in already absolute so a template never has to know how
+   * to build one.
+   */
+  email?: (payload: DomainEventMap[K], context: { url: string }) => WrittenEmail;
 }
 
+/** An `EmailContent` with the subject line the generic renderer would derive. */
+export type WrittenEmail = EmailContent & { subject: string };
+
 type Catalog = { [K in DomainEventName]?: NotificationRule<K>[] };
+
+/** The vendor's word for a level, not the enum's. */
+function levelName(level: "identity" | "business"): string {
+  return level === "identity" ? "Identity" : "Payout details";
+}
+
+/** What an approval actually buys, since "approved" on its own says nothing. */
+function unlocked(level: "identity" | "business", outcome: string): string {
+  if (outcome !== "approved") return "";
+  return level === "identity"
+    ? "You can list a product now — that is what this check unlocks."
+    : "We can pay you now. Anything already in your balance goes out on the next payout run.";
+}
 
 /**
  * One entry per row of §69's table.
@@ -284,13 +320,26 @@ export const CATALOG: Catalog = {
       audience: { kind: "entitled_owners" },
       category: "products",
       title: (p) => `${p.productName} ${p.version} is available`,
-      body: () => "You can download it from My Software.",
+      body: () => "You can download it from My Scripts.",
       href: () => `/dashboard/software`,
     },
   ],
 
   /* ── vendor tickets 01–03 ── */
 
+  /*
+   * Two audiences, and the vendor's own row is the one that was missing.
+   *
+   * An applicant used to get nothing at all — the only rule here notified staff,
+   * so the person who had just filled in a form and accepted an agreement got
+   * silence and a dashboard they had to remember to revisit. `dispatch` fans out
+   * to every rule for an event, so adding the row is the whole change: the
+   * in-app notification and the email both follow.
+   *
+   * The body is a next step, not a receipt. Identity verification is what
+   * unlocks listing, it can be done while the application is read, and this
+   * email is the moment the applicant is most likely to act on it.
+   */
   VendorApplied: [
     {
       audience: { kind: "staff", permission: "vendor.review" },
@@ -298,6 +347,133 @@ export const CATALOG: Catalog = {
       title: (p) => `${p.displayName} applied to sell`,
       body: (p) => `From ${p.country}. Somebody needs to read it.`,
       href: () => `/staff/vendor-applications`,
+      /*
+       * Staff already received this — the generic renderer has covered it since
+       * ticket 25, and `enabledChannels` defaults email on for anybody who has
+       * never touched their preferences. What it did not do is put the applicant
+       * in the subject line, so a reviewer scanning an inbox saw "Products: …"
+       * and had to open it to learn who applied.
+       *
+       * Named here instead. The queue link is the action; there is deliberately
+       * nothing about the application itself beyond the name and the country,
+       * because everything else is behind the permission and an email is not.
+       */
+      email: (p, { url }) => ({
+        subject: `New vendor application — ${p.displayName}`,
+        preheader: `A vendor in ${p.country} is waiting for a review.`,
+        heading: `${p.displayName} applied to sell`,
+        body: [
+          `An application from ${p.country} is in the queue and has not been picked up yet.`,
+          "Their identity documents may arrive separately — verification runs alongside the application, so the two do not land together.",
+        ],
+        action: { label: "Open the queue", url, showUrl: false },
+      }),
+    },
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: (p) => `${p.displayName} — your application is in`,
+      body: () => "Next: verify your identity, which is what lets you list a product.",
+      href: () => `/dashboard/selling/verification`,
+      /*
+       * The one email a vendor gets before they are a vendor.
+       *
+       * It is written out rather than left to the generic renderer because the
+       * generic one is a nudge — a title, a sentence, a button — and this has to
+       * do three things a nudge cannot: thank somebody for a decision they made,
+       * set an expectation about what happens on our side, and hand them the
+       * next action with enough detail to go and do it.
+       *
+       * `notes` carries the two documents by name. Somebody reading this on a
+       * phone in the evening can go and find their passport without opening the
+       * app first, which is the entire point of sending it.
+       */
+      email: (p, { url }) => ({
+        subject: `Thanks for applying to sell on ${BRAND.name}`,
+        preheader: `Your next step: verify your identity, and you can list as soon as you are approved.`,
+        heading: "Thanks for showing interest",
+        body: [
+          `We have your application for ${p.displayName}, and somebody reads every one of them properly — you will hear from us either way.`,
+          "You do not have to wait for that. Verifying your identity is a separate check, it runs alongside the application, and it is the step that unlocks listing a product. Getting it in now means there is nothing left to do on the day you are approved.",
+        ],
+        // No raw-URL well: the link carries no token, so a mangled button costs a
+        // sign-in rather than the message. Same rule as every other
+        // notification email — see `EmailAction.showUrl`.
+        action: { label: "Verify my identity", url, showUrl: false },
+        notes: [
+          "You will need a passport, driving licence or national ID card, and something showing your address from the last three months — a bank statement, a utility bill or a council tax letter.",
+          "Being paid needs one more check after that, and you can sell before it finishes: earnings wait in your balance until it clears.",
+        ],
+      }),
+    },
+  ],
+
+  /*
+   * A level decided — vendor ticket 02, revisited.
+   *
+   * The vendor was told nothing at all when a reviewer approved or rejected one:
+   * `decideVerification` wrote the audit row and emitted no event, so the only
+   * way to find out was to go and look. For a rejection that is worse than
+   * silence, because the reviewer's note — which the service *refuses a rejection
+   * without* — was written for the vendor and then never delivered to them.
+   *
+   * One rule for both outcomes rather than two. The audiences, the category and
+   * the link are identical, and splitting them would put the two halves of one
+   * decision in two places where they could drift apart.
+   */
+  VendorVerificationDecided: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "products",
+      title: (p) =>
+        p.outcome === "approved"
+          ? `${levelName(p.level)} approved`
+          : `${levelName(p.level)} needs another look`,
+      body: (p) => p.note ?? unlocked(p.level, p.outcome),
+      href: () => `/dashboard/selling/verification`,
+      /*
+       * Written out because a rejection has to carry the reviewer's note in full,
+       * and the generic renderer truncates a notification body into one
+       * paragraph under a heading. A vendor reading "we need a clearer photo of
+       * the second page" has everything they need to fix it without signing in.
+       */
+      email: (p, { url }) => ({
+        subject:
+          p.outcome === "approved"
+            ? `${levelName(p.level)} approved — ${p.displayName}`
+            : `${levelName(p.level)}: we need something else — ${p.displayName}`,
+        preheader:
+          p.outcome === "approved"
+            ? unlocked(p.level, "approved")
+            : "Here is what to send, and where to send it.",
+        heading:
+          p.outcome === "approved"
+            ? `${levelName(p.level)} approved`
+            : `${levelName(p.level)} needs another look`,
+        body:
+          p.outcome === "approved"
+            ? [
+                `Somebody has checked the documents you sent for ${p.displayName}, and they are fine.`,
+                unlocked(p.level, "approved"),
+                ...(p.note ? [p.note] : []),
+              ]
+            : [
+                `Somebody has checked the documents you sent for ${p.displayName} and needs something more before this can be approved. Here is what they said:`,
+                // The reviewer's own words, unedited. Paraphrasing them here
+                // would produce two versions of one decision.
+                p.note ?? "No reason was recorded — please get in touch and we will explain.",
+                "Nothing else about your account changes, and you can send a replacement straight away.",
+              ],
+        action: {
+          label: p.outcome === "approved" ? "See your verification" : "Send what is needed",
+          url,
+          showUrl: false,
+        },
+        notes:
+          p.outcome === "approved"
+            ? []
+            : ["Replacing a document does not start the whole application again."],
+      }),
     },
   ],
 

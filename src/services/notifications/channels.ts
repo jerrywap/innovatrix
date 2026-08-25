@@ -1,6 +1,7 @@
 import "server-only";
 import type { NotificationChannel as ChannelKey } from "@/lib/db/enums";
 import type { Recipient } from "./recipients";
+import type { WrittenEmail } from "./catalog";
 
 /**
  * The channel interface — §69.
@@ -30,6 +31,15 @@ export interface DeliveryPayload {
   url: string;
   /** For the email subject line prefix and the preview text. */
   category: string;
+  /**
+   * A written email, when the catalog rule supplied one.
+   *
+   * Built by the dispatcher rather than passed as a function, for the same
+   * reason the generic message is composed at dispatch time and not at send
+   * time: a retry three hours later must send what the recipient was told they
+   * would get, not whatever the template says by then.
+   */
+  email?: WrittenEmail;
 }
 
 export interface NotificationChannelDriver {

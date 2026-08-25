@@ -94,17 +94,32 @@ export default async function Page() {
           </p>
         </div>
 
+        {/*
+          The next step, not a consolation panel.
+
+          Applying and verifying are separate internally — different decisions, made by
+          different people, at different times — and presenting them as two separate errands
+          left the applicant with a screen whose only message was "wait". They are one flow
+          from where the vendor is standing, so this is a primary action and it says what it
+          unlocks rather than what it is called.
+        */}
         {(vendor.status === "applied" || vendor.status === "in_review") && (
-          <div className="border-border rounded-xl border p-5">
-            <h2 className="font-display text-[15.5px] tracking-[-0.02em]">
-              Get ahead while you wait
-            </h2>
-            <p className="text-muted-foreground mt-1 text-[13px]">
-              Identity verification is what lets you list a product. You can upload your
-              documents now rather than after a decision.
+          <div className="border-border bg-surface-muted/30 flex flex-col gap-3 rounded-xl border p-5">
+            <div className="flex flex-col gap-1">
+              <span className="text-subtle font-mono text-[9.5px] tracking-[0.16em] uppercase">
+                Next step
+              </span>
+              <h2 className="font-display text-[15.5px] tracking-[-0.02em]">
+                Verify your identity
+              </h2>
+            </div>
+            <p className="text-muted-foreground text-[13px] leading-relaxed">
+              A government ID and proof of your address. It usually takes a few minutes to send
+              and it is what unlocks listing a product — so getting it in now means nothing is
+              left to do when your application is approved.
             </p>
-            <Button asChild variant="outline" className="mt-3.5">
-              <Link href="/dashboard/selling/verification">Start verification</Link>
+            <Button asChild className="mt-1 w-fit">
+              <Link href="/dashboard/selling/verification">Start identity verification</Link>
             </Button>
           </div>
         )}
@@ -122,7 +137,7 @@ export default async function Page() {
 
       {/*
         Vendor ticket 12, §102: **what needs doing, before any figure.**
-        
+
         A vendor who came to check on things reads the numbers; a vendor who came because
         something is waiting on them does not know it yet, and that is the far more common
         case. Suspended above everything else — a vendor whose products are unlisted needs to
@@ -194,9 +209,9 @@ export default async function Page() {
 function statusExplanation(status: string): string {
   switch (status) {
     case "applied":
-      return "We have your application and nobody has picked it up yet. There is nothing for you to do — we will email the address on your application either way.";
+      return "Vendor application started.";
     case "in_review":
-      return "Somebody is reading your application now. If we need anything else we will ask by email.";
+      return "Somebody is reading your application now. Carry on with verification while they do — the two run side by side, and if we need anything else we'll ask by email.";
     case "rejected":
       return "We are not able to take this application forward.";
     case "suspended":

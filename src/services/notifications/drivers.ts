@@ -1,5 +1,7 @@
 import "server-only";
 import { notificationEmail } from "@/emails/notification";
+import { composeEmail, type EmailContent } from "@/emails/layout";
+import type { WrittenEmail } from "./catalog";
 import { registerChannel, type NotificationChannelDriver } from "./channels";
 
 /**
@@ -42,14 +44,16 @@ const inApp: NotificationChannelDriver = {
 const email: NotificationChannelDriver = {
   key: "email",
   async deliver(payload) {
-    const message = notificationEmail({
-      to: payload.recipient.email,
-      ...(payload.recipient.name ? { name: payload.recipient.name } : {}),
-      title: payload.title,
-      ...(payload.body ? { body: payload.body } : {}),
-      url: payload.url,
-      category: payload.category,
-    });
+    const message = payload.email
+      ? writtenMessage(payload.recipient.email, payload.email)
+      : notificationEmail({
+          to: payload.recipient.email,
+          ...(payload.recipient.name ? { name: payload.recipient.name } : {}),
+          title: payload.title,
+          ...(payload.body ? { body: payload.body } : {}),
+          url: payload.url,
+          category: payload.category,
+        });
 
     try {
       const { enqueue } = await import("@/services/jobs/queue");
@@ -77,4 +81,10 @@ export function registerNotificationChannels(): void {
   registerChannel(inApp);
   registerChannel(email);
   registered = true;
+}
+
+/** A rule's own template, through the same shell every other email uses. */
+function writtenMessage(to: string, written: WrittenEmail) {
+  const { subject, ...content } = written;
+  return { to, subject, ...composeEmail(content as EmailContent) };
 }

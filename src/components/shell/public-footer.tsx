@@ -46,7 +46,7 @@ const COLUMNS: ReadonlyArray<{
      */
     heading: "Sell with us",
     links: [
-      { label: "Sell your software", href: "/sell" },
+      { label: "Sell Apps & Templates", href: "/sell" },
       { label: "Vendor agreement", href: "/terms/vendor" },
     ],
   },

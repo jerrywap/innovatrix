@@ -68,7 +68,7 @@ export interface NavItem {
   /**
    * Drawn only for somebody who is **not** a vendor.
    *
-   * Exactly one item uses this: the way in. "Sell your software" has to be visible to a customer
+   * Exactly one item uses this: the way in. "Sell Apps & Templates" has to be visible to a customer
    * who might want to — that entry point was missing entirely — and has to disappear the moment
    * they are one, because by then it points at a page they have already read.
    */
@@ -96,15 +96,24 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
   {
     items: [
       { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
-      { label: "Marketplace", href: "/marketplace", icon: "store" },
-      { label: "Templates", href: "/templates", icon: "tags" },
+      // Same wording as `PUBLIC_NAV`, and for the same reason: the label names
+      // what you get, not what we call the shelf it sits on.
+      { label: "Software & Scripts", href: "/marketplace", icon: "store" },
+      { label: "Website Templates", href: "/templates", icon: "tags" },
+      {
+        label: "Custom Requests",
+        href: "/dashboard/requests",
+        icon: "clipboard",
+        matchNested: true,
+      },
+      { label: "Quotes", href: "/dashboard/quotes", icon: "file", matchNested: true },
     ],
   },
   {
     title: "Your software",
     items: [
       {
-        label: "My software",
+        label: "My Scripts",
         href: "/dashboard/software",
         icon: "package",
         matchNested: true,
@@ -127,18 +136,6 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
     ],
   },
   {
-    title: "Custom work",
-    items: [
-      {
-        label: "Requests",
-        href: "/dashboard/requests",
-        icon: "clipboard",
-        matchNested: true,
-      },
-      { label: "Quotes", href: "/dashboard/quotes", icon: "file", matchNested: true },
-    ],
-  },
-  {
     /*
      * The vendor workspace, in the shell — vendor tickets 01 through 13.
      *
@@ -157,7 +154,7 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
      *
      * ## The one item a non-vendor sees
      *
-     * "Sell your software" — the entry point that was missing. `/sell` existed, explained the
+     * "Sell Apps & Templates" — the entry point that was missing. `/sell` existed, explained the
      * whole thing well, and was linked from nowhere at all; the only screen offering "Apply to
      * sell" was `/dashboard/selling`, whose nav item required already being a vendor. A closed
      * loop: the door worked and nothing led to it.
@@ -171,8 +168,17 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
     title: "Vendor",
     items: [
       {
-        label: "Sell your software",
-        href: "/sell",
+        /*
+         * Straight to the form, not to `/sell`.
+         *
+         * `/sell` is the marketing page and it still exists — the footer links it, and
+         * `/terms/vendor` offers it as "How selling works". But this item is inside
+         * `/dashboard`, so its reader is already signed in and has already decided; sending
+         * them to a page that argues the case is a step they have taken. The apply page
+         * carries its own explanation of what happens next.
+         */
+        label: "Sell Apps & Templates",
+        href: "/dashboard/selling/apply",
         icon: "store",
         hiddenForVendor: true,
       },

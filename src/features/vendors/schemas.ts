@@ -3,6 +3,7 @@ import {
   VENDOR_DOCUMENT_KINDS,
   VENDOR_ROLES,
   VENDOR_VERIFICATION_LEVELS,
+  VENDOR_ACCOUNT_TYPES,
 } from "@/lib/db/enums";
 import { CURRENCY_CODES } from "@/lib/money";
 import { emailSchema, objectIdSchema, optionalText } from "@/validators/common";
@@ -55,6 +56,25 @@ export const vendorProfileSchema = z.object({
 });
 
 /* ────────────────────────────────────────────── team */
+
+export const accountTypeSchema = z.object({
+  accountType: z.enum(VENDOR_ACCOUNT_TYPES, { error: "Pick one." }),
+});
+
+export const verificationWaiverSchema = z.object({
+  // `${level}.${kind}` — the two halves are validated against their own enums
+  // rather than the composite matching a regex, so a typo cannot make it through
+  // as a waiver nobody will ever satisfy.
+  level: z.enum(VENDOR_VERIFICATION_LEVELS),
+  kind: z.enum(VENDOR_DOCUMENT_KINDS),
+  waived: z.union([z.literal("on"), z.literal("off")]).transform((v) => v === "on"),
+});
+
+export const documentRemoveSchema = z.object({ documentId: objectIdSchema });
+
+export const verificationSubmitSchema = z.object({
+  level: z.enum(VENDOR_VERIFICATION_LEVELS),
+});
 
 export const inviteMemberSchema = z.object({
   email: emailSchema,

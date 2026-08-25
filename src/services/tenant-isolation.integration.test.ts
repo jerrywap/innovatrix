@@ -284,7 +284,7 @@ describe("Org B is refused Org A's records — §88", () => {
     ).toBeNull();
   });
 
-  it("entitlements and My Software", async () => {
+  it("entitlements and My Scripts", async () => {
     expect(await entitlementService.getOwnedSoftware(ENTITLEMENT, ORG_B)).toBeNull();
     expect(await entitlementService.listOwnedSoftware(ORG_B)).toHaveLength(0);
   });

@@ -84,10 +84,7 @@ export function ClassificationForm({
 
   return (
     <SectionForm action={action} productId={product.id} nextHref={nextHref}>
-      <Field
-        label="Catalogue"
-        hint="Templates are browsed at /templates and never appear in script search. Changing this changes which categories are available."
-      >
+      <Field label="Catalogue" hint="Categories list also varies based on this catalogue">
         {/*
           `NativeSelect`, not the Radix one — see its docblock. This control was
           the clearest demonstration of the problem: Radix answers React's
@@ -105,29 +102,6 @@ export function ClassificationForm({
           <option value="template">Website template</option>
         </NativeSelect>
       </Field>
-
-      {/*
-        A signpost, not the control.
-
-        Creating the second listing lives on the **review** step, because by then
-        there is a price, media and licence packages to copy — at step two of eleven
-        there would be nothing, and the sibling would arrive empty. But this is
-        where somebody choosing between "script" and "template" thinks of it, so the
-        pointer belongs here.
-
-        Worded as *where*, not *whether*: it is accurate whether or not this product
-        already has a template listing, which this form has no way to know without a
-        query it does not otherwise need.
-      */}
-      {catalogue === "script" && (
-        <p className="text-subtle -mt-1 text-[12.5px]">
-          Selling the front-end on its own too?{" "}
-          <Link href={reviewHref} className="underline underline-offset-2">
-            That&rsquo;s on the Review step
-          </Link>
-          .
-        </p>
-      )}
 
       <FieldGroup
         title="Categories"

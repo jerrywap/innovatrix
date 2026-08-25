@@ -4,7 +4,7 @@ import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase, supportsTransactions } from "@/lib/db/client";
 import { withTransaction } from "@/lib/db/transaction";
 import { Vendor, VendorMember, type VendorDoc } from "@/lib/db/models/vendors";
-import type { VendorStatus, VendorVerificationLevel } from "@/lib/db/enums";
+import type { VendorAccountType, VendorStatus, VendorVerificationLevel } from "@/lib/db/enums";
 import { VENDOR_TRANSITIONS, assertTransition } from "@/lib/db/states";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify } from "@/lib/slug";
@@ -270,6 +270,161 @@ export async function transition(
  * read, and a decision nobody can tie to a document is not a decision anybody
  * can defend.
  */
+/**
+ * Record whether this vendor is a person or a company.
+ *
+ * Set by the **vendor**, not by staff, and only while the business level is
+ * undecided. It changes what the second level asks for, so allowing it to move
+ * after approval would mean a company that was approved as a sole trader — the
+ * documents on file would no longer match the claim they were read against.
+ *
+ * Not part of the application form on purpose. The form is the pitch and the
+ * agreement; this is the first question of verification, and asking it there
+ * keeps the two steps one flow without making the first one longer.
+ */
+export async function setAccountType(
+  vendorId: string,
+  accountType: VendorAccountType,
+  actor: AuditActor,
+): Promise<void> {
+  await connectToDatabase();
+
+  const vendor = await Vendor.findOne({ _id: toObjectId(vendorId), deletedAt: null }).lean<
+    Pick<VendorDoc, "accountType" | "verification">
+  >();
+  if (!vendor) throw new NotFoundError("vendor", { id: vendorId });
+
+  if (vendor.verification.business.status === "approved") {
+    throw new ConflictError(
+      "Your payout details are already approved, so the account type is fixed. Ask support if it needs to change.",
+    );
+  }
+
+  if (vendor.accountType === accountType) return;
+
+  await Vendor.updateOne(
+    { _id: toObjectId(vendorId) },
+    { $set: { accountType, updatedAt: new Date() } },
+  );
+
+  await writeAuditLog({
+    action: "vendor.account_type_set",
+    actor,
+    subject: { type: "vendor", id: vendorId },
+    ...(vendor.accountType ? { before: { accountType: vendor.accountType } } : {}),
+    after: { accountType },
+    source: "vendor",
+  });
+}
+
+/**
+ * Declare a requirement not applicable, or take that back.
+ *
+ * Only while the vendor owns the level — `unstarted` or `rejected`. Never once it
+ * has been submitted, because a waiver added after a reviewer opened the case
+ * changes what they are looking at mid-read; and never after approval, because
+ * the set is then part of a decision.
+ */
+export async function setVerificationWaiver(
+  vendorId: string,
+  key: string,
+  waived: boolean,
+  actor: AuditActor,
+): Promise<void> {
+  await connectToDatabase();
+
+  const level = key.split(".")[0] as VendorVerificationLevel;
+  const vendor = await Vendor.findOne({ _id: toObjectId(vendorId), deletedAt: null }).lean<
+    Pick<VendorDoc, "verification" | "verificationWaivers">
+  >();
+  if (!vendor) throw new NotFoundError("vendor", { id: vendorId });
+
+  const status = vendor.verification[level]?.status;
+  if (status !== "unstarted" && status !== "rejected") {
+    throw new ConflictError(
+      "This section is with a reviewer, so it cannot be changed right now.",
+    );
+  }
+
+  const already = (vendor.verificationWaivers ?? []).includes(key);
+  if (already === waived) return;
+
+  await Vendor.updateOne(
+    { _id: toObjectId(vendorId) },
+    waived
+      ? { $addToSet: { verificationWaivers: key }, $set: { updatedAt: new Date() } }
+      : { $pull: { verificationWaivers: key }, $set: { updatedAt: new Date() } },
+  );
+
+  await writeAuditLog({
+    action: waived ? "vendor.requirement_waived" : "vendor.requirement_unwaived",
+    actor,
+    subject: { type: "vendor", id: vendorId },
+    after: { requirement: key },
+    source: "vendor",
+  });
+}
+
+/**
+ * Hand one level to a reviewer.
+ *
+ * ## Why this exists rather than the upload doing it
+ *
+ * `confirmUpload` used to flip the level to `pending` the moment the first file
+ * landed. That is defensible as plumbing and wrong as a product: a vendor who has
+ * sent one of two documents is not waiting on us, and a screen that says so
+ * either makes them stop early or makes them wonder what the second upload did.
+ *
+ * Worse, it left no moment where the platform says "we have everything, we are
+ * looking at it" — which is the single thing somebody wants at the end of a form
+ * that asked for their passport.
+ *
+ * So submission is now an act. The vendor owns `unstarted` and `rejected`, we own
+ * `pending`, and the boundary between them is a button.
+ *
+ * ## `rejected` is a vendor state, not a terminal one
+ *
+ * The first version of this matched `unstarted` only, which made a rejection
+ * unrecoverable: the vendor was told what to send, sent it, and got "That section
+ * has already been sent for review" — the one sentence that was certainly untrue.
+ * A rejection hands the level *back*, so it belongs on the vendor's side of the
+ * boundary alongside `unstarted`.
+ *
+ * The guard is a filtered update rather than a read-then-write: two clicks on a
+ * slow connection would otherwise both read the same status and both write
+ * `pending`, and the second would log a submission that did not happen.
+ */
+export async function submitVerificationLevel(
+  vendorId: string,
+  level: VendorVerificationLevel,
+  actor: AuditActor,
+): Promise<void> {
+  await connectToDatabase();
+
+  const result = await Vendor.updateOne(
+    {
+      _id: toObjectId(vendorId),
+      deletedAt: null,
+      [`verification.${level}.status`]: { $in: ["unstarted", "rejected"] },
+    },
+    { $set: { [`verification.${level}.status`]: "pending", updatedAt: new Date() } },
+  );
+
+  if (result.matchedCount === 0) {
+    throw new ConflictError(
+      "That section is already with a reviewer, or has been approved. Nothing to send.",
+    );
+  }
+
+  await writeAuditLog({
+    action: "vendor.verification_submitted",
+    actor,
+    subject: { type: "vendor", id: vendorId },
+    after: { level },
+    source: "vendor",
+  });
+}
+
 export async function decideVerification(
   vendorId: string,
   input: {
@@ -332,6 +487,16 @@ export async function decideVerification(
       documentCount: input.documentHashes.length,
     },
     source: "staff",
+  });
+
+  // After the write, like every other emit here: a notification handler that
+  // throws must not undo a decision a person has already made.
+  await emit("VendorVerificationDecided", {
+    vendorId,
+    displayName: updated.displayName,
+    level: input.level,
+    outcome: input.outcome,
+    ...(input.note ? { note: input.note } : {}),
   });
 
   return updated;

@@ -1,5 +1,6 @@
 import type { EmailMessage } from "@/services/email";
 import { BRAND } from "@/config/brand";
+import { composeEmail } from "./layout";
 
 /**
  * The notification email — §69.
@@ -11,15 +12,15 @@ import { BRAND } from "@/config/brand";
  * the usual failure is an HTML template that gains a sentence the text part
  * never got.
  *
- * ## Why not React Email
+ * ## The shell moved out
  *
- * The ticket names React Email, and it is the right answer for a suite of
- * branded templates. This is **one** template with a heading, a sentence and a
- * button; adding `@react-email/components` and a render step to produce it
- * would be a dependency, a build step and a second mental model for a table and
- * an anchor. When the second and third templates arrive — a receipt with line
- * items, a quote with a document attached — that trade flips, and this file is
- * the seam to replace.
+ * This file used to carry its own `<html>` string. It no longer does: the four
+ * auth emails needed the same one, and two hand-written shells is how a brand
+ * drifts inside its own codebase. `emails/layout.ts` holds it, along with the
+ * argument for why it is still hand-written HTML rather than React Email.
+ *
+ * What stays here is the part that is genuinely this email's: the category
+ * label, the greeting, and which footnote applies.
  *
  * ## Nothing internal, ever
  *
@@ -53,70 +54,33 @@ export function notificationEmail(input: {
   url: string;
   category: string;
 }): EmailMessage {
-  const greeting = input.name ? `Hi ${input.name},` : "Hello,";
   const label = CATEGORY_LABEL[input.category] ?? BRAND.name;
-
-  const text = [
-    greeting,
-    "",
-    input.title,
-    ...(input.body ? ["", input.body] : []),
-    "",
-    input.url,
-    "",
-    "— CoSetup",
-    "",
-    // Only where it applies. A payment receipt has no unsubscribe because it
-    // is not a preference — §69, and the screen says the same thing.
-    ...(isEssential(input.category)
-      ? ["You receive this because it concerns money or your account security."]
-      : ["Change what we email you about: manage your notification settings in your account."]),
-  ].join("\n");
 
   return {
     to: input.to,
     subject: `${label}: ${input.title}`,
-    text,
-    html: html(input, greeting),
+    ...composeEmail({
+      // The title, not the category. The subject already carries the label, and
+      // a preview line that repeats the subject wastes the one line the inbox
+      // gives us to say something the subject did not.
+      preheader: input.body ?? input.title,
+      greeting: input.name ? `Hi ${input.name},` : "Hello,",
+      heading: input.title,
+      body: input.body ? [input.body] : [],
+      action: { label: "Open in CoSetup", url: input.url, showUrl: false },
+      notes: [
+        isEssential(input.category)
+          ? "You receive this because it concerns money or your account security."
+          : "Change what we email you about in your notification settings.",
+      ],
+    }),
   };
 }
 
+/**
+ * Money and account security are not preferences, so they carry no "change
+ * what we email you about" line — §69, and the settings screen says the same.
+ */
 function isEssential(category: string): boolean {
   return category === "billing" || category === "security";
-}
-
-/**
- * Inline styles and a table-free single column.
- *
- * Not minimalism for its own sake: Outlook's rendering engine is Word's, and
- * every layout technique this page avoids is one of the ways that goes wrong.
- * A single centred block with inline styles renders the same in Gmail, Outlook
- * and Apple Mail, which is the criterion.
- */
-function html(
-  input: { title: string; body?: string; url: string; category: string },
-  greeting: string,
-): string {
-  return `<!doctype html>
-<html lang="en"><body style="margin:0;padding:24px;background:#f6f6f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a18;">
-<div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e1;border-radius:12px;padding:28px;">
-<p style="margin:0 0 16px;font-size:14px;">${escape(greeting)}</p>
-<h1 style="margin:0 0 12px;font-size:19px;line-height:1.35;font-weight:600;">${escape(input.title)}</h1>
-${input.body ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#4a4a45;">${escape(input.body)}</p>` : ""}
-<a href="${escape(input.url)}" style="display:inline-block;background:#1a1a18;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:999px;font-size:14px;">Open in CoSetup</a>
-<p style="margin:24px 0 0;font-size:12px;color:#8a8a82;">${
-    isEssential(input.category)
-      ? "You receive this because it concerns money or your account security."
-      : "Change what we email you about in your account settings."
-  }</p>
-</div></body></html>`;
-}
-
-/** The title and body are our own copy, but they interpolate event payloads. */
-function escape(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

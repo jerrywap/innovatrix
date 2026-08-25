@@ -57,9 +57,9 @@ describe("navigation is filtered, not decorative", () => {
     );
 
     expect(billingLabels).toContain("Invoices");
-    expect(billingLabels).not.toContain("My software");
+    expect(billingLabels).not.toContain("My Scripts");
 
-    expect(technicalLabels).toContain("My software");
+    expect(technicalLabels).toContain("My Scripts");
     expect(technicalLabels).not.toContain("Invoices");
   });
 
@@ -90,17 +90,21 @@ describe("navigation is filtered, not decorative", () => {
    * `/sell` explained selling well and was linked from nowhere — not the nav, not the footer, not
    * the sitemap — while the only screen offering "Apply to sell" required already being a vendor.
    * A door that works and has nothing leading to it is the same as no door.
+   *
+   * The item now points at the form itself rather than at `/sell`: its reader is inside the
+   * dashboard, so they are signed in and past the pitch. `/sell` keeps its footer link, which is
+   * where a signed-out visitor meets it.
    */
   it("offers a non-vendor the way in, and withdraws it once they are one", () => {
     for (const role of ORGANIZATION_ROLES) {
       const asCustomer = customerNavFor(role).flatMap((s) => s.items.map((i) => i.href));
-      expect(asCustomer, `role: ${role}`).toContain("/sell");
+      expect(asCustomer, `role: ${role}`).toContain("/dashboard/selling/apply");
 
       const asVendor = customerNavFor(role, { isVendor: true }).flatMap((s) =>
         s.items.map((i) => i.href),
       );
       // Gone once they are through it: by then it points at a page they have read.
-      expect(asVendor, `role: ${role}`).not.toContain("/sell");
+      expect(asVendor, `role: ${role}`).not.toContain("/dashboard/selling/apply");
     }
   });
 
@@ -128,7 +132,7 @@ describe("navigation is filtered, not decorative", () => {
   it("keeps the Vendor section for everybody but changes what is in it", () => {
     const asCustomer = customerNavFor("owner").find((s) => s.title === "Vendor");
     expect(asCustomer?.items).toHaveLength(1);
-    expect(asCustomer?.items[0]?.href).toBe("/sell");
+    expect(asCustomer?.items[0]?.href).toBe("/dashboard/selling/apply");
 
     const asVendor = customerNavFor("owner", { isVendor: true }).find(
       (s) => s.title === "Vendor",

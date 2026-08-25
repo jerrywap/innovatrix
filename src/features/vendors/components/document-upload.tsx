@@ -1,11 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { FileText, Loader2, Upload } from "lucide-react";
+import { useActionState, useRef, useState } from "react";
+import { FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatDateTime } from "@/lib/dates";
 import type { VendorDocumentKind, VendorVerificationLevel } from "@/lib/db/enums";
-import { confirmDocumentUploadAction, requestDocumentUploadAction } from "../actions";
+import {
+  confirmDocumentUploadAction,
+  removeDocumentAction,
+  requestDocumentUploadAction,
+} from "../actions";
 
 export interface DocumentView {
   id: string;
@@ -14,6 +18,14 @@ export interface DocumentView {
   filename: string;
   sizeBytes: number;
   uploadedAt: string;
+  /**
+   * Whether the vendor may still take it back — see `isRemovable`.
+   *
+   * Decided on the server, not here: it depends on the level's status and the
+   * date of the last decision, and a client that computed it would be one more
+   * place for that rule to be wrong.
+   */
+  removable: boolean;
 }
 
 const KIND_LABELS: Record<VendorDocumentKind, string> = {
@@ -67,11 +79,17 @@ const KIND_LABELS: Record<VendorDocumentKind, string> = {
  *
  * ## What still does not work
  *
- * `s3:DeleteObject` remains denied. So the retention rule in vendor ticket 02 —
- * documents are removed once a level is decided — cannot be honoured by this
- * environment: `purgeDecidedDocuments` attempts the delete, tolerates the refusal,
- * and stamps `purgedAt` to record that the object *should* be gone. It does not
- * claim that it is.
+ * `s3:DeleteObject` remains denied, so **erasure cannot be guaranteed by this
+ * environment**: `purgeDecidedDocuments` attempts the delete, tolerates the
+ * refusal, and stamps `purgedAt` to record that the object *should* be gone. It
+ * does not claim that it is.
+ *
+ * That used to matter on every decision, because ticket 02 had documents erased
+ * the moment a level was decided. It no longer runs then — AML/KYC requires the
+ * evidence behind a payout to be retained, and `decideVerificationAction` sets
+ * out why — so the denied permission now only blocks an erasure *request*, which
+ * is rare, visible, and worth fixing the IAM policy for rather than working
+ * around.
  */
 export function DocumentUpload({
   level,
@@ -85,6 +103,10 @@ export function DocumentUpload({
   kinds: readonly VendorDocumentKind[];
 }) {
   const [items, setItems] = useState(documents);
+  const [removeState, removeDispatch, removePending] = useActionState(
+    removeDocumentAction,
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [kind, setKind] = useState<VendorDocumentKind>(kinds[0] ?? "other");
@@ -172,6 +194,9 @@ export function DocumentUpload({
           filename: file.name,
           sizeBytes: file.size,
           uploadedAt: formatDateTime(new Date()),
+          // Just uploaded, so nobody has read it: removable by definition. The
+          // server says the same on the next render.
+          removable: true,
         },
         ...current,
       ]);
@@ -185,6 +210,10 @@ export function DocumentUpload({
 
   return (
     <div className="flex flex-col gap-3">
+      {removeState && !removeState.ok && (
+        <p className="text-destructive text-[12.5px]">{removeState.error}</p>
+      )}
+
       {items.length > 0 && (
         <ul className="border-border divide-border divide-y rounded-xl border">
           {items.map((item) => (
@@ -199,10 +228,46 @@ export function DocumentUpload({
                 <FileText className="text-subtle size-4 shrink-0" aria-hidden />
                 <span className="truncate">{item.filename}</span>
               </a>
-              <span className="text-subtle shrink-0 font-mono text-[11px]">
-                {KIND_LABELS[item.kind as VendorDocumentKind] ?? item.kind} ·{" "}
-                {formatBytes(item.sizeBytes)} · {item.uploadedAt}
-              </span>
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="text-subtle font-mono text-[11px]">
+                  {KIND_LABELS[item.kind as VendorDocumentKind] ?? item.kind} ·{" "}
+                  {formatBytes(item.sizeBytes)} · {item.uploadedAt}
+                </span>
+
+                {item.removable ? (
+                  <form
+                    action={removeDispatch}
+                    onSubmit={() =>
+                      setItems((current) => current.filter((row) => row.id !== item.id))
+                    }
+                  >
+                    <input type="hidden" name="documentId" value={item.id} />
+                    {/*
+                      Removed from the list optimistically, because the row is
+                      the only feedback there is and a server round trip leaves
+                      the file sitting there looking un-clicked. `refreshSelling`
+                      re-renders the real list a moment later, so a failure
+                      corrects itself rather than lying permanently — and the
+                      error below says so.
+                    */}
+                    <button
+                      type="submit"
+                      disabled={removePending}
+                      aria-label={`Remove ${item.filename}`}
+                      className="text-subtle hover:text-destructive rounded p-1 transition disabled:opacity-40"
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                    </button>
+                  </form>
+                ) : (
+                  /*
+                    Not a disabled button. A document a reviewer has already read
+                    stays on file, and saying *that* is more useful than greying
+                    out a control and leaving the reason to be guessed at.
+                  */
+                  <span className="text-subtle text-[11px] whitespace-nowrap">Reviewed</span>
+                )}
+              </div>
             </li>
           ))}
         </ul>

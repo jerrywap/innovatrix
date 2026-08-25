@@ -1,10 +1,12 @@
 "use client";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/native-select";
+import { COUNTRIES, countryLabel } from "@/lib/countries";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGroup, SectionForm } from "@/features/products/components/section-form";
 import { applyAction } from "../actions";
+import { AgreementGate } from "./agreement-gate";
 
 /**
  * The vendor application — vendor ticket 01.
@@ -63,23 +65,40 @@ export function ApplyForm({
           />
         </Field>
 
-        <Field label="Country" htmlFor="country" hint="Two-letter code — GB, US, NG." required>
-          <Input
+        <Field
+          label="Country"
+          htmlFor="country"
+          hint="Where you are based. It decides which tax and payout rules apply to you."
+          required
+        >
+          {/*
+            A real list, not a two-letter box. The value posted is unchanged —
+            ISO 3166-1 alpha-2, which is what `countrySchema` already validates —
+            so this is a control change with no server change behind it.
+
+            `NativeSelect` rather than the Radix one: a native <select> gives the
+            platform's own long-list behaviour (type-ahead on a phone, a scroll
+            wheel on iOS) for 249 options, and it is immune to the pre-action
+            form reset that `section-form.tsx` documents.
+          */}
+          <NativeSelect
             id="country"
             name="country"
             required
-            maxLength={2}
             defaultValue="GB"
             autoComplete="country"
-            className="max-w-24 uppercase"
-          />
+            containerClassName="max-w-sm"
+          >
+            {COUNTRIES.map((country) => (
+              <option key={country.code} value={country.code}>
+                {countryLabel(country)}
+              </option>
+            ))}
+          </NativeSelect>
         </Field>
       </FieldGroup>
 
-      <FieldGroup
-        title="What you build"
-        description="A couple of paragraphs. This is the substance of the application — it is what somebody reads when they decide."
-      >
+      <FieldGroup title="What you build" description="A couple of paragraphs.">
         <Field label="Your work" htmlFor="pitch" required>
           <Textarea id="pitch" name="pitch" required rows={6} minLength={40} maxLength={2000} />
         </Field>
@@ -97,35 +116,13 @@ export function ApplyForm({
         </Field>
       </FieldGroup>
 
-      <FieldGroup title="The agreement">
-        <div className="flex items-start gap-2.5">
-          {/* The version is decided server-side. A client that could name it could
-              accept an older one. */}
-          <Checkbox id="acceptAgreement" name="acceptAgreement" required />
-          <label htmlFor="acceptAgreement" className="text-[13px] leading-relaxed">
-            I accept the{" "}
-            {/*
-              A link to the actual text — vendor ticket 01's gap, closed.
-              
-              The checkbox recorded an acceptance of a versioned document that did not exist: the
-              only "agreement" page was `/terms`, which is written for a buyer and never mentions
-              vendors. An acceptance of nothing is not evidence of anything, and ticket 13 leans
-              on this record when a takedown is weighed.
-              
-              `target="_blank"` so reading it does not discard a part-filled application.
-            */}
-            <a
-              href="/terms/vendor"
-              target="_blank"
-              rel="noopener"
-              className="underline underline-offset-4"
-            >
-              CoSetup vendor agreement
-            </a>{" "}
-            <span className="text-subtle font-mono text-[11px]">({agreementVersion})</span>, and
-            I confirm I own or am licensed to distribute everything I list.
-          </label>
-        </div>
+      <FieldGroup
+        title="The agreement"
+        description="Read it through — the accept button at the end of it unlocks once you have."
+      >
+        {/* The version is decided server-side. A client that could name it could
+            accept an older one. */}
+        <AgreementGate name="acceptAgreement" version={agreementVersion} />
       </FieldGroup>
     </SectionForm>
   );

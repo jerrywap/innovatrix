@@ -254,3 +254,17 @@ stateDiagram-v2
     failed --> approved
     failed --> cancelled
 ```
+
+## addonProvisioning
+
+| From | To | |
+|---|---|---|
+| `pending` | `provided` · `cancelled` |  |
+| `provided` | — | **terminal** |
+| `cancelled` | — | **terminal** |
+
+```mermaid
+stateDiagram-v2
+    pending --> provided
+    pending --> cancelled
+```

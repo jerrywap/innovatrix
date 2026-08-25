@@ -122,6 +122,21 @@ export interface DomainEventMap {
 
   /** Refused, with the reason the applicant reads verbatim. */
   VendorRejected: { vendorId: string; displayName: string; reason: string };
+  /**
+   * One verification level approved or rejected — vendor ticket 02.
+   *
+   * `note` is the reviewer's message and it is **shown to the vendor verbatim**,
+   * which is why `decideVerification` refuses a rejection without one. It is
+   * written for them, so it must never carry an internal aside (§37) — the same
+   * rule the rejection reason on the application already follows.
+   */
+  VendorVerificationDecided: {
+    vendorId: string;
+    displayName: string;
+    level: "identity" | "business";
+    outcome: "approved" | "rejected";
+    note?: string;
+  };
 
   /** New sales stopped. Existing entitlements are untouched (vendor ticket 12). */
   VendorSuspended: { vendorId: string; displayName: string; reason: string };
@@ -489,6 +504,7 @@ const EVENT_NAME_SET: Record<DomainEventName, true> = {
   VendorApplied: true,
   VendorVerified: true,
   VendorRejected: true,
+  VendorVerificationDecided: true,
   VendorSuspended: true,
   VendorSupportThreadOpened: true,
   DisputeRaised: true,

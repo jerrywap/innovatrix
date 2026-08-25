@@ -16,6 +16,21 @@ export const metadata: Metadata = { title: "Confirm your email" };
  *
  * The link in the email goes to Better Auth's own endpoint, which verifies and
  * redirects — this page is only the waiting room and the "send it again" path.
+ *
+ * ## This page does not send anything, and must not say that it did
+ *
+ * It used to open with "We sent a link to you@example.com", which is true only
+ * on the one route that reaches it straight after registration — the send is
+ * Better Auth's `sendOnSignUp`, fired when the account is created. Arrive here
+ * any other way (a bookmark, the checkout gate, an hour later) and the sentence
+ * asserts a send that did not happen, which reads as the mail being broken when
+ * it is merely old.
+ *
+ * The alternative — sending on load — is worse than a wording bug. A GET that
+ * sends email means a refresh sends another, and the page is reachable by
+ * anyone signed in; the throttle in `auth.ts` would be the only thing between
+ * a held-down F5 and a spam complaint. So the copy tells the truth instead, and
+ * the deliberate resend is one button away.
  */
 export default async function VerifyEmailPage() {
   const session = await getSession();
@@ -41,8 +56,8 @@ export default async function VerifyEmailPage() {
       title="Confirm your email"
       description={
         session
-          ? `We sent a link to ${session.user.email}. Open it to finish setting up.`
-          : "We sent you a link. Open it to finish setting up your account."
+          ? `Open the link we emailed to ${session.user.email} to finish setting up.`
+          : "Open the link we emailed you to finish setting up your account."
       }
       footer={
         <Link href="/" className="text-signal-text hover:underline">
@@ -55,7 +70,15 @@ export default async function VerifyEmailPage() {
           You can browse without confirming. You&rsquo;ll need a confirmed address before
           checking out.
         </p>
-        {session && <ResendVerification />}
+        {session && (
+          <div className="flex flex-col gap-2">
+            <p className="text-muted-foreground text-[13.5px]">
+              Can&rsquo;t find it? Check your spam folder, then send yourself a fresh link
+              &mdash; the last one expires an hour after it was sent.
+            </p>
+            <ResendVerification />
+          </div>
+        )}
       </div>
     </AuthCard>
   );
