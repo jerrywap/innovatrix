@@ -25,7 +25,6 @@ import type { ProductSection } from "@/services/catalog/readiness";
  * | `versions`        | Product files + Versions           |
  * | `demo`            | Demo + Test credentials            |
  * | `options`         | Installation + Customization       |
- * | `testing`         | Internal testing checklist (§47)   |
  * | `seo`             | SEO                                |
  * | `review`          | Review & publish                   |
  *
@@ -120,14 +119,6 @@ export const PRODUCT_WIZARD_STEPS: readonly WizardStep[] = [
     description: "Installation choices and what may be customised.",
     segment: "options",
     permission: "product.update",
-  },
-  {
-    id: "testing",
-    label: "Testing",
-    description: "The internal checklist that has to pass before release.",
-    segment: "testing",
-    permission: "product.update",
-    ticket: "07",
   },
   {
     id: "seo",

@@ -43,7 +43,7 @@ import type { ReadinessGap } from "@/services/catalog/readiness";
  * 1. **The rail.** `PRODUCT_PUBLICATION_PATH` drawn with the current position marked, so
  *    the remaining steps are visible and publication is legibly ahead rather than absent.
  * 2. **Edge labels instead of destination names.** `PRODUCT_TRANSITION_RULES` already
- *    carries a written label for every edge — "Send to testing", "Mark ready", "Publish",
+ *    carries a written label for every edge — "Mark ready", "Publish",
  *    "Request changes" — and this panel was ignoring all of them to print the target state.
  *    A verb says what the button does; a noun leaves the reader to infer it.
  * 3. **Forward first.** The step that advances toward sale is the primary button and is
@@ -209,7 +209,7 @@ function TransitionButton({
   const { pending } = useFormStatus();
 
   /*
-   * The edge's own label — "Send to testing", "Mark ready", "Publish". Every edge in
+   * The edge's own label — "Mark ready", "Publish". Every edge in
    * `PRODUCT_TRANSITIONS` has a rule, and `states.test.ts` fails if one does not, so the
    * fallback to the destination name is unreachable rather than a quiet default.
    */

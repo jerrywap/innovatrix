@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  productBasicsSchema,
   licencePackageFormSchema,
   productClassificationSchema,
   productDemoSchema,
@@ -154,5 +155,72 @@ describe("licence packages — blank numbers keep their advertised defaults", ()
     expect(result.activationLimit).toBe(1);
     expect(result.supportMonths).toBe(12);
     expect(result.updateMonths).toBe(12);
+  });
+});
+
+describe("basics — the description arrives as JSON text, not an object", () => {
+  /**
+   * The bug this pins.
+   *
+   * `RichTextEditor` posts the tree as JSON in a hidden input, and no form
+   * flattener decodes a *value*. The schema said `richTextDocumentSchema`, so
+   * every save from the Basics step failed with "expected object, received
+   * string" — on both surfaces, for as long as the step existed. Four actions had
+   * each grown a private `JSON.parse` wrapper; the two shared section-save paths
+   * had none.
+   */
+  const doc = JSON.stringify({
+    type: "doc",
+    content: [{ type: "paragraph", content: [{ type: "text", text: "Hello" }] }],
+  });
+
+  const basics = (description: unknown) =>
+    productBasicsSchema.safeParse({
+      name: "Atlas CRM",
+      summary: "A CRM for small teams",
+      description,
+    });
+
+  it("accepts the editor's JSON string", () => {
+    const result = basics(doc);
+    expect(result.success).toBe(true);
+    expect(result.data?.description?.type).toBe("doc");
+  });
+
+  it("treats a blank field as no description, so clearing one works", () => {
+    for (const blank of ["", "   "]) {
+      const result = basics(blank);
+      expect(result.success, blank).toBe(true);
+      expect(result.data?.description).toBeUndefined();
+    }
+  });
+
+  it("accepts an already-decoded object, so a pre-decoding caller is not broken", () => {
+    const result = basics({ type: "doc", content: [] });
+    expect(result.success).toBe(true);
+    expect(result.data?.description?.type).toBe("doc");
+  });
+
+  /**
+   * The hazard beside the bug, and the reason this is not `.catch(undefined)`.
+   *
+   * `descriptionFields()` turns `undefined` into a `$unset`. Every private wrapper
+   * this replaced mapped unreadable input to `undefined` — so a corrupted payload
+   * silently erased a description that had been fine a moment earlier. It has to
+   * fail instead.
+   */
+  it("refuses unreadable JSON rather than wiping the description", () => {
+    const result = basics("{not json");
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(["description"]);
+    expect(result.error?.issues[0]?.message).toMatch(/could not read/i);
+  });
+
+  it("still enforces the node allowlist through the decode", () => {
+    const script = JSON.stringify({
+      type: "doc",
+      content: [{ type: "script", content: [] }],
+    });
+    expect(basics(script).success).toBe(false);
   });
 });

@@ -30,6 +30,8 @@ export function MoneyInput({
   label,
   disabled,
   className,
+  value,
+  onValueChange,
 }: {
   /** Posted as `prices[GBP]` — keyed by currency, so blank rows can't misalign. */
   name: string;
@@ -39,13 +41,27 @@ export function MoneyInput({
   label?: string;
   disabled?: boolean;
   className?: string;
+  /**
+   * Lift the value out, for a parent that needs to set several at once.
+   *
+   * `PriceMatrix`'s "Mark as free" writes a zero into every currency, which it
+   * cannot do while each input owns its own `useState`. Passing both makes this
+   * controlled; passing neither leaves it exactly as it was, which is what every
+   * other caller wants and why this is not simply always controlled.
+   */
+  value?: string;
+  onValueChange?: (next: string) => void;
 }) {
   const id = useId();
   const meta = CURRENCIES[currency];
 
-  const [value, setValue] = useState(() =>
+  const [ownValue, setOwnValue] = useState(() =>
     defaultAmount === undefined ? "" : toDecimalString(defaultAmount, meta.exponent),
   );
+
+  const controlled = value !== undefined && onValueChange !== undefined;
+  const current = controlled ? value : ownValue;
+  const setCurrent = controlled ? onValueChange : setOwnValue;
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
@@ -60,10 +76,10 @@ export function MoneyInput({
         <input
           id={id}
           name={name}
-          value={value}
+          value={current}
           disabled={disabled}
-          onChange={(event) => setValue(event.target.value)}
-          onBlur={() => setValue(normalise(value, meta.exponent))}
+          onChange={(event) => setCurrent(event.target.value)}
+          onBlur={() => setCurrent(normalise(current, meta.exponent))}
           // `decimal` gives a numeric keypad with a separator on mobile;
           // `type="number"` would reject a pasted "1,299.99" outright.
           inputMode="decimal"
@@ -103,7 +119,7 @@ function normalise(raw: string, exponent: number): string {
  * is exact for every amount inside `Number.MAX_SAFE_INTEGER`. Display anywhere
  * else goes through `MoneyDisplay`.
  */
-function toDecimalString(minorUnits: number, exponent: number): string {
+export function toDecimalString(minorUnits: number, exponent: number): string {
   return (minorUnits / 10 ** exponent).toFixed(exponent);
 }
 

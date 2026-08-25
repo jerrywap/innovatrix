@@ -274,7 +274,13 @@ export type TaxonomyCatalogue = (typeof TAXONOMY_CATALOGUES)[number];
  * `submitted` and `changes_requested` are vendor ticket 05's, and they sit at the
  * *front* of the pipeline rather than replacing any of it: a vendor hands a product
  * over at `submitted`, and from `internal_review` onwards it takes exactly the path
- * the platform already uses for its own. Same testing checklist, same readiness gate.
+ * the platform already uses for its own.
+ *
+ * There used to be a `testing` state between `internal_review` and `ready`, paired
+ * with a ten-item checklist. Both are gone: the stage held a product for a QA pass
+ * that nobody was running, so in practice it was a status a reviewer clicked
+ * through twice. Review decides, and `ready` still separates "approved" from
+ * "live" — which is the separation that was doing the work.
  *
  * `changes_requested` is deliberately distinct from `draft`. It carries a reason and
  * a history, and a vendor's list has to be able to tell "not finished" from
@@ -285,7 +291,6 @@ export const PRODUCT_STATUSES = values([
   "submitted",
   "changes_requested",
   "internal_review",
-  "testing",
   "ready",
   "published",
   "deprecated",
@@ -357,15 +362,6 @@ export type DemoExposure = (typeof DEMO_EXPOSURES)[number];
 
 export const PRODUCT_MEDIA_KINDS = values(["screenshot", "video"] as const);
 export type ProductMediaKind = (typeof PRODUCT_MEDIA_KINDS)[number];
-
-/**
- * §47 — the internal testing checklist that gates `ready`.
- *
- * `na` is not "skip": publish requires every item to be `pass`, or `na` **with
- * a note saying why**. An unexplained `na` is how a checklist becomes theatre.
- */
-export const TESTING_CHECKLIST_STATUSES = values(["pending", "pass", "fail", "na"] as const);
-export type TestingChecklistStatus = (typeof TESTING_CHECKLIST_STATUSES)[number];
 
 /**
  * §50 — the customization areas an admin can suggest for a product.

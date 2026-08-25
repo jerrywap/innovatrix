@@ -133,7 +133,14 @@ export function DemoForm({
                   type="radio"
                   name="demo[exposure]"
                   value={exposure}
-                  defaultChecked={product.demo.exposure === exposure}
+                  /*
+                    `?? "public"`, not a bare comparison. A product whose
+                    `demo.exposure` is absent used to render with **nothing
+                    selected** — the Zod default was the only thing rescuing it,
+                    which meant the screen and the saved value disagreed until the
+                    first save.
+                  */
+                  defaultChecked={(product.demo.exposure ?? "public") === exposure}
                   className="mt-1 accent-[var(--signal)]"
                 />
                 <span className="min-w-0">
@@ -176,21 +183,6 @@ export function DemoForm({
             maxLength={2000}
             rows={3}
             placeholder="Sign in as the administrator to see the reporting module."
-          />
-        </Field>
-
-        <Field
-          label="Reset schedule"
-          htmlFor="demo-reset"
-          hint="Informational — nothing acts on it yet."
-        >
-          <Input
-            id="demo-reset"
-            name="demo[resetSchedule]"
-            defaultValue={product.demo.resetSchedule ?? ""}
-            maxLength={200}
-            placeholder="Data resets nightly at 02:00 UTC"
-            className="sm:w-[340px]"
           />
         </Field>
       </FieldGroup>

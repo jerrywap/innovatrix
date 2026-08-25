@@ -116,6 +116,15 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
    */
   const images = screenshots(product.media);
   const hero = images[0];
+  /*
+   * The gallery gets **everything**; the hero and the OG image get stills only.
+   *
+   * `screenshots()` stays exactly as it was, because those two can only ever be an
+   * `<img>` — an OG card has no player and the LCP element must not wait for one.
+   * The gallery is the one surface that can show a video, so it is the one surface
+   * that receives them.
+   */
+  const gallery = product.media;
 
   return (
     <article className="mx-auto w-full max-w-[1180px] px-5 py-10 lg:px-10 lg:py-14">
@@ -178,7 +187,7 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
                   className="object-cover"
                 />
               </div>
-              <Gallery images={images} productName={product.name} />
+              <Gallery images={gallery} productName={product.name} />
             </div>
           )}
 

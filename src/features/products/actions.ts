@@ -9,14 +9,13 @@ import { parseNestedFormData } from "@/lib/form-data";
 import { requireAnyPermission, requirePermission } from "@/lib/auth/dal";
 import { objectIdSchema } from "@/validators/common";
 import {
+  descriptionOnlySchema,
   productBasicsSchema,
   productClassificationSchema,
   productDemoSchema,
   productSlugSchema,
-  productTestingSchema,
   templateSiblingSchema,
 } from "@/validators/product-sections";
-import { richTextDocumentSchema, type RichTextDocument } from "@/lib/rich-text/schema";
 import { PRODUCT_STATUSES, type ProductStatus } from "@/lib/db/enums";
 import { productPermissionsForTarget } from "@/lib/db/states";
 import { descriptionFields } from "@/lib/db/models/catalog";
@@ -33,7 +32,6 @@ import { staffActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
 import * as productService from "@/services/catalog/product-service";
-import * as testingService from "@/services/catalog/testing-service";
 import {
   createTemplateSibling,
   unlinkTemplateSibling,
@@ -104,10 +102,8 @@ export async function createProductAction(
     const staff = await requirePermission("product.create");
 
     const raw = parseNestedFormData(formData);
-    const input = parseInput(productBasicsSchema, {
-      ...raw,
-      description: parseDescription(raw.description),
-    });
+    // See the vendor twin: the decode is in the schema now.
+    const input = parseInput(productBasicsSchema, raw);
 
     const product = await productService.createDraft(input, staffActor(staff.user));
     createdId = String(product._id);
@@ -137,10 +133,10 @@ export async function createProductAction(
 export async function createTemplateSiblingAction(
   _previous: ActionResult<unknown> | null,
   formData: FormData,
-): Promise<ActionResult<never>> {
+): Promise<ActionResult<{ templateId: string; href: string }>> {
   let createdId: string | undefined;
 
-  const result = await withAction<never>(async () => {
+  const result = await withAction<{ templateId: string; href: string }>(async () => {
     const staff = await requirePermission("product.create");
     await requirePermission("product.manage_pricing");
 
@@ -157,20 +153,22 @@ export async function createTemplateSiblingAction(
     catalogChanged();
     refreshWizard(productId);
 
-    return ok(undefined as never);
+    /*
+     * The id comes back rather than a redirect.
+     *
+     * It used to `redirect(stepHref(createdId, "basics", "admin"))` — out of the
+     * product being worked on and into a different one. `basics` was the right
+     * *destination* for that jump (a copied summary and an empty description are
+     * the two things needing a human), and jumping at all was the mistake: the
+     * caller was mid-task on the first product.
+     *
+     * `href` travels with it so the panel can offer the link without knowing how
+     * this surface builds one.
+     */
+    return ok({ templateId: createdId!, href: stepHref(createdId!, "basics", "admin") });
   });
 
-  if (!result.ok) return result;
-  /*
-   * To `basics`, not `classification` — a deliberate deviation from
-   * `createProductAction` above.
-   *
-   * That one goes to `classification` because `basics` was just typed by hand.
-   * Here `basics` is where the two things needing a human are: a copied summary
-   * that still describes a full application, and an empty description that is a
-   * blocking readiness gap.
-   */
-  redirect(stepHref(createdId!, "basics", "admin"));
+  return result;
 }
 
 /**
@@ -315,6 +313,15 @@ export async function createMediaUploadAction(input: unknown): Promise<
         sizeBytes: z.coerce.number().int().positive(),
         /** The key this row already points at, when the image is being replaced. */
         replaceKey: z.string().trim().max(400).optional(),
+        /**
+         * A video rather than a screenshot.
+         *
+         * A boolean, not a scope name: the scope decides the size ceiling and the
+         * accepted content types, so letting a client name it would let a client
+         * upload 200MB of anything into the media folder. This flag only chooses
+         * between two scopes the server already knows.
+         */
+        video: z.coerce.boolean().optional(),
       }),
       input,
     );
@@ -324,14 +331,20 @@ export async function createMediaUploadAction(input: unknown): Promise<
     const key = parsed.replaceKey
       ? // Overwrite in place. Bound to this product, so a client cannot name
         // somebody else's object and have us hand back a signature for it.
+        //
+        // The same assertion serves both scopes: a video lands under the same
+        // `products/<id>/media/` prefix, one folder deeper, so "does this key
+        // belong to this product" is one question either way.
         storage.assertProductMediaKey(parsed.replaceKey, parsed.productId)
       : // Built from the product id server-side. A client-supplied key is an
         // untrusted claim about where bytes may land, and this bucket is shared
         // with unrelated live applications.
-        storage.productMediaPath(parsed.productId, parsed.filename);
+        parsed.video
+        ? storage.productVideoPath(parsed.productId, parsed.filename)
+        : storage.productMediaPath(parsed.productId, parsed.filename);
 
     const ticket = await storage.createUploadUrl({
-      scope: "product-media",
+      scope: parsed.video ? "product-video" : "product-media",
       key,
       filename: parsed.filename,
       contentType: parsed.contentType,
@@ -540,29 +553,6 @@ export async function deleteProductAction(productId: string): Promise<ActionResu
   redirect("/admin/products");
 }
 
-/* ────────────────────────────────────────────── input helpers */
-
-/**
- * The description arrives as a JSON string from the editor's hidden field.
- *
- * Parsed here and validated by `productBasicsSchema`, which is where the
- * allowlist lives. A malformed string becomes `undefined` rather than throwing,
- * so a corrupted field reads as "no description" — a validation error naming
- * the field — instead of a 500 the author cannot act on.
- */
-function parseDescription(value: unknown): RichTextDocument | undefined {
-  if (typeof value !== "string" || value.trim() === "") return undefined;
-
-  try {
-    // Returns the *parsed* value, not the input: Zod strips unknown keys, so
-    // this is what makes the schema a filter rather than only a check.
-    const result = richTextDocumentSchema.safeParse(JSON.parse(value));
-    return result.success ? result.data : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export async function saveDescriptionOnlyAction(
   _previous: ActionResult<unknown> | null,
   formData: FormData,
@@ -572,12 +562,24 @@ export async function saveDescriptionOnlyAction(
 
     const raw = parseNestedFormData(formData);
     const { productId } = parseInput(productIdSchema, raw);
-    const description = parseDescription(raw.description);
+    /*
+     * `parseInput` against the shared schema, not a hand-rolled parse.
+     *
+     * Unreadable input has to fail loudly, and `richTextFromForm` already produces
+     * both the refusal and the wording. This action used to hand-roll both, which
+     * is how it ended up being the only path that got the silent-wipe hazard right
+     * while four others got it wrong.
+     *
+     * An *empty* document is still refused here specifically. Everywhere else a
+     * blank means "cleared" and the `$unset` is correct; this action exists only to
+     * save a description, so nothing to save is a mistake rather than an intent.
+     */
+    const { description } = parseInput(descriptionOnlySchema, raw);
 
     if (description === undefined) {
-      return fail("That description couldn't be read. Try again.", {
+      return fail("There is nothing to save.", {
         code: "VALIDATION",
-        fieldErrors: { description: ["The editor sent something unreadable."] },
+        fieldErrors: { description: ["Write something first."] },
       });
     }
 
@@ -623,32 +625,6 @@ export async function saveDemoAction(
     await demoService.saveDemo(productId, demo, staffActor(staff.user));
 
     catalogChanged();
-    refreshWizard(productId);
-    target = continueTo(raw);
-
-    return ok({ saved: true as const });
-  });
-
-  if (result.ok && target) redirect(target);
-  return result;
-}
-
-/** The §47 checklist. `product.update`, because testing is not publishing. */
-export async function saveTestingAction(
-  _previous: ActionResult<unknown> | null,
-  formData: FormData,
-): Promise<ActionResult<{ saved: true }>> {
-  let target: Route | undefined;
-
-  const result = await withAction<{ saved: true }>(async () => {
-    const staff = await requirePermission("product.update");
-
-    const raw = parseNestedFormData(formData);
-    const { productId } = parseInput(productIdSchema, raw);
-    const { testingChecklist } = parseInput(productTestingSchema, raw);
-
-    await testingService.saveChecklist(productId, testingChecklist, staffActor(staff.user));
-
     refreshWizard(productId);
     target = continueTo(raw);
 

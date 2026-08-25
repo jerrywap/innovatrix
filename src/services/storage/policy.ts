@@ -28,6 +28,22 @@ export const STORAGE_POLICY: Record<StorageScope, ScopePolicy> = {
     contentTypes: ["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"],
     extensions: ["jpg", "jpeg", "png", "webp", "avif", "gif"],
   },
+  /*
+   * A product walkthrough. 200MB is about two or three minutes at a decent
+   * bitrate — enough for a real demo, and small enough that a browser upload from
+   * a phone finishes.
+   *
+   * `video/quicktime` is here because a `.mov` is what an iPhone produces and a
+   * vendor filming their own product on a phone is the common case, not the
+   * exotic one. `<video>` plays H.264 in a `.mov` container in Safari and
+   * Chrome; a codec nothing can play is a problem the vendor sees immediately in
+   * the preview, which is a better place to find out than a policy refusal.
+   */
+  "product-video": {
+    maxBytes: 200 * MB,
+    contentTypes: ["video/mp4", "video/webm", "video/quicktime"],
+    extensions: ["mp4", "webm", "mov"],
+  },
   // Whole applications: a Laravel monolith with vendor/ and a database dump is
   // routinely hundreds of megabytes (§44).
   "product-file": {
@@ -233,6 +249,25 @@ export function detectContentType(head: Uint8Array): string | null {
     return "application/zip";
   }
   if (starts(0x52, 0x49, 0x46, 0x46) && head[8] === 0x57) return "image/webp";
+
+  /*
+   * Video, for the `product-video` scope.
+   *
+   * Without these the sniff is decorative for a video: `detectContentType`
+   * returns null, and `assertBytesMatchDeclared` treats unknown as "not
+   * malicious" and returns early. That is the right default for a format nobody
+   * enumerated — and the wrong one for the three formats we deliberately accept.
+   *
+   * MP4/MOV share the ISO base-media layout: a four-byte length, then `ftyp` at
+   * offset 4. The brand that follows distinguishes them and is deliberately not
+   * checked — `qt  `, `isom`, `mp42`, `M4V ` and a dozen others are all things a
+   * vendor's camera or editor produces, and rejecting an unlisted brand would
+   * refuse a perfectly playable file. WebM is Matroska's EBML header.
+   */
+  if (head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70) {
+    return "video/mp4";
+  }
+  if (starts(0x1a, 0x45, 0xdf, 0xa3)) return "video/webm";
 
   // Executables — the cases this function exists for.
   if (starts(0x4d, 0x5a)) return "application/x-msdownload"; // PE/EXE

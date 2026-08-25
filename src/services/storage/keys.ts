@@ -52,6 +52,14 @@ export class StorageKeyError extends Error {
 
 export type StorageScope =
   | "product-media"
+  /**
+   * A walkthrough video on a product listing.
+   *
+   * Its own scope rather than a widened `product-media`, because the only thing
+   * the two share is the folder they land in. A 200MB ceiling for a video is
+   * reasonable; the same ceiling for a screenshot would accept a 200MB PNG.
+   */
+  | "product-video"
   | "product-file"
   | "attachment"
   | "payment-proof"
@@ -166,6 +174,22 @@ export function productMediaKey(
   filename: string,
 ): string {
   const key = `${ctx.root}/products/${segment(productId, "productId")}/media/${id()}.${extensionOf(filename)}`;
+  return assertKeyInPrefix(key, ctx.root);
+}
+
+/**
+ * A video under the product's media folder, in its own `video/` sub-folder.
+ *
+ * Same product prefix as a screenshot, so `assertKeyBelongsTo(key, root,
+ * { productId })` still answers "is this the caller's product?" without a second
+ * rule. The sub-folder is for a human reading a bucket listing, not for security.
+ */
+export function productVideoKey(
+  ctx: KeyBuilderContext,
+  productId: string,
+  filename: string,
+): string {
+  const key = `${ctx.root}/products/${segment(productId, "productId")}/media/video/${id()}.${extensionOf(filename)}`;
   return assertKeyInPrefix(key, ctx.root);
 }
 

@@ -1,7 +1,9 @@
 import "server-only";
 import { isDuplicateKeyError, toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
-import type { ProductDoc, ProductPrice } from "@/lib/db/models/catalog";
+import { descriptionFields, type ProductDoc, type ProductPrice } from "@/lib/db/models/catalog";
+import { isEmptyDocument as isEmptyDoc } from "@/lib/rich-text/schema";
+import { advertisedPrices } from "./advertised-price";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { VendorScope } from "@/lib/auth/scope";
 import { products } from "@/repositories/product.repository";
@@ -51,6 +53,23 @@ import { deriveFacets } from "./facets";
 const COPIED = {
   name: true,
   summary: true,
+  /*
+   * The description, and the flag that keeps it from counting as written.
+   *
+   * This was `EXCLUDED`, on reasoning that is still correct as far as it goes:
+   * copying prose about a working application is a duplicate-content risk and a
+   * set of behavioural claims that are false without a backend, and leaving it
+   * empty is what made `no_description` force a human to write one.
+   *
+   * What that reasoning did not weigh is the vendor who now has to retype four
+   * paragraphs, most of which is true of both listings. So the prose comes across
+   * — and `descriptionInherited` comes with it, which keeps `no_description`
+   * firing until the first Basics save clears the flag. A head start that still
+   * cannot be published unread.
+   */
+  description: true,
+  descriptionText: true,
+  descriptionInherited: true,
   industryIds: true,
   prices: true,
   licencePackages: true,
@@ -70,7 +89,6 @@ const SEEDED_BY_CREATE_DRAFT = {
   status: true,
   catalogue: true,
   facets: true,
-  testingChecklist: true,
   deletedAt: true,
   scriptListingId: true,
 } as const;
@@ -94,12 +112,6 @@ type Excluded = Exclude<keyof ProductDoc, Copied | Seeded>;
  * set stays closed at fourteen.
  */
 const EXCLUDED: Record<Excluded, string> = {
-  description:
-    "Prose describing a working application. Copying it is both the duplicate-content " +
-    "risk and a set of behavioural claims that are false without a backend. Left empty, " +
-    "`no_description` blocks publish and links straight to the step that fixes it.",
-  descriptionText:
-    "The plain-text twin of `description`; `descriptionFields()` writes the pair or neither.",
   features:
     "The sharpest case. 'Role-based access', 'Email notifications' render under " +
     '"What\'s included" and are actively false on a front-end. And there is **no** ' +
@@ -168,6 +180,9 @@ void EXCLUDED;
 /** What `createTemplateSibling` writes on top of the fresh draft. */
 export interface TemplateSiblingCopy {
   industryIds: string[];
+  description?: ProductDoc["description"];
+  descriptionText?: string;
+  descriptionInherited?: boolean;
   prices: ProductPrice[];
   licencePackages: ProductDoc["licencePackages"];
   addons: ProductDoc["addons"];
@@ -193,13 +208,32 @@ export function buildTemplateSiblingCopy(
   script: ProductDoc,
   prices: readonly ProductPrice[],
 ): TemplateSiblingCopy {
+  // Shells only: the commercial terms transfer (they are platform defaults), the
+  // money does not. A script with three tiers gives three packages all at this
+  // one price, and the panel says so before the click.
+  const licencePackages = script.licencePackages.map((pkg) => ({
+    ...pkg,
+    prices: [...prices],
+  }));
+
   return {
     industryIds: script.industryIds.map(String),
-    prices: [...prices],
-    // Shells only: the commercial terms transfer (they are platform defaults), the
-    // money does not. A script with three tiers gives three packages all at this
-    // one price, and the panel says so before the click.
-    licencePackages: script.licencePackages.map((pkg) => ({ ...pkg, prices: [...prices] })),
+    /*
+     * The prose, marked as unread.
+     *
+     * `descriptionFields()` writes `description` and `descriptionText` as a pair or
+     * neither, so the pair is spread rather than assigned field by field — and the
+     * flag only goes on when there is actually something to review. A script with
+     * no description gives a sibling with none, and `no_description` fires for the
+     * ordinary reason.
+     */
+    ...descriptionFields(script.description),
+    ...(isEmptyDoc(script.description) ? {} : { descriptionInherited: true }),
+    // Derived from the packages just built rather than assigned the same literal.
+    // Identical today — every package gets the one entered price — and it stays
+    // identical the day the panel learns to price tiers separately.
+    prices: advertisedPrices(licencePackages),
+    licencePackages,
     addons: script.addons,
     installation: script.installation,
     customization: {

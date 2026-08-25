@@ -2,7 +2,6 @@ import { cn } from "@/lib/utils";
 import {
   ADDON_PROVISIONING_STATUSES,
   ENTITLEMENT_STATUSES,
-  TESTING_CHECKLIST_STATUSES,
   FILE_SCAN_STATUSES,
   FOLLOW_UP_STATUSES,
   INVOICE_STATUSES,
@@ -89,7 +88,6 @@ const STATUS_TONES: Record<string, StatusTone> = {
   // vendor's move, so it takes the attention tone — the one tone that means "you".
   changes_requested: "attention",
   internal_review: "progress",
-  testing: "progress",
   ready: "progress",
   published: "positive",
   released: "positive",
@@ -245,7 +243,6 @@ const ALL_STATUS_ENUMS: ReadonlyArray<readonly string[]> = [
   FOLLOW_UP_STATUSES,
   QUOTE_STATUSES,
   INVOICE_STATUSES,
-  TESTING_CHECKLIST_STATUSES,
   VENDOR_STATUSES,
   VENDOR_INVITATION_STATUSES,
   VENDOR_VERIFICATION_STATUSES,

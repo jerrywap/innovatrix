@@ -97,7 +97,33 @@ const CARD_PROJECTION = {
    */
   catalogue: 1,
   facets: 1,
-  media: { $slice: ["$media", 1] },
+  /*
+   * The first **screenshot**, not the first media entry.
+   *
+   * This was `$slice: ["$media", 1]` — document order, one element, and `kind` not
+   * even projected. A product whose video happened to sit first got its `.mp4`
+   * handed to `next/image` on the card. `scripts/seed.ts` parks its video last
+   * specifically to dodge this and calls it out as "a real bug, in a different
+   * file, waiting for its own diff"; a vendor who can now add a video is what
+   * makes it due.
+   *
+   * `$filter` before `$slice`, so a product with only a video projects an empty
+   * array and the card falls back to its placeholder — which is right, because
+   * there is no still frame to show. `kind` rides along so `card-mapper` can be
+   * explicit rather than trusting the filter to have happened.
+   */
+  media: {
+    $slice: [
+      {
+        $filter: {
+          input: { $ifNull: ["$media", []] },
+          as: "item",
+          cond: { $eq: ["$$item.kind", "screenshot"] },
+        },
+      },
+      1,
+    ],
+  },
   prices: 1,
   "customization.available": 1,
   installation: 1,

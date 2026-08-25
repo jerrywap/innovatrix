@@ -2,11 +2,13 @@
 
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { ChevronDown, Download, FileText, Trash2 } from "lucide-react";
+import { ChevronDown, Download, FileText, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { formatBytes } from "@/lib/format-bytes";
-import { FormErrors } from "@/features/products/components/section-form";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { FormErrors, useManualSubmit } from "@/features/products/components/section-form";
 import { FileUploader } from "./file-uploader";
 import type { VersionActionSet } from "../action-set";
 import type { ActionResult } from "@/lib/action-result";
@@ -77,16 +79,19 @@ export function VersionPanel({
           </span>
         </button>
 
+        {/*
+          Release is **not** here any more.
+          
+          It used to sit in this header row, three controls along from the uploader
+          that would let it succeed — so a vendor clicked it, `releaseVersion`
+          refused for want of an application package, and the thing to do about
+          that was somewhere below the fold. It is now the last thing in the
+          panel body, after the files, with its own gate stated before the click.
+          
+          What stays here is what is genuinely incidental: deprecating a release,
+          and deleting a draft.
+        */}
         <div className="flex gap-2">
-          {isDraft && (
-            <TransitionButton
-              action={actions.releaseVersion}
-              productId={productId}
-              versionId={version.id}
-              label="Release"
-              variant="default"
-            />
-          )}
           {version.status === "released" && (
             <TransitionButton
               action={actions.deprecateVersion}
@@ -143,9 +148,181 @@ export function VersionPanel({
               downloaded and cannot change — a correction ships as a new version.
             </p>
           )}
+
+          {isDraft && (
+            <>
+              <NotesEditor version={version} productId={productId} actions={actions} />
+              <ReleaseBlock
+                version={version}
+                productId={productId}
+                actions={actions}
+                needsSource={Boolean(deliverySlot)}
+              />
+            </>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Release, with its gate stated before the click.
+ *
+ * `releaseVersion` refuses for two reasons and they are knowable from here:
+ * no `application_package` file, or — for a mirrored/pulled method — no artefact
+ * that has actually been stored. So the button says which one is missing rather
+ * than failing on press and leaving the vendor to guess. `ReadinessGaps` is the
+ * precedent: name the blocker, and link to the thing that clears it.
+ *
+ * The server still refuses independently. This is not the check — it is the
+ * reason, given in advance.
+ */
+function ReleaseBlock({
+  version,
+  productId,
+  actions,
+  needsSource,
+}: {
+  version: VersionView;
+  productId: string;
+  actions: VersionActionSet;
+  /** True when the delivery method is mirrored or pulled rather than uploaded. */
+  needsSource: boolean;
+}) {
+  const hasPackage = version.files.some((file) => file.kind === "application_package");
+  const sourceStored = version.artefactSource?.status === "stored";
+
+  const blocker = !hasPackage
+    ? needsSource && !sourceStored
+      ? "We have not fetched your artefact yet. Save the source above, and release once it says stored."
+      : "Upload the application package above — that is the file a customer downloads."
+    : null;
+
+  return (
+    <div className="border-border flex flex-wrap items-center gap-3 border-t pt-4">
+      <ReleaseButton
+        action={actions.releaseVersion}
+        productId={productId}
+        versionId={version.id}
+        disabled={Boolean(blocker)}
+      />
+      <p className="text-muted-foreground max-w-[58ch] text-[12.5px] leading-relaxed">
+        {blocker ??
+          `Releasing ${version.version} makes it downloadable and freezes its files. A correction after that ships as a new version.`}
+      </p>
+    </div>
+  );
+}
+
+function ReleaseButton({
+  action,
+  productId,
+  versionId,
+  disabled,
+}: {
+  action: (
+    previous: ActionResult<unknown> | null,
+    formData: FormData,
+  ) => Promise<ActionResult<unknown>>;
+  productId: string;
+  versionId: string;
+  disabled: boolean;
+}) {
+  const [state, formAction, pending] = useActionState(action, null);
+  const failed = state && !state.ok ? state.error : null;
+
+  return (
+    <form action={formAction} className="flex items-center gap-3">
+      <input type="hidden" name="productId" value={productId} />
+      <input type="hidden" name="versionId" value={versionId} />
+      <Button type="submit" size="sm" disabled={disabled || pending}>
+        {pending ? "Releasing…" : "Release this version"}
+      </Button>
+      {failed && <span className="text-destructive text-[12.5px]">{failed}</span>}
+    </form>
+  );
+}
+
+/**
+ * Edit the notes on a draft.
+ *
+ * `updateVersion` has been in the action set since vendor ticket 06 and was
+ * implemented on both surfaces — and **no component called it**, so §45's "edit
+ * the release notes, never the artefacts" was unreachable from the UI. The
+ * changelog, the requirements and the eligibility rule could only ever be set at
+ * creation, which is exactly when a vendor knows least about them.
+ *
+ * Draft only, and deliberately narrower than the service allows: a released
+ * version's notes are editable by the rule, but the panel for one is a record of
+ * what customers already downloaded, and putting an edit form in it invites the
+ * belief that the files can move too.
+ */
+function NotesEditor({
+  version,
+  productId,
+  actions,
+}: {
+  version: VersionView;
+  productId: string;
+  actions: VersionActionSet;
+}) {
+  const [open, setOpen] = useState(false);
+  const { state, pending, onSubmit } = useManualSubmit(actions.updateVersion);
+  const failed = state && !state.ok ? state : null;
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-muted-foreground hover:text-foreground flex w-fit items-center gap-1.5 text-[12.5px] underline underline-offset-4"
+      >
+        <Pencil className="size-3" aria-hidden />
+        Edit the notes for this version
+      </button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="border-border bg-surface-muted/40 flex flex-col gap-3 rounded-xl border p-3.5"
+    >
+      <input type="hidden" name="productId" value={productId} />
+      <input type="hidden" name="versionId" value={version.id} />
+
+      <label className="flex flex-col gap-1">
+        <span className="text-[12.5px] font-medium">Changelog</span>
+        <Input
+          name="changelog"
+          defaultValue={version.changelog ?? ""}
+          maxLength={300}
+          placeholder="Adds bulk invoicing and fixes the CSV export."
+        />
+      </label>
+
+      <label className="flex flex-col gap-1">
+        <span className="text-[12.5px] font-medium">Minimum requirements</span>
+        <Textarea
+          name="minimumRequirements"
+          defaultValue={version.minimumRequirements ?? ""}
+          rows={2}
+          maxLength={2000}
+        />
+      </label>
+
+      {failed && <FormErrors error={failed.error} fieldErrors={failed.fieldErrors} />}
+
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={pending}>
+          {pending ? "Saving…" : "Save the notes"}
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 

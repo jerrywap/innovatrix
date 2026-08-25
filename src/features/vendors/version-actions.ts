@@ -7,13 +7,12 @@ import { parseNestedFormData } from "@/lib/form-data";
 import { requireVendorOrForbid } from "@/lib/auth/dal";
 import { ForbiddenError } from "@/lib/errors";
 import { objectIdSchema } from "@/validators/common";
-import { DELIVERY_METHODS } from "@/lib/db/enums";
 import {
   confirmUploadSchema,
   uploadTicketRequestSchema,
   versionFormSchema,
 } from "@/validators/product-version";
-import { richTextDocumentSchema, type RichTextDocument } from "@/lib/rich-text/schema";
+import { richTextFromForm, type RichTextDocument } from "@/lib/rich-text/schema";
 import { vendorActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
 import * as fileService from "@/services/catalog/file-service";
@@ -88,10 +87,40 @@ export async function createVendorVersionAction(
 
     const raw = parseNestedFormData(formData);
     const input = parseInput(versionFormSchema, raw);
-    const notes = parseNotes(raw.releaseNotes);
+
+    const notes = readNotes(raw.releaseNotes);
+    if (!notes.ok) {
+      return fail(notes.message, {
+        code: "VALIDATION",
+        fieldErrors: { releaseNotes: [notes.message] },
+      });
+    }
+
+    /*
+     * The delivery method first, then the version.
+     *
+     * Both come from one form now (see `NewVersionForm`), and the order matters:
+     * `releaseVersion` reads `deliveryMethod` to decide which artefact gate applies,
+     * so a version created before its method was recorded would be judged against
+     * the old one. Not a transaction — `saveSection` and `createVersion` are separate
+     * writes — and it does not need to be: the worst interleaving leaves a product
+     * whose method is set and whose version is not, which is the state the vendor
+     * was in a moment earlier anyway.
+     */
+    const { method, ...versionInput } = input;
+    if (method) {
+      const { saveSection } = await import("@/services/catalog/product-service");
+      await saveSection(
+        versionInput.productId,
+        "delivery",
+        { deliveryMethod: method },
+        vendorActor(context.user, context.vendorId),
+        { vendorId: context.vendorId },
+      );
+    }
 
     const version = await versionService.createVersion(
-      { ...input, ...(notes ? { releaseNotes: notes } : {}) },
+      { ...versionInput, ...(notes.notes ? { releaseNotes: notes.notes } : {}) },
       vendorActor(context.user, context.vendorId),
       { vendorId: context.vendorId },
     );
@@ -112,7 +141,14 @@ export async function updateVendorVersionAction(
 
     const raw = parseNestedFormData(formData);
     const { productId, versionId } = parseInput(versionTarget, raw);
-    const notes = parseNotes(raw.releaseNotes);
+
+    const notes = readNotes(raw.releaseNotes);
+    if (!notes.ok) {
+      return fail(notes.message, {
+        code: "VALIDATION",
+        fieldErrors: { releaseNotes: [notes.message] },
+      });
+    }
 
     await versionService.updateVersion(
       versionId,
@@ -121,7 +157,7 @@ export async function updateVendorVersionAction(
         ...(typeof raw.minimumRequirements === "string"
           ? { minimumRequirements: raw.minimumRequirements }
           : {}),
-        ...(notes ? { releaseNotes: notes } : {}),
+        ...(notes.notes ? { releaseNotes: notes.notes } : {}),
       },
       vendorActor(context.user, context.vendorId),
       { vendorId: context.vendorId },
@@ -211,42 +247,6 @@ export async function deleteVendorVersionAction(
     refresh(productId);
 
     return ok({ deleted: true as const });
-  });
-}
-
-/**
- * Choose how this product's bytes reach us — vendor ticket 06.
- *
- * A field on the product rather than a per-version choice, because it describes the
- * vendor's build pipeline rather than one release. Switching needs no migration: every
- * already-released version keeps its stored `ProductFile`, and the customer's download
- * path was never coupled to the method in the first place.
- */
-export async function setDeliveryMethodAction(
-  _previous: ActionResult<unknown> | null,
-  formData: FormData,
-): Promise<ActionResult<{ saved: true }>> {
-  return withAction(async () => {
-    const context = await activeVendor();
-
-    const { productId, method } = parseInput(
-      z.object({ productId: objectIdSchema, method: z.enum(DELIVERY_METHODS) }),
-      parseNestedFormData(formData),
-    );
-
-    const { saveSection } = await import("@/services/catalog/product-service");
-    await saveSection(
-      productId,
-      "delivery",
-      { deliveryMethod: method },
-      vendorActor(context.user, context.vendorId),
-      { vendorId: context.vendorId },
-    );
-
-    catalogChanged();
-    refresh(productId);
-
-    return ok({ saved: true as const });
   });
 }
 
@@ -458,12 +458,23 @@ export async function vendorDownloadUrlAction(
   });
 }
 
-/** The rich-text tree arrives as JSON in a hidden field. */
-function parseNotes(value: unknown): RichTextDocument | undefined {
-  if (typeof value !== "string" || value.trim() === "") return undefined;
-  try {
-    return richTextDocumentSchema.parse(JSON.parse(value));
-  } catch {
-    return undefined;
-  }
+/**
+ * The release notes, from the editor's hidden JSON field.
+ *
+ * One line, because `richTextFromForm` is the decoder — this only decides what a
+ * failure means here. Two private copies of a `JSON.parse` wrapper used to live in
+ * this file and its twin, and both **dropped** unreadable input to `undefined`
+ * while one of them carried a comment claiming it refused. `undefined` is how you
+ * say "no notes", so dropping meant a corrupted payload silently erased notes that
+ * were fine.
+ */
+function readNotes(
+  value: unknown,
+): { ok: true; notes: RichTextDocument | undefined } | { ok: false; message: string } {
+  const parsed = richTextFromForm.safeParse(value);
+  if (parsed.success) return { ok: true, notes: parsed.data };
+  return {
+    ok: false,
+    message: parsed.error.issues[0]?.message ?? "Those release notes could not be read.",
+  };
 }

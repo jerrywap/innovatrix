@@ -459,3 +459,50 @@ describe("queryKey", () => {
     }
   });
 });
+
+describe("CARD_PROJECTION — the card image is a still, never a video", () => {
+  /**
+   * The projection used to be `$slice: ["$media", 1]` — document order, one
+   * element, `kind` not projected — so a product whose video sat first handed its
+   * `.mp4` to `next/image`. `scripts/seed.ts` parks its video last to dodge
+   * exactly this and names it as a bug waiting for its own diff. Vendors can now
+   * add a video, so it is due.
+   *
+   * Asserted on the projection's *shape* because that is what this suite can
+   * reach: `$filter` on `kind` must run before `$slice`, or the slice picks the
+   * wrong element before anything has been filtered.
+   */
+  /*
+   * Read off the built pipeline rather than the projection constant, which is not
+   * exported — and should not be widened for a test's convenience. This asserts
+   * the stage Mongo actually receives.
+   */
+  const mediaStage = () => {
+    // `counts: false` flattens the rows branch out of `$facet`, so `$project` is a
+    // top-level stage — the same projection either way.
+    const stages = buildMarketplacePipeline(base, { counts: false }) as Array<
+      Record<string, unknown>
+    >;
+    const project = stages.find((stage) => "$project" in stage)?.$project as
+      Record<string, unknown> | undefined;
+    return project?.media as
+      { $slice?: [{ $filter?: { cond?: unknown } }, number] } | undefined;
+  };
+
+  it("filters to screenshots before slicing", () => {
+    const media = mediaStage();
+    expect(media?.$slice, "the card still projects one media entry").toBeDefined();
+
+    const [input, count] = media!.$slice!;
+    expect(count).toBe(1);
+    expect(
+      input.$filter,
+      "the slice must run on a filtered list, not on document order",
+    ).toBeDefined();
+    expect(JSON.stringify(input.$filter?.cond)).toContain("screenshot");
+  });
+
+  it("projects kind, so the mapper can be explicit rather than trusting the filter", () => {
+    expect(JSON.stringify(mediaStage())).toContain("$$item.kind");
+  });
+});

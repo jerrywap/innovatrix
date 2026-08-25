@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { Gift } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -10,10 +12,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
-import { MoneyInput } from "./money-input";
+import { MoneyInput, toDecimalString } from "./money-input";
 import { Repeater } from "./repeater";
 import { savePricingAction } from "../actions";
 import { STOREFRONT_CURRENCIES, type StorefrontCurrency } from "@/config/storefront";
+import { CURRENCIES } from "@/lib/money";
 import { SLUG_INPUT_ATTRS } from "@/validators/common";
 import { ADDON_PRICING_TYPES, LICENCE_TYPES } from "@/lib/db/enums";
 import type {
@@ -58,19 +61,31 @@ export function PricingForm({
 }) {
   return (
     <SectionForm action={action} productId={product.id} nextHref={nextHref}>
-      <FieldGroup title="Price" description="Set each currency price.">
-        <PriceMatrix name="prices" prices={product.prices} context="product" />
-      </FieldGroup>
-
+      {/*
+        There is no product-level price input any more.
+        
+        There were two independent price stores and nothing reconciled them:
+        `readiness.ts` states it outright — "the marketplace advertises from
+        `product.prices`; the cart charges from `licencePackages[].prices`" — and
+        the licence package always won, because `product.prices` never became
+        money. No cart line, no order line, no payment reads it.
+        
+        Asking for the same number twice is how a vendor ends up with a listing
+        that advertises £299 and a basket that refuses. `product.prices` is now
+        **derived** from the cheapest package in `PRICING_SECTION.toUpdate`, so the
+        two cannot disagree by construction — which also retires the
+        `unbuyable_currency` publish gate that existed only to police the gap.
+      */}
       <FieldGroup
         title="Licence packages"
-        description="What a customer actually buys. At least one is needed before publishing — without it there is nothing to add to a cart."
+        description="What a customer actually buys, and what they are charged. The marketplace advertises your cheapest package."
       >
         <Repeater
           initial={product.licencePackages}
           blank={blankPackage}
-          addLabel="Add a licence package"
-          emptyLabel="No packages yet. A published product needs at least one."
+          addLabel="Add another package"
+          min={1}
+          minLabel="A product needs at least one package — this is the only thing a customer can buy."
           max={12}
           row={(pkg, index) => <LicencePackageRow pkg={pkg} index={index} />}
         />
@@ -97,34 +112,39 @@ export function PricingForm({
  * What a blank means, per place this control appears.
  *
  * One sentence was shown at all four call sites, and it was only true at one of
- * them: *"Leave a currency blank to not sell in it. The marketplace shows 'price
- * on request' rather than a zero."* On a **licence package** row a blank does not
- * mean "not sold" — it means the package is unbuyable in that currency and
- * publishing is refused (`unbuyable_currency`). On an **add-on** row a blank is
- * how a quote-required service is expressed, so "not sold in it" reads as the
- * opposite of what it does. It also never mentioned Free, which is what a zero
- * actually renders as, and it was the one place the phrase was lowercase while
- * every customer-facing surface capitalises it.
+ * them. Keeping the copy here, keyed, is what makes it impossible to show the
+ * wrong one: the `context` prop below has **no default**, so the compiler names
+ * every call site the day a fifth is added.
  *
- * Keeping the copy here, keyed, is what makes it impossible to show the wrong
- * one: the `context` prop below has **no default**, so the compiler names every
- * call site the day a fifth is added. A default is how one sentence stayed wrong
- * in three places.
+ * ## The `product` entry used to be a lie
+ *
+ * It said *"If you want to list this product as 'Free', then leave the price
+ * blank."* In this codebase a blank produces **no price row** (`priceMapSchema`
+ * skips it), and every renderer reads a missing row as **"Price on request"** —
+ * `card-mapper`, `product-card`, `purchase-panel` all agree — while `FreeBadge`
+ * fires only on `amount === 0`. So following that instruction produced the
+ * opposite of what it promised, and the form refused to save besides.
+ *
+ * Free is now a **button**, not the absence of a value, and every entry below
+ * says the same thing about a blank: it withdraws the currency.
  */
 const BLANK_MEANS = {
   product: (
-    <>If you want to list this product as &ldquo;Free&rdquo;, then leave the price blank.</>
+    <>
+      Leave a currency blank to not sell in it — the marketplace shows &ldquo;Price on
+      request&rdquo;. For a free product use the button above, which writes a zero.
+    </>
   ),
   licencePackage: (
     <>
-      Every currency you sell the product in needs an amount here, or this package shows as
-      &ldquo;On request&rdquo; and cannot be published. A zero shows as &ldquo;Free&rdquo;.
+      Every currency you sell in needs an amount here, or this package shows as &ldquo;On
+      request&rdquo; and cannot be bought. Use the button above to make it free.
     </>
   ),
   addon: (
     <>
-      Leave every currency blank for a quote-required service. Any amount here makes it buyable,
-      and a zero makes it a free extra.
+      Leave every currency blank for a quote-required service. Any amount makes it buyable, and
+      the button above makes it a free extra.
     </>
   ),
 } satisfies Record<string, React.ReactNode>;
@@ -148,16 +168,67 @@ export function PriceMatrix({
   /** Required, undefaulted — see `BLANK_MEANS`. */
   context: PriceMatrixContext;
 }) {
-  const byCurrency = new Map(prices.map((price) => [price.currency, price.amount]));
+  /*
+   * The values live here, not in each `MoneyInput`, so "Mark as free" can write
+   * every currency at once. Seeded from what is stored; a decimal string per
+   * currency, because that is what the input posts and what `fromDecimal` expects.
+   */
+  const [amounts, setAmounts] = useState<Record<string, string>>(() => {
+    const byCurrency = new Map(prices.map((price) => [price.currency, price.amount]));
+    return Object.fromEntries(
+      STOREFRONT_CURRENCIES.map((currency) => {
+        const amount = byCurrency.get(currency);
+        const exponent = CURRENCIES[currency as StorefrontCurrency].exponent;
+        return [currency, amount === undefined ? "" : toDecimalString(amount, exponent)];
+      }),
+    );
+  });
+
+  const setEvery = (next: (currency: string) => string) =>
+    setAmounts(Object.fromEntries(STOREFRONT_CURRENCIES.map((c) => [c, next(c)])));
+
+  const isFree =
+    STOREFRONT_CURRENCIES.every((c) => Number(amounts[c] ?? "") === 0) &&
+    STOREFRONT_CURRENCIES.every((c) => (amounts[c] ?? "").trim() !== "");
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2.5">
+      {/*
+        Free is a button because it is a *decision*, not a number somebody happens
+        to type — and because the instruction it replaces ("leave the price blank")
+        was false. A zero in every currency is what the storefront reads as free;
+        `FreeBadge` fires on `amount === 0` and on nothing else.
+
+        `aria-pressed` rather than a checkbox: it sets three fields and is not
+        itself a field, so there is nothing for a checkbox to submit.
+      */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-pressed={isFree}
+          onClick={() =>
+            isFree
+              ? setEvery(() => "")
+              : setEvery((c) => (0).toFixed(CURRENCIES[c as StorefrontCurrency].exponent))
+          }
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition ${
+            isFree
+              ? "border-[var(--signal)] text-[var(--signal-text)]"
+              : "border-border hover:bg-surface-muted text-muted-foreground"
+          }`}
+        >
+          <Gift className="size-3" aria-hidden />
+          {isFree ? "Free — click to set a price" : "Mark as free"}
+        </button>
+      </div>
+
       {STOREFRONT_CURRENCIES.map((currency) => (
         <MoneyInput
           key={currency}
           name={`${name}[${currency}]`}
           currency={currency as StorefrontCurrency}
-          defaultAmount={byCurrency.get(currency)}
+          value={amounts[currency] ?? ""}
+          onValueChange={(next) => setAmounts((current) => ({ ...current, [currency]: next }))}
         />
       ))}
       <p className="text-subtle text-[12.5px]">{BLANK_MEANS[context]}</p>
@@ -199,6 +270,26 @@ function LicencePackageRow({ pkg, index }: { pkg: LicencePackageView; index: num
           />
         </label>
       </div>
+
+      {/*
+        The description had a schema field, a stored value, and two readers —
+        `AdminProductView` and the public `detail` DTO — and no input anywhere. So it
+        was permanently blank on every product, and the purchase panel showed a
+        package name with nothing under it. Added rather than deleted: the readers
+        exist and a tier is exactly the thing that needs a sentence.
+      */}
+      <label className="flex flex-col gap-1">
+        <span className="text-[12.5px] font-medium">
+          What this includes <span className="text-subtle font-normal">— optional</span>
+        </span>
+        <Textarea
+          name={`licencePackages[${index}][description]`}
+          defaultValue={pkg.description ?? ""}
+          rows={2}
+          maxLength={400}
+          placeholder="One production site, twelve months of updates and email support."
+        />
+      </label>
 
       <label className="flex flex-col gap-1">
         <span className="text-[12.5px] font-medium">Licence type</span>

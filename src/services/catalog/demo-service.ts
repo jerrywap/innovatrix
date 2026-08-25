@@ -45,7 +45,6 @@ export interface PublicDemoView {
   exposure: DemoExposure;
   publicUrl?: string;
   instructions?: string;
-  resetSchedule?: string;
   /**
    * Roles only. No `username`, no `password`, and deliberately no `url` —
    * `customerUrl` and `adminUrl` are themselves part of what `owners_only`
@@ -66,7 +65,6 @@ export function publicDemoView(product: ProductDoc): PublicDemoView {
     exposure: demo?.exposure ?? "authenticated",
     ...(demo?.publicUrl ? { publicUrl: demo.publicUrl } : {}),
     ...(demo?.instructions ? { instructions: demo.instructions } : {}),
-    ...(demo?.resetSchedule ? { resetSchedule: demo.resetSchedule } : {}),
     roles: credentials.map((credential) => ({
       role: credential.role,
       ...(credential.label ? { label: credential.label } : {}),
@@ -266,7 +264,6 @@ export interface SaveDemoInput {
   customerUrl?: string;
   adminUrl?: string;
   instructions?: string;
-  resetSchedule?: string;
   credentials: DemoCredentialInput[];
 }
 
@@ -335,7 +332,6 @@ export async function saveDemo(
     "demo.customerUrl": input.customerUrl,
     "demo.adminUrl": input.adminUrl,
     "demo.instructions": input.instructions,
-    "demo.resetSchedule": input.resetSchedule,
   });
 
   const saved = await products.updateById(productId, {

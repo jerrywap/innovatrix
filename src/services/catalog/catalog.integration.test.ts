@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi, inject } from "vitest";
-import { DEFAULT_TESTING_CHECKLIST } from "./readiness";
 import { VALID_ENV } from "@/test/env";
 
 /**
@@ -111,17 +110,13 @@ async function makeAlmostPublishable(id: string) {
           { key: "standard", name: "Standard", prices: [{ currency: "GBP", amount: 29_900 }] },
         ],
         media: [{ kind: "screenshot", url: "https://example.test/a.png", sortOrder: 0 }],
-        testingChecklist: DEFAULT_TESTING_CHECKLIST.map((item) => ({
-          item,
-          status: "pass",
-        })),
       },
     },
   );
 }
 
-async function walkTo(id: string, target: "internal_review" | "testing" | "ready") {
-  const path = ["internal_review", "testing", "ready"] as const;
+async function walkTo(id: string, target: "internal_review" | "ready") {
+  const path = ["internal_review", "ready"] as const;
   for (const step of path) {
     await catalog.transition(id, step, ACTOR);
     if (step === target) return;
@@ -201,69 +196,24 @@ describe("transitions", () => {
   it("names every specific gap when a legal publish is incomplete", async () => {
     const product = await draft();
     const id = String(product._id);
-    await models.Product.updateOne(
-      { _id: id },
-      {
-        $set: {
-          testingChecklist: DEFAULT_TESTING_CHECKLIST.map((item) => ({
-            item,
-            status: "pass",
-          })),
-        },
-      },
-    );
     await walkTo(id, "ready");
 
+    /*
+     * `no_licence_package` is deliberately absent.
+     *
+     * `createDraft` seeds a "Lifetime access" package, so a fresh draft always has
+     * one — the gap now only fires for a document written before that, which is why
+     * it is kept as a publish-time backstop rather than deleted. `no_price` still
+     * fires, because the seeded package carries no amount: the platform will not
+     * invent a price the vendor never chose.
+     */
     await expect(catalog.transition(id, "published", ACTOR)).rejects.toMatchObject({
       fieldErrors: {
         no_price: expect.any(Array),
-        no_licence_package: expect.any(Array),
         no_screenshot: expect.any(Array),
         no_description: expect.any(Array),
         no_released_version: expect.any(Array),
       },
-    });
-  });
-
-  it("blocks entry to ready until the §47 checklist is settled", async () => {
-    const product = await draft();
-    const id = String(product._id);
-    await walkTo(id, "testing");
-
-    await expect(catalog.transition(id, "ready", ACTOR)).rejects.toMatchObject({
-      fieldErrors: { testing_incomplete: expect.any(Array) },
-    });
-
-    // `na` without a note is clicking through, and does not settle it.
-    await models.Product.updateOne(
-      { _id: id },
-      {
-        $set: {
-          testingChecklist: DEFAULT_TESTING_CHECKLIST.map((item) => ({
-            item,
-            status: "na",
-          })),
-        },
-      },
-    );
-    await expect(catalog.transition(id, "ready", ACTOR)).rejects.toMatchObject({
-      fieldErrors: { testing_incomplete: expect.any(Array) },
-    });
-
-    await models.Product.updateOne(
-      { _id: id },
-      {
-        $set: {
-          testingChecklist: DEFAULT_TESTING_CHECKLIST.map((item) => ({
-            item,
-            status: "na",
-            notes: "Not applicable — no payment integration.",
-          })),
-        },
-      },
-    );
-    await expect(catalog.transition(id, "ready", ACTOR)).resolves.toMatchObject({
-      status: "ready",
     });
   });
 
@@ -305,7 +255,9 @@ describe("transitions", () => {
     // would still leave the product published — and the audit trail would
     // claim two people published it.
     const changes = (await auditActions(id)).filter((a) => a === "product.status_changed");
-    expect(changes).toHaveLength(4); // review, testing, ready, published
+    // review, ready, published. Three, not four: the `testing` stage between
+    // `internal_review` and `ready` is gone, along with its checklist.
+    expect(changes).toHaveLength(3);
 
     const publishRows = await auditModel.AuditLog.find({
       subjectId: new mongoose.Types.ObjectId(id),
@@ -492,7 +444,10 @@ describe("audit trail", () => {
     const product = await draft();
     const id = String(product._id);
     await catalog.saveSection(id, "basics", { summary: "Reworded." }, ACTOR);
-    await walkTo(id, "testing");
+    // To `ready`, which is two hops — the test is about *every* transition being
+    // audited, and one hop would not distinguish "audits transitions" from "audits
+    // the first one". It used to walk to `testing`, which was also two.
+    await walkTo(id, "ready");
 
     expect(await auditActions(id)).toEqual([
       "product.created",
@@ -558,7 +513,6 @@ describe("the catalogue predicate against real documents", () => {
       prices: [{ currency: "GBP", amount: 1000 }],
       licencePackages: [],
       media: [],
-      testingChecklist: [],
       categoryIds: [],
       industryIds: [],
       technologyIds: [],
