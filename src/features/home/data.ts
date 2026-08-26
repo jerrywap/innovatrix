@@ -165,3 +165,16 @@ export const VENDOR_FAMILIES = [
   "Website templates",
   "Plugins & add-ons",
 ] as const;
+
+/**
+ * The filter panel behind the hero search — how much of the taxonomy it shows.
+ *
+ * A launcher, not the rail. `/marketplace`'s own `FilterRail` is 1,300–1,900px
+ * tall, which is why its mobile drawer is a scrollable sheet; a dropdown hanging
+ * off a search field wants a dozen chips and a way through to the full thing.
+ *
+ * Eight is what fits two columns without the panel needing to scroll at common
+ * widths, and the terms come from the live taxonomy — so a chip can never name a
+ * shelf the catalogue has nothing on.
+ */
+export const PANEL_TERMS_PER_DIMENSION = 8;

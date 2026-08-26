@@ -1,4 +1,4 @@
-import { Band, SectionHead } from "./band";
+import { Band, SectionHead } from "@/components/band";
 import { SERVICES } from "../data";
 
 /**

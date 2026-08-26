@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Check } from "lucide-react";
-import { Band, Eyebrow } from "./band";
+import { Band, Eyebrow } from "@/components/band";
 import { CUSTOM_BUILD_PROMISES } from "../data";
 
 /**

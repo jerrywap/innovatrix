@@ -7,6 +7,8 @@ import { SearchBox } from "@/features/marketplace/components/search-box";
 import { getPublishedProductCount, getTaxonomyIndex } from "@/services/marketplace";
 import { DEFAULT_CURRENCY } from "@/config/storefront";
 import { HERO_CHIPS, HERO_MEDIA, HERO_PATHS } from "../data";
+import { HeroFilters } from "./hero-filters";
+import { HeroSearch } from "./hero-search";
 import { HeroSurface } from "./hero-surface";
 
 /**
@@ -197,20 +199,39 @@ export function Hero() {
 
             <div className="mt-8 max-w-[560px]">
               {/*
-                `SearchBox` reads `useSearchParams()`, which opts the whole route
-                out of prerendering unless it is behind a boundary — the build
-                prints `ƒ /` instead of `◐ /` the moment this wrapper goes. The
-                fallback reserves the control's height so the chips below do not
-                jump when it hydrates.
+                The search is persistent — `HeroSearch` docks it under the nav once
+                the hero scrolls past and returns it here when the hero comes back.
+
+                That is a departure from the note above about scroll coupling, and
+                the distinction is worth stating: the *media* is still static and
+                parallax is still refused. What moves is one control, between two
+                discrete states, which is a different thing from motion driven
+                continuously by scroll position — and it docks instantly under
+                `prefers-reduced-motion` rather than sliding.
+
+                `SearchBox` stays inside its own `<Suspense>` because it reads
+                `useSearchParams()`, which opts the whole route out of prerendering
+                otherwise — the build prints `ƒ /` instead of `◐ /` the moment that
+                boundary goes. The fallback reserves the control's height so the
+                chips below do not jump when it hydrates. The filter panel gets a
+                second boundary for the same reason: it reads the taxonomy.
               */}
-              <Suspense fallback={<div className="h-[52px]" />}>
-                <SearchBox
-                  basePath="/marketplace"
-                  mode="navigate"
-                  inputId="hero-search"
-                  placeholder="Search apps, scripts, templates…"
-                />
-              </Suspense>
+              <HeroSearch
+                panel={
+                  <Suspense fallback={<div className="h-40" />}>
+                    <HeroFilters />
+                  </Suspense>
+                }
+              >
+                <Suspense fallback={<div className="h-[52px]" />}>
+                  <SearchBox
+                    basePath="/marketplace"
+                    mode="navigate"
+                    inputId="hero-search"
+                    placeholder="Search apps, scripts, templates…"
+                  />
+                </Suspense>
+              </HeroSearch>
 
               <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
                 {HERO_CHIPS.map((chip) => (

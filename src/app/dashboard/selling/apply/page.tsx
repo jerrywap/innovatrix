@@ -6,6 +6,8 @@ import { requireUser, requireVendorOrNull } from "@/lib/auth/dal";
 import { VENDOR_AGREEMENT_VERSION } from "@/services/vendors/vendor-service";
 import { ApplyForm } from "@/features/vendors/components/apply-form";
 import { ResendVerification } from "@/features/auth/components/resend-verification";
+import { ApplyAside } from "@/features/vendors/components/apply-aside";
+import { STEPS } from "@/features/vendors/sell-data";
 
 export const metadata: Metadata = { title: "Sell on CoSetup" };
 
@@ -52,7 +54,7 @@ export default async function Page() {
           breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Sell" }]}
         />
 
-        <div className="border-border flex flex-col gap-3 rounded-xl border p-5">
+        <div className="border-border bg-surface flex flex-col gap-3 rounded-[22px] border p-5 lg:p-6">
           <p className="text-[13.5px] leading-relaxed">
             We sent a link to <span className="font-mono text-[13px]">{user.email}</span>.
             Confirming it is what lets us record your acceptance of the vendor agreement against
@@ -76,14 +78,73 @@ export default async function Page() {
   if (existing) redirect("/dashboard/selling");
 
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
+    <div className="flex w-full max-w-[1040px] flex-col gap-7">
       <PageHeader
         title="Sell on CoSetup"
         description="Tell us who you are and what you build. Somebody reads every application."
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Sell" }]}
+        // `PageHeader`'s unused slot, earning its keep: applying is step one of four,
+        // and saying so is the difference between a form and a form with a horizon.
+        actions={
+          <span className="border-border bg-surface-muted/60 text-muted-foreground rounded-full border px-3 py-1.5 font-mono text-[10px] tracking-[0.14em] uppercase">
+            Step 1 of 4
+          </span>
+        }
       />
 
-      <ApplyForm defaultEmail={user.email} agreementVersion={VENDOR_AGREEMENT_VERSION} />
+      {/*
+        The journey, above the form.
+        
+        The same four steps `/sell` sets out, from the same constant so the two
+        cannot drift — a signed-in applicant who came straight here via the nav has
+        not seen that page, and this is the context the nav item promises they get.
+      */}
+      <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {STEPS.map((step, index) => (
+          <li
+            key={step.title}
+            className={
+              index === 0
+                ? "border-signal/40 bg-signal-soft/50 flex items-center gap-2.5 rounded-xl border px-3.5 py-3"
+                : "border-border bg-surface-muted/30 flex items-center gap-2.5 rounded-xl border px-3.5 py-3"
+            }
+          >
+            <span
+              className={
+                index === 0
+                  ? "text-signal-text font-mono text-[10px] tabular-nums"
+                  : "text-subtle font-mono text-[10px] tabular-nums"
+              }
+            >
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span
+              className={
+                index === 0 ? "text-[13px] font-medium" : "text-muted-foreground text-[13px]"
+              }
+            >
+              {step.title}
+            </span>
+          </li>
+        ))}
+      </ol>
+
+      <div className="grid gap-6 lg:grid-cols-12 lg:gap-8">
+        {/*
+          The form, in a card. Untouched inside — seven field names, the Zod schema,
+          `SectionForm`'s manual dispatch, the native country select and the
+          agreement gate's hidden input all behave exactly as before. Only the box
+          around it is new.
+        */}
+        <div className="border-border bg-surface rounded-[22px] border p-5 lg:col-span-7 lg:p-7">
+          <ApplyForm defaultEmail={user.email} agreementVersion={VENDOR_AGREEMENT_VERSION} />
+        </div>
+
+        {/* After the form in DOM order, so it reads last on a phone. */}
+        <div className="lg:col-span-5">
+          <ApplyAside />
+        </div>
+      </div>
     </div>
   );
 }

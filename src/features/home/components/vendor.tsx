@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Band } from "./band";
+import { Band } from "@/components/band";
 import { VENDOR_FAMILIES } from "../data";
 
 /**

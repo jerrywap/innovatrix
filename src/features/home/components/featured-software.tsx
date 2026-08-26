@@ -3,7 +3,7 @@ import type { Route } from "next";
 import { ProductCardTile } from "@/features/marketplace/components/product-card";
 import { getRail, getTaxonomyIndex } from "@/services/marketplace";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
-import { Band, SectionHead } from "./band";
+import { Band, SectionHead } from "@/components/band";
 
 /**
  * "Ready-to-use applications & scripts" — the marketplace, made tangible.

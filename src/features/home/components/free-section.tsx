@@ -5,7 +5,7 @@ import { FreeBadge } from "@/components/free-badge";
 import { ProductCardTile } from "@/features/marketplace/components/product-card";
 import { searchMarketplaceRows } from "@/services/marketplace";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
-import { Band, SectionHead } from "./band";
+import { Band, SectionHead } from "@/components/band";
 
 /**
  * "Start with something free."

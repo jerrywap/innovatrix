@@ -1,7 +1,7 @@
 import { ProductCardTile } from "@/features/marketplace/components/product-card";
 import { getRail } from "@/services/marketplace";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
-import { Band, SectionHead } from "./band";
+import { Band, SectionHead } from "@/components/band";
 
 /**
  * "Build your website faster" — the template catalogue, which had no band at all.
