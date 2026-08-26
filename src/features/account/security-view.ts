@@ -1,18 +1,42 @@
 import "server-only";
 import { headers } from "next/headers";
 import { getAuth } from "@/lib/auth/auth";
+import { toObjectId } from "@/lib/db/base";
+import { connectToDatabase } from "@/lib/db/client";
+import { Account, Session } from "@/lib/db/models/identity";
 import { formatDateTime } from "@/lib/dates";
 
 /**
  * What the security tab reads — sessions, sign-in methods, and recent sign-ins.
  *
- * ## Everything goes through Better Auth's server API, not the collections
+ * ## Both reads go to the collections, not to Better Auth's HTTP surface
  *
- * `sessions` and `accounts` are Better Auth's tables. It is documented in this
- * codebase as their only writer, and reading them directly would make this the
- * only place that knows their shape — including the parts it manages itself, like
- * which session the current cookie belongs to. `auth.api.listSessions` already
- * answers that; a Mongo query would have to reimplement it from the cookie.
+ * Not a stylistic split. **`/list-sessions` requires a *fresh* session.** Better
+ * Auth guards it with `sensitiveSessionMiddleware`, which compares
+ * `session.createdAt` against `freshAge` — one day by default. `updateAge`
+ * refreshes `expiresAt` and `updatedAt` but never `createdAt`, so a session older
+ * than a day can never become fresh again without signing in.
+ *
+ * The first version of this called `auth.api.listSessions`, and the consequence
+ * was that anybody signed in for more than a day loaded this page and watched it
+ * crash: the shell and two panels streamed, then this read threw
+ * `SESSION_NOT_FRESH` inside its own boundary. A screen whose purpose is telling
+ * somebody where they are signed in must not be unreachable to the people most
+ * likely to need it.
+ *
+ * So sessions are read from the `sessions` collection, scoped by `userId` like
+ * every other read here, and only the *current token* comes from
+ * `auth.api.getSession`, which is not guarded. Freshness is the right requirement
+ * for revoking a session and the wrong one for listing them.
+ *
+ * `accounts` is read the same way, for consistency rather than necessity —
+ * `/list-accounts` is not guarded today. But the two reads sit side by side on one
+ * screen, and one of them being one Better Auth release away from taking the page
+ * down is not a distinction worth keeping. Only `providerId` is selected; the
+ * tokens and the password hash are `select: false` on the schema anyway.
+ *
+ * Better Auth remains the only **writer** of both collections. Nothing here
+ * writes to either.
  *
  * ## `lastActiveAt` is not used, and that is deliberate
  *
@@ -36,26 +60,44 @@ export interface SessionRow {
   current: boolean;
 }
 
+/** §94 — no unbounded reads. Somebody with fifty stale sessions gets the recent ones. */
+const MAX_SESSIONS = 20;
+
 export async function activeSessions(): Promise<SessionRow[]> {
-  const requestHeaders = await headers();
-  const auth = getAuth();
+  const current = await getAuth().api.getSession({ headers: await headers() });
+  if (!current) return [];
 
-  const [sessions, current] = await Promise.all([
-    auth.api.listSessions({ headers: requestHeaders }),
-    auth.api.getSession({ headers: requestHeaders }),
-  ]);
+  await connectToDatabase();
 
-  const currentToken = current?.session.token;
+  const rows = await Session.find({
+    userId: toObjectId(current.user.id),
+    // The TTL index removes expired rows, but only on its own sweep — so an
+    // expired session can still be sitting there, and listing one as somewhere
+    // you are signed in would be wrong.
+    expiresAt: { $gt: new Date() },
+  })
+    .select({ token: 1, ipAddress: 1, userAgent: 1, createdAt: 1, updatedAt: 1 })
+    .sort({ updatedAt: -1 })
+    .limit(MAX_SESSIONS)
+    .lean<
+      Array<{
+        token: string;
+        ipAddress?: string | null;
+        userAgent?: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+      }>
+    >();
 
   return (
-    (sessions ?? [])
+    rows
       .map((session) => ({
         token: session.token,
         device: describeDevice(session.userAgent ?? undefined),
         ...(session.ipAddress ? { ip: session.ipAddress } : {}),
         signedInAt: formatDateTime(session.createdAt),
         lastUsedAt: formatDateTime(session.updatedAt),
-        current: session.token === currentToken,
+        current: session.token === current.session.token,
       }))
       // The current one first — it is the row a reader checks against before
       // deciding any of the others are suspicious.
@@ -71,13 +113,23 @@ export interface SignInMethods {
 }
 
 export async function signInMethods(): Promise<SignInMethods> {
-  const accounts = await getAuth().api.listUserAccounts({ headers: await headers() });
+  const current = await getAuth().api.getSession({ headers: await headers() });
+  if (!current) return { hasPassword: false, providers: [] };
 
-  const providers = (accounts ?? []).map((account) => account.providerId);
+  await connectToDatabase();
+
+  const rows = await Account.find({ userId: toObjectId(current.user.id) })
+    // `providerId` and nothing else. Tokens and the password hash are
+    // `select: false` on the schema, and naming the one field we want means a
+    // future column cannot arrive here by accident.
+    .select({ providerId: 1 })
+    .lean<Array<{ providerId: string }>>();
+
+  const providers = rows.map((row) => row.providerId);
 
   return {
     hasPassword: providers.includes("credential"),
-    providers: providers.filter((provider) => provider !== "credential"),
+    providers: [...new Set(providers.filter((provider) => provider !== "credential"))],
   };
 }
 

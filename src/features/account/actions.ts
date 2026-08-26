@@ -409,10 +409,35 @@ function authFailure(
 ): ActionResult<never> {
   if (!isAPIError(error)) throw error;
 
+  /*
+   * Freshness gets its own message, because the generic one sends the reader in
+   * the wrong direction entirely.
+   *
+   * Better Auth guards some endpoints with `sensitiveSessionMiddleware`, which
+   * compares `session.createdAt` against `freshAge` — one day by default — and
+   * `updateAge` never resets `createdAt`. So the answer is genuinely "sign in
+   * again", and there is nothing wrong with what they typed. Telling somebody
+   * their current password is wrong when their session is simply old is how an
+   * account gets reset for no reason.
+   */
+  if (isStale(error)) {
+    return fail(
+      "For your security we need you to sign in again before changing this. Sign out, " +
+        "sign back in, and it will go through.",
+      { code: "UNAUTHENTICATED" },
+    );
+  }
+
   return fail(options.message, {
     code: "VALIDATION",
     ...(options.field ? { fieldErrors: { [options.field]: [options.message] } } : {}),
   });
+}
+
+/** Better Auth's `SESSION_NOT_FRESH`, whichever endpoint raised it. */
+function isStale(error: unknown): boolean {
+  const body = (error as { body?: { code?: string } }).body;
+  return body?.code === "SESSION_NOT_FRESH";
 }
 
 /* ────────────────────────────────────────────── billing details */
