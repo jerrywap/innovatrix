@@ -106,6 +106,26 @@
   --signal-contrast: #ffffff;
   --signal-soft: rgb(224 82 31 / 0.1);
 
+  /* Semantic states — "this failed" and "this needs watching".
+     Sixty-eight files referenced these before either was declared anywhere, so
+     every failure reason, overdue pill and blocked-payout warning on the
+     platform was resolving to an invalid colour and inheriting whatever sat
+     above it. Declared here, in both themes, which is also what
+     `theme-tokens.test.ts` requires of any literal.
+
+     Held away from `signal` on purpose. The brand colour *is* orange, and
+     `attention.tsx` reserves it — "orange on a dashboard always means 'you'" —
+     so a warning that borrowed the same hue would quietly overload it. These sit
+     at red and at ochre instead.
+
+     Both are used as text *and* at low alpha for tinted borders and grounds, so
+     each is a mid-dark tone in light and a light one in dark, matching the
+     red/emerald pairs `status-badge.tsx` already uses. Measured against the
+     muted surface, which is the hardest ground: danger 5.68 and warning 6.02 in
+     light, 9.05 and 11.92 in dark. */
+  --danger: #b91c1c;
+  --warning: #854d0e;
+
   --ring: rgb(224 82 31 / 0.4);
   --shadow-color: 30 25 20;
 
@@ -198,6 +218,9 @@
   --destructive: oklch(0.66 0.19 25);
   --destructive-foreground: #14130f;
 
+  --danger: #fca5a5;
+  --warning: #fcd34d;
+
   --chart-1: #ff6a3d;
   --chart-2: #d99a5c;
   --chart-3: #9d998f;
@@ -229,6 +252,9 @@
   --color-signal-text: var(--signal-text);
   --color-signal-contrast: var(--signal-contrast);
   --color-signal-soft: var(--signal-soft);
+
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
 
   /* shadcn */
   --color-card: var(--card);

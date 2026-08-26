@@ -787,7 +787,131 @@ export const CATALOG: Catalog = {
       href: (p) => `/marketplace/${p.productSlug}`,
     },
   ],
+
+  /* ── account security ──────────────────────────────────────────────────
+   *
+   * The audience is `customer_owner`, resolved from `context.ownerUserId` — the
+   * account holder and nobody else. Not `organization`: a colleague has no
+   * business being told that somebody rotated their own password.
+   *
+   * All four are `essential` as well as being in the `security` category. The
+   * category alone would be enough today, but the flag is what a reader of this
+   * file sees, and it survives somebody deciding `security` should be optional.
+   *
+   * Each one writes its own email rather than falling back to the generic
+   * notification template, because the generic one ends with "change what we
+   * email you about in your notification settings" and that is precisely the
+   * wrong footnote here — these cannot be turned off, and the sentence that
+   * matters is "if this wasn't you, act now".
+   */
+  PasswordChanged: [
+    {
+      audience: { kind: "customer_owner" },
+      category: "security",
+      essential: true,
+      title: () => "Your password was changed",
+      body: () => "If that wasn't you, reset your password now and sign out everywhere.",
+      href: () => "/dashboard/account/security",
+      email: (_p, { url }) =>
+        securityEmail({
+          subject: "Your CoSetup password was changed",
+          heading: "Your password was changed",
+          detail:
+            "This is a confirmation. Your existing sign-ins may have been ended as part of the change.",
+          url,
+        }),
+    },
+  ],
+
+  PasswordSet: [
+    {
+      audience: { kind: "customer_owner" },
+      category: "security",
+      essential: true,
+      title: () => "A password was added to your account",
+      body: () => "You can now sign in with an email address and password as well.",
+      href: () => "/dashboard/account/security",
+      email: (_p, { url }) =>
+        securityEmail({
+          subject: "A password was added to your CoSetup account",
+          heading: "A password was added to your account",
+          detail:
+            "Until now this account signed in with Google only. Both will work from here.",
+          url,
+        }),
+    },
+  ],
+
+  SocialAccountLinked: [
+    {
+      audience: { kind: "customer_owner" },
+      category: "security",
+      essential: true,
+      title: (p) => `${providerName(p.provider)} was connected to your account`,
+      body: () => "It can now be used to sign in.",
+      href: () => "/dashboard/account/security",
+      email: (p, { url }) =>
+        securityEmail({
+          subject: `${providerName(p.provider)} was connected to your CoSetup account`,
+          heading: `${providerName(p.provider)} was connected`,
+          detail: `Signing in with ${providerName(p.provider)} will now reach this account.`,
+          url,
+        }),
+    },
+  ],
+
+  SocialAccountUnlinked: [
+    {
+      audience: { kind: "customer_owner" },
+      category: "security",
+      essential: true,
+      title: (p) => `${providerName(p.provider)} was disconnected from your account`,
+      body: () => "It can no longer be used to sign in.",
+      href: () => "/dashboard/account/security",
+      email: (p, { url }) =>
+        securityEmail({
+          subject: `${providerName(p.provider)} was disconnected from your CoSetup account`,
+          heading: `${providerName(p.provider)} was disconnected`,
+          detail: `Signing in with ${providerName(p.provider)} will no longer reach this account.`,
+          url,
+        }),
+    },
+  ],
 };
+
+/**
+ * The shared shape of an account-security email.
+ *
+ * One writer for four events, because they differ only in wording and the thing
+ * that must not differ is the last line: what to do if it was not you. Written
+ * out here rather than left to the generic template, whose footnote invites the
+ * reader to change their notification settings — true of most categories and
+ * wrong for this one.
+ */
+function securityEmail(input: {
+  subject: string;
+  heading: string;
+  detail: string;
+  url: string;
+}): WrittenEmail {
+  return {
+    subject: input.subject,
+    preheader: input.detail,
+    greeting: "Hello,",
+    heading: input.heading,
+    body: [input.detail],
+    action: { label: "Review your security settings", url: input.url, showUrl: true },
+    notes: [
+      "If you did not make this change, reset your password immediately and sign out of every device from your security settings.",
+      "You receive this because it concerns your account security. These messages cannot be turned off.",
+    ],
+  };
+}
+
+/** `"google"` reads as machinery in a sentence; `"Google"` reads as a product. */
+function providerName(provider: string): string {
+  return provider === "google" ? "Google" : provider;
+}
 
 /** The rows for one event, typed. Empty when §69 lists nothing for it. */
 export function rulesFor<K extends DomainEventName>(event: K): NotificationRule<K>[] {

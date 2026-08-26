@@ -401,6 +401,20 @@ const orderSchema = new Schema<OrderDoc>(
 orderSchema.index({ organizationId: 1, createdAt: -1 });
 orderSchema.index({ status: 1, createdAt: -1 });
 /**
+ * Revenue, by the date the money arrived.
+ *
+ * `features/reporting/headline.ts` already matches `{ status, paidAt }` and its
+ * comment claims "the index on `(status, paidAt)` serves both" — it did not
+ * exist, so the existing headline figure has been scanning the collection. The
+ * reporting dashboard buckets the same match by month, which turns that scan
+ * into the expensive kind.
+ *
+ * `createdAt` is not a substitute: an order created in one month and paid in the
+ * next belongs to the month it was paid in, and the whole point of §61's frozen
+ * order lines is that revenue is settled money, not intent.
+ */
+orderSchema.index({ status: 1, paidAt: -1 });
+/**
  * Sparse and unique: only orders created through checkout carry a key, and two
  * submissions of the same cart must collide here rather than both inserting.
  */

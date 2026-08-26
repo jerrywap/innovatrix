@@ -1,6 +1,7 @@
 import "server-only";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
+import { ESSENTIAL_CATEGORIES } from "@/lib/notification-categories";
 import type { NotificationCategory, NotificationChannel } from "@/lib/db/enums";
 import {
   Notification,
@@ -50,7 +51,13 @@ import { registerNotificationChannels } from "./drivers";
  * that is normally optional (a licence key sits under `products`) can still
  * carry something that must arrive.
  */
-export const ESSENTIAL_CATEGORIES: readonly NotificationCategory[] = ["billing", "security"];
+/**
+ * Re-exported, not declared. The list is derived from which categories the
+ * settings screen locks (`lib/notification-categories.ts`), so "locked in the
+ * UI" and "ignores preferences" cannot drift apart. Every existing importer
+ * keeps working through this name.
+ */
+export { ESSENTIAL_CATEGORIES };
 
 export interface DispatchResult {
   written: number;

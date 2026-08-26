@@ -474,6 +474,28 @@ export interface DomainEventMap {
     organizationId: string;
     message: string;
   };
+
+  /* ── account security ── */
+
+  /**
+   * Somebody's sign-in changed. Four events rather than one `AccountChanged`,
+   * because the alert has to say *what* happened — "your password was changed"
+   * and "Google was disconnected from your account" call for different actions
+   * from a reader who did not do it.
+   *
+   * `userId` is the account holder and the audience. Deliberately **not** an
+   * `organizationId` event: this concerns a person's credentials, not their
+   * company's work, and telling four colleagues that somebody rotated their
+   * password would be a leak dressed as a notification.
+   *
+   * Emitted after the change has succeeded, never inside it (§92). A "your
+   * password changed" email for a change that then failed is worse than a late
+   * one.
+   */
+  PasswordChanged: { userId: string };
+  PasswordSet: { userId: string };
+  SocialAccountLinked: { userId: string; provider: string };
+  SocialAccountUnlinked: { userId: string; provider: string };
 }
 
 export type DomainEventName = keyof DomainEventMap;
@@ -532,6 +554,10 @@ const EVENT_NAME_SET: Record<DomainEventName, true> = {
   CustomizationRoutedToVendor: true,
   VendorBriefAnswered: true,
   VendorBriefDeclined: true,
+  PasswordChanged: true,
+  PasswordSet: true,
+  SocialAccountLinked: true,
+  SocialAccountUnlinked: true,
 };
 
 export const EVENT_NAMES = Object.keys(EVENT_NAME_SET) as DomainEventName[];

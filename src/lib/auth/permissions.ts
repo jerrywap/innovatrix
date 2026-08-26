@@ -172,6 +172,23 @@ export const PERMISSIONS = [
   "staff.manage",
   "audit.view",
   "system.manage_jobs",
+  /**
+   * Reading the platform's own figures — the analytics dashboards.
+   *
+   * A permission whose only capability is *looking*, which is unusual here: the
+   * rule elsewhere is that an admin screen is gated on the permission its
+   * primary action needs, because gating on a view permission is what once let
+   * `customer_service` into catalogue management. On a reporting screen looking
+   * **is** the primary action, and the alternative is worse in both directions —
+   * gating it on `settings.manage` would hand revenue to whoever administers the
+   * platform, and gating it on the union of every `*.view_all` would mean nobody
+   * short of `super_admin` could open it.
+   *
+   * It grants no drilldown of its own. Every link off a chart lands on a screen
+   * with its own guard, so somebody holding this and nothing else sees the
+   * shapes and gets a 403 on the detail.
+   */
+  "report.view",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -318,6 +335,9 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     // Public, attacker-controlled text on pages we want indexed is a marketplace
     // problem, so moderation sits with whoever owns the catalogue.
     "review.moderate",
+    // Whoever decides what is listed and at what price needs to see what that
+    // decided. The catalogue and demand half of the dashboard is this role's.
+    "report.view",
   ],
 
   finance: [
@@ -349,6 +369,10 @@ export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly Permission[]>
     "payout.view_all",
     "payout.approve",
     "payout.send",
+    // Revenue, outstanding invoices and payment outcomes over time. Finance is
+    // the role that already reconciles every figure on that half of the
+    // dashboard, so it is the role that should be able to see them together.
+    "report.view",
   ],
 
   devops: ["system.manage_jobs", "audit.view", "settings.manage", "product.view_all"],

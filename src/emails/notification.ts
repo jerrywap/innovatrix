@@ -1,5 +1,6 @@
 import type { EmailMessage } from "@/services/email";
 import { BRAND } from "@/config/brand";
+import { categorySubject, isEssentialCategory } from "@/lib/notification-categories";
 import { composeEmail } from "./layout";
 
 /**
@@ -30,22 +31,6 @@ import { composeEmail } from "./layout";
  * permission check on an inbox.
  */
 
-/**
- * Neutral, because one category reaches both audiences.
- *
- * "Your request" read correctly to the customer and absurdly to the staff
- * member whose queue notice arrived saying it — found by running the probe and
- * reading the subject lines, which is the only way to catch a wording bug.
- */
-const CATEGORY_LABEL: Record<string, string> = {
-  requests: "Request",
-  quotes: "Quote",
-  billing: "Billing",
-  products: "Software",
-  messages: "Message",
-  security: "Security",
-};
-
 export function notificationEmail(input: {
   to: string;
   name?: string;
@@ -54,7 +39,7 @@ export function notificationEmail(input: {
   url: string;
   category: string;
 }): EmailMessage {
-  const label = CATEGORY_LABEL[input.category] ?? BRAND.name;
+  const label = categorySubject(input.category) ?? BRAND.name;
 
   return {
     to: input.to,
@@ -69,7 +54,7 @@ export function notificationEmail(input: {
       body: input.body ? [input.body] : [],
       action: { label: "Open in CoSetup", url: input.url, showUrl: false },
       notes: [
-        isEssential(input.category)
+        isEssentialCategory(input.category)
           ? "You receive this because it concerns money or your account security."
           : "Change what we email you about in your notification settings.",
       ],
@@ -77,10 +62,10 @@ export function notificationEmail(input: {
   };
 }
 
-/**
- * Money and account security are not preferences, so they carry no "change
- * what we email you about" line — §69, and the settings screen says the same.
+/*
+ * `isEssentialCategory` was a private copy of the essential list here, agreeing
+ * with `ESSENTIAL_CATEGORIES` by coincidence rather than by construction. The
+ * footnote it picks is the one telling a reader they can change this in their
+ * settings — so a third essential category would have gone on promising a
+ * switch that is locked.
  */
-function isEssential(category: string): boolean {
-  return category === "billing" || category === "security";
-}

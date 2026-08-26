@@ -1,23 +1,23 @@
-import type { Metadata } from "next";
-import { Building2 } from "lucide-react";
-import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
+import { redirect } from "next/navigation";
 
-// TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
-// See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
-export const instant = false;
-
-export const metadata: Metadata = { title: "Organization" };
-
-export default async function Page() {
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title="Organization" description="Members, roles and billing details." />
-      <EmptyState
-        icon={Building2}
-        title="Nothing to manage yet"
-        description="Invite colleagues and set their roles here. Billing details live on this screen too."
-      />
-    </div>
-  );
+/**
+ * `/dashboard/organization` → `/dashboard/account/billing`.
+ *
+ * This route used to render a hardcoded empty state — "Members, roles and billing
+ * details" with nothing behind it, however many members an organisation had. It
+ * was deliberately kept out of the navigation for that reason, and the comment on
+ * `CUSTOMER_NAV` said it would return "the moment tickets 03/24 give it members,
+ * roles and billing details to show".
+ *
+ * Billing details now exist, on the account screen where somebody looking for
+ * their own invoice address will actually look. So this becomes a redirect rather
+ * than a second home for the same form: the URL has been linked from nowhere but
+ * has certainly been typed, and a dead end that says "nothing to manage yet" is
+ * worse than an honest hand-off.
+ *
+ * Members and roles are still unbuilt. When they are, they belong here, and this
+ * redirect goes.
+ */
+export default function Page(): never {
+  redirect("/dashboard/account/billing");
 }

@@ -81,6 +81,19 @@ export const LIMITS = {
   login: { name: "login", limit: 10, windowSeconds: 300 },
   register: { name: "register", limit: 5, windowSeconds: 3600 },
   passwordReset: { name: "password-reset", limit: 5, windowSeconds: 3600 },
+  /**
+   * Changing a password, adding one, or connecting and disconnecting a provider.
+   *
+   * Every one of these sends an email to the account holder, which is the same
+   * property that earns `passwordReset` its limit — and unlike that one, these
+   * are authenticated, so the identity is a user id rather than an address.
+   * Better Auth's own `customRules` cover `/sign-in` and `/request-password-reset`
+   * but none of these paths; they fall back to its blanket 60-per-minute, which
+   * is a lot of security emails.
+   *
+   * Ten an hour is generous for a human and cheap to hit deliberately.
+   */
+  accountSecurity: { name: "account-security", limit: 10, windowSeconds: 3600 },
   /** §65. The key *is* the credential, so this is the brute-force surface. */
   licenceActivation: { name: "licence-activation", limit: 20, windowSeconds: 3600 },
   /** Cost protection, not abuse protection — a turn is an AI call we pay for. */
