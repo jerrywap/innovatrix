@@ -21,6 +21,7 @@ export function Assistant({
   signedIn,
   signInHref,
   suggestions,
+  initialDraft,
   startOverHref,
   submitted,
 }: {
@@ -29,6 +30,8 @@ export function Assistant({
   signedIn: boolean;
   signInHref: string;
   suggestions?: string[];
+  /** Prefills the first message from elsewhere — see `Conversation`. */
+  initialDraft?: string;
   startOverHref: string;
   submitted?: { reference: string };
 }) {
@@ -75,6 +78,7 @@ export function Assistant({
         onTranscriptChange={setMessages}
         onFallback={() => setManualFallback(true)}
         {...(suggestions ? { suggestions } : {})}
+        {...(initialDraft ? { initialDraft } : {})}
       />
 
       {(worthReviewing || manualFallback) && (

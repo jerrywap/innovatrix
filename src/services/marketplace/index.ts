@@ -391,7 +391,24 @@ export async function getPublishedProductCount(
   return total;
 }
 
-/** Featured / latest / popular rails for the marketplace landing page. */
+/**
+ * Featured / latest / popular rails for the marketplace and the homepage.
+ *
+ * ## "Featured" asks the database, not the result set
+ *
+ * This used to fetch the newest `limit` rows and then `.filter()` them on
+ * `isFeatured` in JavaScript. With `limit: 4` that meant a genuinely-featured
+ * product which happened to be the tenth-newest could never appear, and the rail
+ * could come back shorter than asked for — while still being *headed* "Featured".
+ * `featured: true` now goes into stage one of the pipeline, where
+ * `{ status: 1, isFeatured: -1, publishedAt: -1 }` serves it.
+ *
+ * The fallback survives, deliberately, but it is now a branch rather than a side
+ * effect of the filter: a catalogue with nothing featured yet gets the latest
+ * instead, because "Featured" with an empty grid under it reads as a broken page,
+ * and nothing being featured is the normal state of a new catalogue. It costs a
+ * second query only in that case.
+ */
 export async function getRail(
   rail: "featured" | "latest" | "popular",
   currency: StorefrontCurrency,
@@ -402,19 +419,24 @@ export async function getRail(
   cacheTag(CATALOG_TAG, TAXONOMY_TAG);
   cacheLife(CACHE_PROFILE.listing);
 
-  const result = await runSearch({
-    sort: rail === "popular" ? "popular" : "latest",
-    page: 1,
+  const base = {
+    page: 1 as const,
     limit,
     currency,
     catalogue,
-  });
+  };
 
-  if (rail !== "featured") return result.products;
+  if (rail !== "featured") {
+    const result = await runSearch({
+      ...base,
+      sort: rail === "popular" ? "popular" : "latest",
+    });
+    return result.products;
+  }
 
-  const featured = result.products.filter((card) => card.isFeatured);
-  // Falling back to latest rather than rendering an empty rail: "Featured" with
-  // nothing in it reads as a broken page, and nothing being featured yet is the
-  // normal state of a new catalogue.
-  return featured.length > 0 ? featured : result.products;
+  const featured = await runSearch({ ...base, sort: "latest", featured: true });
+  if (featured.products.length > 0) return featured.products;
+
+  const latest = await runSearch({ ...base, sort: "latest" });
+  return latest.products;
 }

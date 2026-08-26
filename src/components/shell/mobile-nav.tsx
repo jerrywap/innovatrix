@@ -9,6 +9,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { Brand } from "./brand";
 import { SidebarNav } from "./sidebar-nav";
 import type { NavSection } from "@/lib/navigation";
@@ -28,10 +29,21 @@ export function MobileNav({
   sections,
   homeHref,
   contextLabel,
+  triggerClassName = "lg:hidden",
 }: {
   sections: readonly NavSection[];
   homeHref: React.ComponentProps<typeof Brand>["href"];
   contextLabel?: string;
+  /**
+   * Where the drawer hands over to a horizontal nav.
+   *
+   * The dashboard's sidebar appears at `lg`, so that is the default. The public
+   * header carries four longer labels plus a theme toggle and an account corner,
+   * which do not fit on one line until `xl` — and a nav that wraps to two lines
+   * is worse than a drawer. A prop rather than two components, because the only
+   * thing that differs is the breakpoint.
+   */
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -39,7 +51,10 @@ export function MobileNav({
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
         aria-label="Open navigation"
-        className="border-border hover:bg-surface-muted grid size-9 place-items-center rounded-lg border transition lg:hidden"
+        className={cn(
+          "border-border hover:bg-surface-muted grid size-9 place-items-center rounded-lg border transition",
+          triggerClassName,
+        )}
       >
         <Menu className="size-4" aria-hidden />
       </SheetTrigger>

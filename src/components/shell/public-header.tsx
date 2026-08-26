@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Brand } from "./brand";
+import { MobileNav } from "./mobile-nav";
 import { PUBLIC_NAV } from "@/lib/navigation";
 import { getSession } from "@/lib/auth/dal";
 import { CartBadge } from "@/features/cart/components/cart-badge";
@@ -31,14 +32,35 @@ import { CartBadge } from "@/features/cart/components/cart-badge";
  * The basket badge shares that slot for the same reason — it reads the cart
  * cookie, so it is dynamic too, and giving it its own boundary would just mean
  * two skeletons resolving a moment apart.
+ *
+ * ## Below `lg` there was no navigation at all
+ *
+ * The nav was `hidden md:flex` with nothing behind it, so a phone got the logo,
+ * a theme toggle and the account corner — and no way to reach the marketplace.
+ * COS-7 hands that case to `MobileNav`, the drawer the dashboard already uses;
+ * `PUBLIC_NAV` is passed as a single untitled section because `SidebarNav` draws
+ * no heading without one.
+ *
+ * The breakpoint is `xl`, not the `md` this used to be. Four labels — "Software &
+ * Scripts", "Website Templates", "Request Custom Build", "Sell" — plus the theme
+ * toggle and the account corner measure about 1,070px, so below `xl` the row wraps
+ * to two lines. A drawer is better than a wrapped nav, and `MobileNav`'s trigger
+ * takes the matching `xl:hidden` so exactly one of the two is ever visible.
  */
 export function PublicHeader({ account }: { account: React.ReactNode }) {
   return (
     <header className="border-border bg-background/80 sticky top-0 z-50 border-b backdrop-blur-xl">
       <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-6 px-5 py-3.5 lg:px-10">
-        <Brand />
+        <div className="flex items-center gap-2.5">
+          <MobileNav
+            sections={[{ items: PUBLIC_NAV }]}
+            homeHref="/"
+            triggerClassName="xl:hidden"
+          />
+          <Brand />
+        </div>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
+        <nav className="hidden items-center gap-1 xl:flex" aria-label="Main">
           {PUBLIC_NAV.map(({ label, href }) => (
             <Link
               key={label}

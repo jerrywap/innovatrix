@@ -148,6 +148,44 @@ describe("the active price", () => {
   });
 });
 
+describe("the featured predicate", () => {
+  /*
+   * COS-7. Two homepage bands are headed "Featured", and before this the rail
+   * fetched the newest N rows and filtered them in JavaScript — so a featured
+   * product that was the tenth newest never appeared, and a rail could be
+   * showing "latest" under a heading that said otherwise.
+   */
+  it("goes in stage one, where the isFeatured index can serve it", () => {
+    const pipeline = query({ featured: true });
+    const first = pipeline.findIndex((s) => "$match" in s);
+
+    // Stage one, not a post-$addFields pass: `{status, isFeatured, publishedAt}`
+    // is only usable if the predicate is in the match the index sees.
+    expect(first).toBe(0);
+    expect(stage(pipeline, "$match").$match!.isFeatured).toBe(true);
+  });
+
+  it("is absent unless asked for", () => {
+    // Every existing caller omits it, so this is what makes the change
+    // incapable of altering `/marketplace`, `/templates` or a category grid.
+    expect(stage(query(), "$match").$match!.isFeatured).toBeUndefined();
+  });
+
+  it("adds no predicate for featured:false, so 'not featured' is not a shelf", () => {
+    // A `$ne: true` here would exclude the whole catalogue the moment somebody
+    // threaded the flag through explicitly. Same shape as `free: false`.
+    expect(stage(query({ featured: false }), "$match").$match!.isFeatured).toBeUndefined();
+  });
+
+  it("keeps featuring out of the cache key's blind spot", () => {
+    // `queryKey` is what `cachedRows` keys on. If `featured` were missing from
+    // `NORMALISE`, a featured rail and a latest rail with otherwise identical
+    // inputs would share one cache entry — and the homepage would serve
+    // whichever ran first.
+    expect(queryKey({ ...base, featured: true })).not.toEqual(queryKey(base));
+  });
+});
+
 describe("the price range filter", () => {
   it("is absent when no bounds are set", () => {
     // Two `$match` stages would mean an extra pass for nothing.

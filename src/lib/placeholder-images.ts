@@ -20,4 +20,12 @@ export const SHOT = {
   retail: "photo-1441986300917-64674bd600d8",
   analytics: "photo-1460925895917-afdab827c52f",
   office: "photo-1497366754035-f200968a6e72",
+  /*
+   * The one photograph on `/sell`, behind its closing band.
+   *
+   * A workspace detail rather than a person at a laptop — the landing brief rules out
+   * that shot specifically, and a vendor page aimed at developers is the last place it
+   * would land. Scrimmed heavily either way; it is atmosphere, not evidence.
+   */
+  workspace: "photo-1499951360447-b19be8fe80f5",
 } as const;

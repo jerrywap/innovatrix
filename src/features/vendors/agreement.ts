@@ -61,7 +61,7 @@ export const VENDOR_AGREEMENT_SECTIONS: readonly AgreementSection[] = [
       "We keep a percentage of each sale. The standard rate is set on the platform and may be varied for an individual vendor by agreement; you can see your own effective rate, and where it comes from, on your earnings screen.",
       "The rate is recorded on the order at the moment the customer buys, and is never re-read afterwards. A change to your rate applies to future orders only — it can never alter what you earned on a sale that has already happened.",
       "The commission is taken on the price after any discount and before tax. Tax is not our revenue, and a discount we chose to fund is not charged to you.",
-      "Add-ons such as installation or branding are work we perform. Those lines carry no commission and no earning, because they are not a sale of your software.",
+      "An add-on you price and hand over yourself — a plugin, an integration, a piece of setup — earns you the same rate as a licence of the software it sits on. Add-ons that are our work rather than yours, such as installation we perform, carry no earning for you, because they are not a sale of your software.",
     ],
   },
   {
