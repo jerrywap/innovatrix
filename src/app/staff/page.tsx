@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/money-display";
 import { asMoney, staffHeadline } from "@/features/reporting/headline";
+import { Tile } from "@/features/reporting/components/tile";
 import { requireStaffOrRedirect } from "@/lib/auth/dal";
 import { QUEUES, staffCounts } from "@/features/staff/queues";
 
@@ -25,7 +26,24 @@ export const metadata: Metadata = { title: "Staff" };
 export default function Page() {
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader title="Today" description="What's waiting, oldest first." />
+      <PageHeader
+        title="Today"
+        description="What's waiting, oldest first."
+        /*
+         * The counterpart screen, linked from here as well as from the sidebar.
+         * This page answers "what is waiting"; the other answers "is it piling
+         * up", and somebody who has just read a queue count is exactly who wants
+         * to know whether it is unusual.
+         */
+        actions={
+          <Link
+            href="/staff/dashboard"
+            className="border-border hover:bg-surface-muted rounded-full border px-3.5 py-1.5 text-[12.5px] transition"
+          >
+            Analytics
+          </Link>
+        }
+      />
       {/*
         §31's headline row, above the queues rather than instead of them. The
         queue board is the action-oriented screen §102 asks for; this answers
@@ -213,26 +231,6 @@ async function Headline() {
           ) : undefined
         }
       />
-    </div>
-  );
-}
-
-function Tile({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail?: React.ReactNode;
-}) {
-  return (
-    <div className="border-border bg-surface flex flex-col gap-1 rounded-xl border p-4">
-      <span className="text-subtle font-mono text-[9.5px] tracking-[0.16em] uppercase">
-        {label}
-      </span>
-      <span className="text-[18px] font-medium">{value}</span>
-      {detail && <span className="text-subtle text-[12.5px]">{detail}</span>}
     </div>
   );
 }

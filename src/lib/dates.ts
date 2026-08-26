@@ -39,6 +39,18 @@ const DAY = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
+const MONTH = new Intl.DateTimeFormat("en-GB", {
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+const DAY_SHORT = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+});
+
 const DAY_TIME = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",
@@ -86,4 +98,28 @@ export function formatDateTime(value: DateLike): string {
 export function toDateInputValue(value: DateLike): string {
   const date = coerce(value);
   return date ? date.toISOString().slice(0, 10) : "";
+}
+
+/**
+ * A month: `Aug 2026`.
+ *
+ * For an axis tick on a monthly chart, where the day would be noise and the
+ * year is the only thing distinguishing one August from the next.
+ */
+export function formatMonth(value: DateLike): string {
+  const date = coerce(value);
+  return date ? MONTH.format(date) : "";
+}
+
+/**
+ * A day without its year: `14 Aug`.
+ *
+ * Only for a label whose year is already established by its neighbours — an axis
+ * tick inside a window shorter than a year, which is the only caller. Anywhere a
+ * date stands on its own, `formatDay` is the honest one: a bare "14 Aug" in a
+ * table is ambiguous the moment the table spans a new year.
+ */
+export function formatDayShort(value: DateLike): string {
+  const date = coerce(value);
+  return date ? DAY_SHORT.format(date) : "";
 }

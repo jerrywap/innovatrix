@@ -259,6 +259,36 @@ export function registerNotificationHandlers(): void {
   on("FollowUpDue", async (payload) => {
     await dispatch("FollowUpDue", payload, { assigneeUserId: payload.ownerUserId });
   });
+
+  /*
+   * Account security — the account holder, and **no actor**.
+   *
+   * `resolveAudience` strips `context.actorUserId` from every audience, because
+   * nobody wants a notification about a button they just pressed. That rule is
+   * right everywhere except here: the person who changed the password is exactly
+   * the person who has to hear about it, and if it was not them then the actor is
+   * an attacker. Passing an actor would filter the audience to nobody, and
+   * `dispatch` would report a clean run having told no one.
+   *
+   * So `ownerUserId` is set and `actorUserId` is deliberately left unset. These
+   * four are not in `GENERIC`, whose context is an organisation — a colleague has
+   * no business knowing about somebody else's credentials.
+   */
+  on("PasswordChanged", async (payload) => {
+    await dispatch("PasswordChanged", payload, { ownerUserId: payload.userId });
+  });
+
+  on("PasswordSet", async (payload) => {
+    await dispatch("PasswordSet", payload, { ownerUserId: payload.userId });
+  });
+
+  on("SocialAccountLinked", async (payload) => {
+    await dispatch("SocialAccountLinked", payload, { ownerUserId: payload.userId });
+  });
+
+  on("SocialAccountUnlinked", async (payload) => {
+    await dispatch("SocialAccountUnlinked", payload, { ownerUserId: payload.userId });
+  });
 }
 
 /**

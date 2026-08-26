@@ -125,6 +125,17 @@ const organizationSchema = new Schema<OrganizationDoc>(
 );
 
 organizationSchema.index({ slug: 1 }, { unique: true });
+/**
+ * New customers over time.
+ *
+ * Also fixes an existing scan: `adminHeadline()` has been counting
+ * `{ createdAt: { $gte: thisMonth } }` against a collection with no index on it.
+ *
+ * Better Auth writes this collection through the raw driver, which is why no
+ * Mongoose default can be relied on here — but an index is enforced by the
+ * server rather than by the ODM, so it applies to those writes too.
+ */
+organizationSchema.index({ createdAt: -1 });
 
 export const Organization = defineModel<OrganizationDoc>("Organization", organizationSchema);
 

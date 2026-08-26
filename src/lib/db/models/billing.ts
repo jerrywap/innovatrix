@@ -191,6 +191,14 @@ quoteSchema.index({ reference: 1, version: 1 }, { unique: true });
 quoteSchema.index({ organizationId: 1, createdAt: -1 });
 // §31 "Quotes Awaiting Approval" + the ticket-25 expiry sweep.
 quoteSchema.index({ status: 1, expiresAt: 1 });
+/**
+ * Quote outcomes over time, and the "how long from request to quote" figure.
+ *
+ * `{ status, expiresAt }` above serves the expiry sweep and cannot serve this: a
+ * range on `issuedAt` after an equality on `status` needs `issuedAt` as the
+ * second key. Both are narrow and the collection is small next to orders.
+ */
+quoteSchema.index({ status: 1, issuedAt: -1 });
 
 export const Quote = defineModel<QuoteDoc>("Quote", quoteSchema);
 

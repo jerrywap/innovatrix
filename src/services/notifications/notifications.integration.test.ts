@@ -303,6 +303,51 @@ describe("preferences — §69", () => {
     expect(sent.map((m) => m.to)).toContain("amara@example.test");
   });
 
+  /**
+   * The account-security alerts, and the one mistake that would ship silently.
+   *
+   * `resolveAudience` strips `context.actorUserId` from every audience — nobody
+   * is notified about a button they just pressed. Correct everywhere else, and
+   * exactly wrong for a security alert: the person who changed the password is
+   * the person who has to hear about it, and if it was not them then the actor
+   * is an attacker. Get it wrong and `dispatch` filters the audience to nobody
+   * and reports a clean run, so nothing fails and no one is told.
+   *
+   * Asserted through `emit` rather than `dispatch` on purpose. `dispatch` takes
+   * the context as an argument, so calling it directly would prove the catalogue
+   * row works while testing none of the wiring in `handlers.ts` — which is where
+   * the actor would have been passed.
+   */
+  it("tells the account holder about a password change, and lets nothing mute it", async () => {
+    await people();
+
+    await service.setPreference({
+      userId: OWNER,
+      category: "requests",
+      channel: "email",
+      enabled: false,
+    });
+    // Forced in directly, as though it predated the rule that refuses it.
+    await communication.NotificationPreference.updateOne(
+      { userId: OWNER },
+      { $addToSet: { muted: "security:email" } },
+      { upsert: true },
+    );
+
+    handlers.registerNotificationHandlers();
+    await events.emit("PasswordChanged", { userId: OWNER });
+
+    const rows = await rowsFor(OWNER);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.category).toBe("security");
+    expect(rows[0]?.href).toBe("/dashboard/account/security");
+
+    await deliverQueuedEmail();
+    expect(sent.map((m) => m.to)).toEqual(["amara@example.test"]);
+    // Nobody else's business: not the organisation, not the technical contact.
+    expect(await rowsFor(TECHNICAL)).toHaveLength(0);
+  });
+
   it("keeps billing notices to the billing roles", async () => {
     await people();
 

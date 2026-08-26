@@ -10,6 +10,7 @@ import { navIcon } from "@/components/shell/nav-icons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/money-display";
 import { adminHeadline, asMoney } from "@/features/reporting/headline";
+import { MonthOnMonth, Tile } from "@/features/reporting/components/tile";
 
 // TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
 // See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
@@ -118,6 +119,18 @@ async function Headline() {
             ))}
           </span>
         )}
+        {/*
+          `revenueLastMonth` has been computed on every render of this page and
+          rendered nowhere. The comparison is per currency for the same reason the
+          figure is — so it is shown only when there is exactly one, rather than
+          averaging two incomparable changes into one misleading number.
+        */}
+        {figures.revenueThisMonth.length === 1 && figures.revenueLastMonth.length === 1 && (
+          <MonthOnMonth
+            current={figures.revenueThisMonth[0]!.amount}
+            previous={figures.revenueLastMonth[0]!.amount}
+          />
+        )}
       </Tile>
 
       <Tile label="Orders">
@@ -169,17 +182,6 @@ async function Headline() {
           {figures.jobsFailed} failed
         </span>
       </Tile>
-    </div>
-  );
-}
-
-function Tile({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="border-border bg-surface flex flex-col gap-1 rounded-xl border p-4">
-      <span className="text-subtle font-mono text-[9.5px] tracking-[0.16em] uppercase">
-        {label}
-      </span>
-      {children}
     </div>
   );
 }

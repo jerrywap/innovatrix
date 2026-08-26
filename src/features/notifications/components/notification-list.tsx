@@ -6,16 +6,8 @@ import Link from "next/link";
 import type { Route } from "next";
 import { Check, CheckCheck } from "lucide-react";
 import type { NotificationRow } from "../notification-view";
+import { categoryLabel } from "@/lib/notification-categories";
 import { markAllReadAction, markReadAction } from "../actions";
-
-const CATEGORY_LABEL: Record<string, string> = {
-  requests: "Request",
-  quotes: "Quote",
-  billing: "Billing",
-  products: "Software",
-  messages: "Message",
-  security: "Security",
-};
 
 /**
  * The notification centre — §69.
@@ -84,7 +76,7 @@ export function NotificationList({
                 <p className="text-muted-foreground mt-0.5 text-[13px]">{row.body}</p>
               )}
               <p className="text-subtle font-mono text-[11px]">
-                {CATEGORY_LABEL[row.category] ?? row.category} · {row.at}
+                {categoryLabel(row.category)} · {row.at}
               </p>
             </div>
 

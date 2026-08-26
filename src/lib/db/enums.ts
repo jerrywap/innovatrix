@@ -784,6 +784,20 @@ export const DOMAIN_EVENTS = values([
   // Vendor ticket 10.
   "ProductReviewPublished",
   "ProductReviewFlagged",
+
+  /*
+   * Account security — the four things that change how somebody signs in.
+   *
+   * They are on the bus rather than emailed directly from the action, for the
+   * reason §69 gives about every other notice: the platform decides who is told
+   * and on which channels, and an account alert is the one message that must not
+   * be quietly suppressible. Category `security` is essential, so preferences
+   * cannot turn these off.
+   */
+  "PasswordChanged",
+  "PasswordSet",
+  "SocialAccountLinked",
+  "SocialAccountUnlinked",
   // Vendor ticket 09 — the first events about money leaving.
   "VendorPayoutPaid",
   "VendorPayoutFailed",

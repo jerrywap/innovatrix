@@ -227,6 +227,55 @@ function buildAuth() {
           },
         },
       },
+
+      account: {
+        create: {
+          /**
+           * A social provider was linked — the other half of the security alerts.
+           *
+           * Here rather than in `connectGoogleAction`, because the action cannot
+           * know whether the link succeeded: it hands the browser to Google and
+           * the account row is written later, in Better Auth's own callback. It
+           * also catches the *other* way linking happens — `accountLinking` is
+           * enabled with `google` trusted, so signing in with a matching verified
+           * address links automatically and no action of ours runs at all.
+           *
+           * Two filters, and both matter. `credential` is skipped because that
+           * row is created at signup and "a password was added to your account"
+           * is not news to somebody who just chose one — `setPasswordAction`
+           * announces the case where it genuinely is. And an account is only
+           * announced when the user already had one, so a brand-new Google signup
+           * is a signup rather than a link.
+           *
+           * Fire-and-forget: a notification must never be able to fail an
+           * authentication.
+           */
+          after: async (account) => {
+            if (account.providerId === "credential") return;
+
+            try {
+              const existing = await db.collection("accounts").countDocuments(
+                { userId: new ObjectId(String(account.userId)) },
+                // Two is enough to answer "was there one before this": the row
+                // being created is already written by the time `after` runs.
+                { limit: 2 },
+              );
+              if (existing < 2) return;
+
+              const { emit } = await import("@/lib/events");
+              await emit("SocialAccountLinked", {
+                userId: String(account.userId),
+                provider: account.providerId,
+              });
+            } catch (error) {
+              console.error(
+                "[auth] account linked but could not be announced:",
+                error instanceof Error ? error.message : error,
+              );
+            }
+          },
+        },
+      },
     },
 
     plugins: [

@@ -188,6 +188,12 @@ const aiConversationSchema = new Schema<AiConversationDoc>(
 );
 
 aiConversationSchema.index({ organizationId: 1, updatedAt: -1 });
+/**
+ * What the assistants cost, over time — the first reader `totalCostMicros` has
+ * had since it started being written. Anonymous conversations carry no
+ * `organizationId`, so the index above cannot serve a platform-wide window.
+ */
+aiConversationSchema.index({ createdAt: -1 });
 
 export const AiConversation = defineModel<AiConversationDoc>(
   "AiConversation",
@@ -393,6 +399,13 @@ customerRequestSchema.index({ organizationId: 1, createdAt: -1 });
 // The §31/§32 staff queues. Without this they collection-scan at ~10k requests.
 customerRequestSchema.index({ status: 1, currentAssigneeUserId: 1, updatedAt: -1 });
 customerRequestSchema.index({ status: 1, kind: 1, createdAt: 1 });
+/**
+ * Requests arriving over time, split by kind — the staff dashboard's throughput
+ * panel. Keyed on `submittedAt` rather than `createdAt` because a draft that was
+ * never sent is not demand, and the index above needs a status equality this
+ * query deliberately does not have.
+ */
+customerRequestSchema.index({ kind: 1, submittedAt: -1 });
 customerRequestSchema.index({ waitingOn: 1, updatedAt: 1 });
 
 /**

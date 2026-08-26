@@ -717,6 +717,14 @@ productSchema.index(
  */
 productSchema.index({ status: 1, catalogue: 1, facets: 1 });
 productSchema.index({ status: 1, isFeatured: -1, publishedAt: -1 });
+/**
+ * Publishing activity over time.
+ *
+ * The index above cannot serve it: `isFeatured` sits between the equality on
+ * `status` and the range on `publishedAt`, so a query that does not constrain it
+ * loses the bounds on the key it actually needs.
+ */
+productSchema.index({ status: 1, publishedAt: -1 });
 productSchema.index({ status: 1, orderCount: -1 });
 // The admin product list's default sort. The storefront indexes above are
 // ordered for browsing, not for "what did we touch most recently".

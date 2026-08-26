@@ -292,15 +292,27 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
     title: "Settings",
     items: [
       /*
-       * `Organization` is not here, and the route still exists.
+       * `Organization` is not here, and the route now redirects.
        *
-       * `/dashboard/organization` renders a hardcoded empty state with no query
-       * behind it — it will say "nothing to manage yet" however many members an
-       * organisation has. A nav entry is a promise; this one costs a click and
-       * teaches the customer the product is unfinished. It goes back the moment
-       * tickets 03/24 give it members, roles and billing details to show.
+       * `/dashboard/organization` used to render a hardcoded empty state with no
+       * query behind it — it would say "nothing to manage yet" however many
+       * members an organisation had. A nav entry is a promise, and that one cost
+       * a click to teach the customer the product was unfinished.
+       *
+       * Half of what it promised now exists: billing details are editable under
+       * Account, so the route redirects there rather than sitting on a dead end.
+       * Members and roles are still unbuilt, which is why it still has no entry
+       * of its own — when there is something to manage, it earns one.
        */
-      { label: "Account", href: "/dashboard/account", icon: "userCog" },
+      // `matchNested`, because the screen is four sibling routes under one rail
+      // now: without it the sidebar item unhighlights the moment somebody opens
+      // Security.
+      {
+        label: "Account",
+        href: "/dashboard/account",
+        icon: "userCog",
+        matchNested: true,
+      },
     ],
   },
 ];
@@ -347,6 +359,9 @@ export const STAFF_NAV: readonly NavSection[] = [
   {
     items: [
       { label: "Queues", href: "/staff", icon: "inbox" },
+      // No permission, like `/staff` itself: every figure on it aggregates what
+      // the queues already show a staff member one page over.
+      { label: "Analytics", href: "/staff/dashboard", icon: "chart" },
       {
         label: "Requests",
         href: "/staff/requests",
@@ -466,6 +481,28 @@ export const STAFF_NAV: readonly NavSection[] = [
  * gate moved with it.
  */
 export const ADMIN_NAV: readonly NavSection[] = [
+  {
+    /*
+     * Untitled and first, because it is not one of the three areas below — it
+     * reports across all of them.
+     *
+     * `report.view` is the one permission in the matrix whose only capability is
+     * looking, which is a deliberate exception to the rule stated on `ADMIN_NAV`
+     * below: admin screens are gated on the permission their *primary action*
+     * needs. On a reporting screen, looking is the primary action. Note the
+     * consequence — `ADMIN_PERMISSIONS` is derived from this array, so adding this
+     * item widens the admin shell gate by exactly this permission, and it is
+     * granted only to roles that already reach admin by another door.
+     */
+    items: [
+      {
+        label: "Analytics",
+        href: "/admin/dashboard",
+        icon: "chart",
+        permission: "report.view",
+      },
+    ],
+  },
   {
     title: "Catalogue",
     items: [
