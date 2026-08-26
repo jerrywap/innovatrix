@@ -67,7 +67,7 @@ export default async function Image() {
       </div>
 
       <div style={{ display: "flex", fontSize: 28, color: "#8a8a82" }}>
-        Find it · Build it · Run it
+        Find it · Make it yours · Run it
       </div>
     </div>,
     size,

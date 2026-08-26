@@ -32,6 +32,7 @@ export function Conversation({
   initialMessages,
   onTranscriptChange,
   suggestions,
+  initialDraft,
   disabled,
   disabledReason,
   onFallback,
@@ -42,6 +43,16 @@ export function Conversation({
   onTranscriptChange?: (messages: DisplayMessage[]) => void;
   /** §17's suggested answers, alongside free text. */
   suggestions?: string[];
+  /**
+   * What they already typed, somewhere else — the homepage's "what are you
+   * looking to build?" box (COS-7).
+   *
+   * It lands in the textarea **unsent**. Auto-sending would make a `GET` write
+   * messages, so following `?brief=…` from a crawler or a shared link would
+   * create rows; and it would take their own words out of their hands before
+   * they had a chance to read them back. Prefilled, focused, editable.
+   */
+  initialDraft?: string;
   disabled?: boolean;
   disabledReason?: string;
   /**
@@ -59,7 +70,7 @@ export function Conversation({
   const [streaming, setStreaming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft ?? "");
 
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);

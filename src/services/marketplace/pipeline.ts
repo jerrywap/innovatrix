@@ -54,6 +54,19 @@ export interface MarketplaceQueryInput {
    * could not express.
    */
   free?: boolean;
+  /**
+   * Hand-picked only — `isFeatured` on the document.
+   *
+   * **Not a visitor-facing filter.** `parseMarketplaceQuery` deliberately does not
+   * read it: featuring is curation, and a query string that could turn it on would
+   * let anybody browse the merchandised set as though it were a category. It is set
+   * by the caller — the homepage rails — and by nothing else.
+   *
+   * Stage one, so `{ status: 1, isFeatured: -1, publishedAt: -1 }` can serve it.
+   * This replaced a `.filter()` in `getRail` that ran over the newest N rows and
+   * therefore could not see a featured product that was the tenth newest.
+   */
+  featured?: boolean;
   customisable?: boolean;
   /**
    * Which catalogue's grid this is — **required**, with an explicit `"all"`.
@@ -215,6 +228,7 @@ const NORMALISE: Normaliser<MarketplaceQueryInput> = {
   minPrice: keep,
   maxPrice: keep,
   free: keep,
+  featured: keep,
   customisable: keep,
   catalogue: keep,
   sort: keep,
@@ -341,6 +355,14 @@ function primaryMatch(input: MarketplaceQueryInput): Record<string, unknown> {
 
   if (input.customisable === true) match["customization.available"] = true;
   if (input.customisable === false) match["customization.available"] = { $ne: true };
+
+  /*
+   * Only the positive case. `featured: false` adds nothing, matching how
+   * `free` behaves: "not featured" is not a shelf anybody browses, and a
+   * `$ne: true` here would exclude the whole catalogue on a default call the
+   * moment somebody passed the flag through explicitly.
+   */
+  if (input.featured === true) match.isFeatured = true;
 
   return match;
 }

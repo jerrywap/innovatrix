@@ -34,7 +34,31 @@ export const metadata: Metadata = pageMetadata({
  * words. If we already sell something close, it is offered — beside an equally
  * prominent "continue with a custom build", because §24 forbids forcing it.
  */
-export default async function Page() {
+/**
+ * How much of a typed brief we carry over.
+ *
+ * Long enough for a real paragraph, short enough that a URL cannot be used to
+ * push a wall of text into a conversation. Anything longer is truncated rather
+ * than rejected — they can still see and edit it before sending.
+ */
+const MAX_BRIEF = 600;
+
+export default async function Page({
+  searchParams,
+}: {
+  /*
+   * Only ever read for `brief` — the homepage's "what are you looking to build?"
+   * box (COS-7) hands the visitor's own words over instead of making them retype.
+   *
+   * Reading `searchParams` makes this page dynamic, which it already was: it
+   * calls `getSession()` and `startOrResume()` in its own body.
+   */
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const raw = (await searchParams).brief;
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  const brief = typeof first === "string" ? first.trim().slice(0, MAX_BRIEF) : "";
+
   const session = await getSession();
   // Read-only. `proxy.ts` mints this before the page runs — a Server
   // Component cannot set a cookie, and the first version of this tried to.
@@ -142,6 +166,10 @@ export default async function Page() {
             // inside the `"use client"` island instead, server and client would
             // disagree at hydration.
             suggestions={conversation.messages.length === 0 ? openersFor(3) : undefined}
+            // Only into an empty conversation. Dropping a brief into a
+            // conversation already in progress would overwrite whatever they
+            // were part-way through typing.
+            {...(brief && conversation.messages.length === 0 ? { initialDraft: brief } : {})}
           />
         </>
       )}

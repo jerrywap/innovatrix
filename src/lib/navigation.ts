@@ -609,6 +609,16 @@ export const PUBLIC_NAV: readonly NavItem[] = [
   // are separate storefronts rather than two views of one.
   { label: "Website Templates", href: "/templates", icon: "tags" },
   { label: "Request Custom Build", href: "/custom-software", icon: "wrench" },
+  /*
+   * The vendor door — COS-7.
+   *
+   * Last, and that ordering is the whole point: the brief asks for the sell path
+   * to be visible without competing with buyer intent, and it was previously
+   * reachable only from the footer. `/sell` is the public page; the authenticated
+   * application form stays at `/dashboard/selling/apply`, which is where the
+   * *customer* nav points it and which `navigation.test.ts` pins.
+   */
+  { label: "Sell", href: "/sell", icon: "banknote" },
 ];
 
 /* ────────────────────────────────────────────── filtering */
