@@ -162,6 +162,8 @@ export default async function Page({
           signedIn={Boolean(session?.user.id)}
           signInHref={`/login?next=${encodeURIComponent("/custom-software")}`}
           startOverHref="/custom-software"
+          contextType="custom_build"
+          initialCovered={conversation.coveredTopics}
           workspaceTitle="Custom software request"
           intro={<DiscoveryIntro />}
           introFooter={<DiscoverySteps />}

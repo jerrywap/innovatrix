@@ -186,6 +186,8 @@ export default async function Page({ params, searchParams }: PageProps<"/customi
           signedIn={Boolean(session?.user.id)}
           signInHref={`/login?next=${encodeURIComponent(`/customize/${slug}`)}`}
           startOverHref={`/customize/${slug}`}
+          contextType="customization"
+          initialCovered={conversation.coveredTopics}
           workspaceTitle={`Customising ${product.name}`}
           intro={
             <div className="flex max-w-[46rem] flex-col gap-3">

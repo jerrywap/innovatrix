@@ -1,6 +1,7 @@
 import "server-only";
 import type { AiContextType } from "@/lib/db/enums";
-import { OPTIONS_MARKER } from "@/lib/assistant-options";
+import { ENOUGH_MARKER, OPTIONS_MARKER } from "@/lib/assistant-options";
+import { checklistPrompt } from "@/features/requirements/checklist";
 
 /**
  * System prompts, versioned as code — §71, §73, §17.
@@ -22,7 +23,7 @@ import { OPTIONS_MARKER } from "@/lib/assistant-options";
  * *depend* on that happening, but there is no reason to forfeit it either.
  */
 
-export const PROMPT_VERSION = "2026-08-26.1";
+export const PROMPT_VERSION = "2026-08-26.3";
 
 /**
  * §73, stated to the model in the same terms the code enforces.
@@ -152,6 +153,33 @@ businesses like theirs usually need, and ask them to say yes or no to each. Make
 clear that a suggestion is only a suggestion until they accept it.
 `.trim();
 
+/**
+ * Where the interview is allowed to stop.
+ *
+ * Without this the assistant asks good questions forever, because nothing ever
+ * told it what "enough" is. The customer's only exit was a button they had to
+ * notice and decide to press, with no way to judge whether pressing it yet would
+ * produce a brief worth reading.
+ *
+ * The instruction is to *report* progress, never to decide it —
+ * `features/requirements/checklist.ts` explains why completion is code's call.
+ */
+const CLOSING = `
+## Finishing
+
+You are not trying to learn everything. You are trying to learn enough for a
+person to scope the work, and then to stop.
+
+When you have that, say so in a sentence and stop asking questions — something
+like "I think I've got enough to put a brief together." Do not add a new question
+after it, do not ask them to confirm they are ready, and do not offer options.
+Mark that turn with ${ENOUGH_MARKER} on its own final line so the page knows to
+take over; it then shows them what you understood.
+
+If they keep talking after that, keep listening; you have not made a mistake by
+finishing, and they have not made one by adding something.
+`.trim();
+
 export function systemPrompt(contextType: AiContextType): string {
   const job = contextType === "customization" ? CUSTOMIZATION_JOB : CUSTOM_BUILD_JOB;
 
@@ -160,7 +188,14 @@ export function systemPrompt(contextType: AiContextType): string {
     "",
     job,
     "",
+    // The checklist sits with the job, because it *is* the job stated as
+    // something reportable. Both are stable per context type, so they stay in
+    // the cacheable prefix ahead of the product and the transcript.
+    checklistPrompt(contextType),
+    "",
     MANNER,
+    "",
+    CLOSING,
     "",
     BOUNDARIES,
   ].join("\n");

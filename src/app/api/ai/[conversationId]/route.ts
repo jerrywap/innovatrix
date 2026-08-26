@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth/dal";
 import { LIMITS, callerIp, consume, tooManyRequests } from "@/lib/rate-limit";
 import { objectIdSchema } from "@/validators/common";
 import { splitAssistantOptions } from "@/lib/assistant-options";
+import { isKnownTopic, readyToClose } from "@/features/requirements/checklist";
 import { DomainError, NotFoundError } from "@/lib/errors";
 import { streamAssistantTurn } from "@/services/ai/chat";
 import { aiConfigured } from "@/services/ai/client";
@@ -12,6 +13,7 @@ import {
   carriedCustomerMessages,
   getConversation,
   readAnonymousKey,
+  recordCoverage,
 } from "@/services/ai/conversation-service";
 import { carriedContext, productContext, systemPrompt } from "@/services/ai/prompts";
 import { resolveAiConfig } from "@/services/ai/settings";
@@ -217,11 +219,59 @@ export async function POST(
              * history — neither wants our delimiter in it, and a marker in the
              * history is an invitation to imitate it in the wrong place.
              */
-            const { text, options } = splitAssistantOptions(result.message.content);
+            const { text, options, covered, enough } = splitAssistantOptions(
+              result.message.content,
+            );
+
+            /*
+             * Coverage, filtered to ids this build actually has.
+             *
+             * `splitAssistantOptions` lives in `lib/` and deliberately knows
+             * nothing about the topic vocabulary — it only refuses things that are
+             * not shaped like an id. This is where a real id is told from an
+             * invented one, because this is the layer that knows the context type.
+             */
+            const topics = covered.filter((id) => isKnownTopic(conversation.contextType, id));
+            // `?? []` because `.lean()` skips schema defaults, so every conversation
+            // written before this field existed comes back without it.
+            const coveredNow = [...new Set([...(conversation.coveredTopics ?? []), ...topics])];
 
             send("done", {
               content: text,
               options,
+              covered: coveredNow,
+              /*
+               * Whether discovery has what it came for.
+               *
+               * Decided here rather than in the browser so one answer serves the
+               * page on load and the stream mid-conversation — and so the customer
+               * turn count it depends on is the server's, not a client tally that a
+               * reload would reset.
+               *
+               * `+ 1` because the customer's turn for this exchange was persisted
+               * above; `conversation` is the document as it was read before that.
+               */
+              ready:
+                /*
+                 * Either signal closes it, and the `enough` half is not a
+                 * fallback — it is the fix for a failure seen live: the assistant
+                 * announced "I have enough to put a brief together" while its own
+                 * coverage line was a topic short, so it stopped asking and the
+                 * page kept waiting. An interview that has ended and a page that
+                 * has not is worse than the open-ended one this replaced.
+                 *
+                 * The prompt asks the two to agree. When they do not, closing
+                 * wins: a brief drafted a little early is editable, and the
+                 * conversation is still there to add to.
+                 */
+                enough ||
+                readyToClose({
+                  contextType: conversation.contextType,
+                  covered: coveredNow,
+                  customerTurns:
+                    conversation.messages.filter((message) => message.role === "user").length +
+                    1,
+                }),
               // The client discards what it rendered and shows this instead.
               replaced: result.replaced,
               truncated: result.truncated,
@@ -233,6 +283,7 @@ export async function POST(
             // turn written down.
             after(async () => {
               await appendMessage(id.data, { ...result.message, content: text });
+              await recordCoverage(id.data, topics);
             });
           },
 

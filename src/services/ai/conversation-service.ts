@@ -242,6 +242,28 @@ export async function startOrResume(input: StartInput): Promise<AiConversationDo
   return created.toObject() as AiConversationDoc;
 }
 
+/**
+ * Union this turn's reported coverage into the conversation.
+ *
+ * `$addToSet`, so it accumulates and never shrinks — a model that lists seven ids
+ * this turn and six the next has not un-answered anything, and a progress
+ * indicator that goes backwards is worse than none. Filtering to ids this build
+ * knows happens at the call site, which has the context type.
+ *
+ * No-op on an empty list rather than an update writing nothing: `timestamps: true`
+ * would otherwise bump `updatedAt` on every turn that reported nothing, and
+ * `startOrResume` resumes on `updatedAt` order.
+ */
+export async function recordCoverage(conversationId: string, topics: string[]): Promise<void> {
+  if (topics.length === 0) return;
+
+  await connectToDatabase();
+  await AiConversation.updateOne(
+    { _id: toObjectId(conversationId) },
+    { $addToSet: { coveredTopics: { $each: topics } } },
+  );
+}
+
 export async function appendMessage(conversationId: string, message: AiMessage): Promise<void> {
   await connectToDatabase();
 

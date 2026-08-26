@@ -119,6 +119,28 @@ export interface AiConversationDoc {
    * `recommendationChoice`; nothing is copied across the collection.
    */
   carriedFromConversationId?: Types.ObjectId;
+  /**
+   * Discovery-checklist ids the assistant has reported answers to.
+   *
+   * Accumulated with `$addToSet`, never replaced, so progress cannot go backwards
+   * when a turn forgets to repeat an id. Persisted rather than held in the browser
+   * because the whole point is that the interview *ends* — and a customer who
+   * reloads mid-conversation would otherwise restart from zero coverage and never
+   * reach it.
+   *
+   * `readyToClose` in `features/requirements/checklist.ts` is what these mean.
+   * Deliberately a loose `[String]`: the vocabulary is versioned with the prompt,
+   * and a stored id this build no longer knows should be ignored rather than make
+   * the document unreadable.
+   */
+  /*
+   * Optional in the type even though the schema defaults it, because `.lean()`
+   * bypasses Mongoose's defaults: a document written before this field existed
+   * comes back without it, and every conversation currently in the database is
+   * one of those. Typing it as always-present had the route spread `undefined`
+   * and fail the turn.
+   */
+  coveredTopics?: string[];
   messages: AiMessage[];
   structuredAnswers: Record<string, unknown>;
   requirements: Requirement[];
@@ -139,6 +161,7 @@ const aiConversationSchema = new Schema<AiConversationDoc>(
 
     contextType: { type: String, enum: AI_CONTEXT_TYPES, required: true },
     carriedFromConversationId: { type: Schema.Types.ObjectId, ref: "AiConversation" },
+    coveredTopics: { type: [String], default: [] },
     // §20/§101 — a customisation keeps an explicit link to the base product AND
     // the exact version, so staff never receive "customer wants CRM".
     productId: { type: Schema.Types.ObjectId, ref: "Product" },

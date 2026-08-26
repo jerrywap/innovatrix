@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowUp, Loader2 } from "lucide-react";
 import { BrandMark } from "@/components/shell/brand-mark";
 import { splitAssistantOptions } from "@/lib/assistant-options";
 import { Markdown } from "./markdown";
+import { ESCAPE_HATCH } from "../openers";
 
 /**
  * The interview — §17.
@@ -54,6 +55,7 @@ export function Conversation({
   disabled,
   disabledReason,
   onFallback,
+  onCoverage,
 }: {
   conversationId: string;
   initialMessages: DisplayMessage[];
@@ -83,6 +85,14 @@ export function Conversation({
    * clicking it did nothing at all.
    */
   onFallback?: () => void;
+  /**
+   * The discovery checklist's state after each turn — see
+   * `features/requirements/checklist.ts`.
+   *
+   * Reported upward rather than acted on here, because what happens when
+   * discovery is finished is a decision about the *page*, not about the chat.
+   */
+  onCoverage?: (state: { covered: string[]; ready: boolean }) => void;
 }) {
   const [messages, setMessages] = useState<DisplayMessage[]>(initialMessages);
   const [streaming, setStreaming] = useState<string | null>(null);
@@ -145,12 +155,13 @@ export function Conversation({
 
         await readEvents(response.body, {
           onDelta: (chunk) => setStreaming((current) => (current ?? "") + chunk),
-          onDone: ({ content, options }) => {
+          onDone: ({ content, options, covered, ready }) => {
             // Always the server's text, never the accumulated stream: when the
             // guardrail replaced the turn, what we rendered must be discarded.
             setMessages((current) => [...current, { role: "assistant", content }]);
             setStreaming(null);
             setOffered(options ?? []);
+            if (covered) onCoverage?.({ covered, ready: ready === true });
           },
           onError: (message) => {
             setStreaming(null);
@@ -179,17 +190,39 @@ export function Conversation({
         inputRef.current?.focus();
       }
     },
-    [busy, conversationId, rememberScrollIntent],
+    [busy, conversationId, onCoverage, rememberScrollIntent],
   );
 
   // The server's openers until the assistant has offered its own. See `offered`.
   const chips = offered ?? suggestions ?? [];
 
   return (
-    <div className="flex flex-col gap-4">
+    /*
+     * A workspace with its own height, not a document that grows.
+     *
+     * The whole page used to scroll: every answer made it taller, the composer
+     * moved down the page as the thread grew, and the auto-scroll then dragged the
+     * window after it — so reading back an earlier answer while the next one
+     * streamed meant being pulled away from it, repeatedly. On `/customize` it also
+     * took the listing panel off screen, which is the one thing the customer is
+     * meant to be reacting to.
+     *
+     * So the thread scrolls inside a box and the controls do not move. `clamp`
+     * rather than a `dvh` calculation against the header: an exact viewport fit
+     * needs a header height this stylesheet cannot know (`theme-tokens.test.ts`
+     * allows no non-colour token but `--radius`, and measuring it at runtime to set
+     * a height is a lot of machinery for a panel). A bounded box is not quite
+     * full-bleed and is right at every width without measuring anything —
+     * `62dvh` follows the phone's shrinking viewport, and the floor and ceiling
+     * stop it collapsing on a landscape phone or stretching on a tall monitor.
+     */
+    <div className="flex h-[clamp(24rem,62dvh,44rem)] min-h-0 flex-col">
       <div
         ref={viewportRef}
-        className="flex flex-col gap-5"
+        // `overscroll-contain` so reaching the top of the thread does not start
+        // scrolling the page behind it, which is what makes a nested scroller feel
+        // broken on a trackpad.
+        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain pr-1 pb-4"
         aria-live="polite"
         aria-busy={busy}
       >
@@ -227,114 +260,137 @@ export function Conversation({
         <div ref={scrollAnchorRef} />
       </div>
 
-      {error && (
-        <p
-          role="status"
-          className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-[13px]"
-        >
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
-          <span>
-            {error}{" "}
-            {onFallback && (
-              <>
-                <button
-                  type="button"
-                  onClick={onFallback}
-                  className="underline underline-offset-4"
-                >
-                  Fill in a form instead
-                </button>
-                .
-              </>
-            )}
-          </span>
-        </p>
-      )}
-
-      {chips.length > 0 && !busy && (
-        // §17: offer options *and* free text. Chips are faster on a phone,
-        // which is where a lot of this conversation happens.
-        <div className="flex flex-wrap gap-2">
-          {chips.map((chip) => (
-            <button
-              key={chip}
-              type="button"
-              onClick={() => void send(chip)}
-              disabled={disabled}
-              className="border-border hover:border-border-strong hover:bg-surface-muted rounded-full border px-3.5 py-1.5 text-left text-[12.5px] transition-colors"
-            >
-              {chip}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {disabled ? (
-        <p className="border-border bg-surface-muted text-muted-foreground rounded-xl border px-3.5 py-2.5 text-[13px]">
-          {disabledReason ?? "This conversation is closed."}
-        </p>
-      ) : (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send(draft);
-          }}
-          className="border-border bg-surface focus-within:border-border-strong flex items-end gap-2 rounded-2xl border p-2 transition-colors"
-        >
-          <label htmlFor="reply" className="sr-only">
-            Your answer
-          </label>
-          <textarea
-            id="reply"
-            ref={inputRef}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              // Enter sends, Shift+Enter breaks a line. The alternative traps
-              // anyone who types a paragraph and expects Enter to submit.
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void send(draft);
-              }
-            }}
-            rows={2}
-            maxLength={4000}
-            placeholder={
-              messages.length === 0 ? "Tell us in your own words…" : "Type your answer…"
-            }
-            /*
-             * `field-sizing-content` grows the box with the text and
-             * `resize-none` takes the drag handle away, which is the trade: the
-             * handle existed because the box could not grow itself. Browsers
-             * without it fall back to the `rows={2}` box and a scrollbar, which
-             * is what everyone had before.
-             */
-            className="field-sizing-content max-h-40 min-h-[2.75rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] outline-none"
-          />
-          <button
-            type="submit"
-            disabled={busy || draft.trim().length === 0}
-            /*
-             * The accent arrives with the text, so the button being live is
-             * something you can see rather than something you try. Disabled is
-             * a muted surface rather than a faded accent — a 40%-opacity orange
-             * circle reads as broken, not as waiting.
-             */
-            className={`grid size-9 shrink-0 place-items-center rounded-full transition-colors ${
-              busy || draft.trim().length === 0
-                ? "bg-surface-muted text-muted-foreground"
-                : "bg-signal text-signal-contrast"
-            }`}
+      {/*
+        Pinned. The chips belong here rather than in the thread because they are
+        answers to the question being asked *now* — scrolled away with the message
+        that offered them, they are decoration.
+      */}
+      <div className="border-border flex shrink-0 flex-col gap-3 border-t pt-3">
+        {error && (
+          <p
+            role="status"
+            className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-[13px]"
           >
-            {busy ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-            ) : (
-              <ArrowUp className="size-4" aria-hidden />
-            )}
-            <span className="sr-only">Send</span>
-          </button>
-        </form>
-      )}
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+            <span>
+              {error}{" "}
+              {onFallback && (
+                <>
+                  <button
+                    type="button"
+                    onClick={onFallback}
+                    className="underline underline-offset-4"
+                  >
+                    Fill in a form instead
+                  </button>
+                  .
+                </>
+              )}
+            </span>
+          </p>
+        )}
+
+        {chips.length > 0 && !busy && (
+          // §17: offer options *and* free text. Chips are faster on a phone,
+          // which is where a lot of this conversation happens.
+          <div className="flex flex-wrap gap-2">
+            {chips.map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                onClick={() => {
+                  /*
+                   * "Something else" opens the box; every other chip is an answer.
+                   *
+                   * It used to send, so choosing the escape hatch posted the
+                   * literal words "Something else" — which says nothing, and made
+                   * the assistant's next question a recovery from a message the
+                   * customer never meant to write. The hatch exists for people the
+                   * suggestions did not fit, and what they need is the cursor.
+                   */
+                  if (chip === ESCAPE_HATCH) {
+                    setOffered([]);
+                    inputRef.current?.focus();
+                    return;
+                  }
+                  void send(chip);
+                }}
+                disabled={disabled}
+                className="border-border hover:border-border-strong hover:bg-surface-muted rounded-full border px-3.5 py-1.5 text-left text-[12.5px] transition-colors"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {disabled ? (
+          <p className="border-border bg-surface-muted text-muted-foreground rounded-xl border px-3.5 py-2.5 text-[13px]">
+            {disabledReason ?? "This conversation is closed."}
+          </p>
+        ) : (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void send(draft);
+            }}
+            className="border-border bg-surface focus-within:border-border-strong flex items-end gap-2 rounded-2xl border p-2 transition-colors"
+          >
+            <label htmlFor="reply" className="sr-only">
+              Your answer
+            </label>
+            <textarea
+              id="reply"
+              ref={inputRef}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter sends, Shift+Enter breaks a line. The alternative traps
+                // anyone who types a paragraph and expects Enter to submit.
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void send(draft);
+                }
+              }}
+              rows={2}
+              maxLength={4000}
+              placeholder={
+                messages.length === 0 ? "Tell us in your own words…" : "Type your answer…"
+              }
+              /*
+               * `field-sizing-content` grows the box with the text and
+               * `resize-none` takes the drag handle away, which is the trade: the
+               * handle existed because the box could not grow itself. Browsers
+               * without it fall back to the `rows={2}` box and a scrollbar, which
+               * is what everyone had before.
+               */
+              className="field-sizing-content max-h-40 min-h-[2.75rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] outline-none"
+            />
+            <button
+              type="submit"
+              disabled={busy || draft.trim().length === 0}
+              /*
+               * The accent arrives with the text, so the button being live is
+               * something you can see rather than something you try. Disabled is
+               * a muted surface rather than a faded accent — a 40%-opacity orange
+               * circle reads as broken, not as waiting.
+               */
+              className={`grid size-9 shrink-0 place-items-center rounded-full transition-colors ${
+                busy || draft.trim().length === 0
+                  ? "bg-surface-muted text-muted-foreground"
+                  : "bg-signal text-signal-contrast"
+              }`}
+            >
+              {busy ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <ArrowUp className="size-4" aria-hidden />
+              )}
+              <span className="sr-only">Send</span>
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
@@ -407,18 +463,27 @@ function ThinkingDots() {
  * Follow the conversation, unless the customer is reading something else.
  *
  * The old effect called `scrollIntoView` on every `messages`/`streaming` change —
- * which is every streaming delta, several times a second. Scroll up to re-read an
- * answer while the next one generates and it dragged you back down, repeatedly,
- * with no way to win. The behaviour customers describe as "it keeps jumping".
+ * which is every streaming delta, several times a second, against the *window*.
+ * Scroll up to re-read an answer while the next one generates and it dragged you
+ * back down, with no way to win. The behaviour people describe as "it keeps
+ * jumping".
  *
- * So intent is sampled **before** the DOM updates, in a layout effect: if they
- * were already near the bottom they were following along and we keep them there;
- * if they had scrolled away they are reading and we leave them alone. Sending a
- * message overrides it — see `rememberScrollIntent` at the call site — because
- * having just typed something you always want to see the reply.
+ * Two changes. Intent is sampled **before** the DOM updates, in a layout effect,
+ * so it reads where the customer *was* rather than where new content has just
+ * pushed them: near the bottom means they were following and we keep them there;
+ * scrolled away means they are reading and we leave them alone. And it measures
+ * the thread's own scroller rather than the window, which is what makes it correct
+ * now that the thread is a box — a window measurement in a page that no longer
+ * scrolls reads "at the bottom" forever, which is the bug in its most confusing
+ * form.
  *
- * `block: "end"` and no `behavior`, deliberately: smooth scrolling on every delta
- * queues animations faster than they finish.
+ * Sending a message overrides it — see `rememberScrollIntent(true)` at the call
+ * site — because having just typed something you always want the reply.
+ *
+ * `scrollTop` assignment rather than `scrollIntoView`: the latter walks up to the
+ * nearest scrollable ancestor and would move the page too if the box ever stopped
+ * being one. And no `behavior: "smooth"`, deliberately: on every delta that queues
+ * animations faster than they finish.
  */
 function useAutoScroll(signal: string) {
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
@@ -430,21 +495,23 @@ function useAutoScroll(signal: string) {
       following.current = true;
       return;
     }
-    const anchor = scrollAnchorRef.current;
-    if (!anchor) return;
-    // Distance from the anchor to the bottom of the window. Within a couple of
-    // lines counts as following; anything more is deliberate.
-    following.current = anchor.getBoundingClientRect().top - window.innerHeight < 120;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    // Within a couple of lines of the end counts as following along; more than
+    // that is a deliberate scroll back.
+    const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    following.current = distance < 120;
   }, []);
 
   useLayoutEffect(() => {
-    // Runs before paint, so this reads where the customer *was*, not where the
-    // new content has just pushed them.
+    // Before paint, so this samples the position the new content has not yet
+    // changed.
     rememberScrollIntent();
   });
 
   useEffect(() => {
-    if (following.current) scrollAnchorRef.current?.scrollIntoView({ block: "end" });
+    const viewport = viewportRef.current;
+    if (viewport && following.current) viewport.scrollTop = viewport.scrollHeight;
   }, [signal]);
 
   return { scrollAnchorRef, viewportRef, rememberScrollIntent };
@@ -463,6 +530,8 @@ async function readEvents(
     onDone: (payload: {
       content: string;
       options?: string[];
+      covered?: string[];
+      ready?: boolean;
       replaced: boolean;
       truncated: boolean;
     }) => void;
@@ -501,6 +570,8 @@ async function readEvents(
           data as {
             content: string;
             options?: string[];
+            covered?: string[];
+            ready?: boolean;
             replaced: boolean;
             truncated: boolean;
           },

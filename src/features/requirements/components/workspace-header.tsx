@@ -23,12 +23,31 @@ import { DISCOVERY_STEPS, type DiscoveryStage } from "../stage";
  * nothing between navigations — which is right, because re-opening it is one
  * click and defaulting it open would undo the whole point.
  */
-export function WorkspaceHeader({ title, stage }: { title: string; stage: DiscoveryStage }) {
+export function WorkspaceHeader({
+  title,
+  stage,
+  action,
+}: {
+  title: string;
+  stage: DiscoveryStage;
+  /**
+   * A control belonging to the whole workspace — "Start over".
+   *
+   * Here because it had been dropped at the very bottom of the page, below the
+   * listing panel and the process explainer, where it read as an afterthought and
+   * was a long scroll from the conversation it applies to. A destructive action
+   * belongs beside the thing it destroys.
+   */
+  action?: React.ReactNode;
+}) {
   return (
     <div className="border-border flex flex-col gap-3 border-b pb-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
         <h1 className="font-display text-[19px] tracking-[-0.02em]">{title}</h1>
-        <DiscoveryProgress stage={stage} />
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <DiscoveryProgress stage={stage} />
+          {action}
+        </div>
       </div>
 
       <details className="group">
