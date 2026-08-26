@@ -55,36 +55,77 @@ export const HERO_PATHS = [
 /**
  * Hero search chips.
  *
- * `label` is what reads well on a pill; `q` is what actually finds something.
- * They differ because "Rota & timesheets" is how a care manager says it and
- * "rota timesheets" is what the text index scores.
+ * `label` is what reads well on a pill; `q` is what actually finds something —
+ * they differ because a care manager says "rota & timesheets" and the text index
+ * scores "rota timesheets".
+ *
+ * Four, not five. The three-column hero gives this column about 410px, and five
+ * of these measure 486px — so the fifth wrapped to a line of its own at every
+ * width. A single orphaned chip reads as a mistake; the search box above it is
+ * the route to anything not listed here. "Rota & timesheets" was the one dropped,
+ * because it was the longest and the least likely first guess.
  */
 export const HERO_CHIPS = [
   { label: "CRM", q: "crm" },
   { label: "Booking", q: "booking" },
   { label: "Property", q: "property" },
-  { label: "Rota & timesheets", q: "rota timesheets" },
   { label: "Inventory", q: "inventory" },
 ] as const;
 
 /**
- * The stylised windows in the hero illustration.
+ * The rows in the hero's catalogue panel.
  *
  * Kinds of software, not names of ours, and no prices — the reason is worth
  * keeping: these were once four real seeded products with hardcoded prices and
  * "adapted 23×" counts, which made the homepage a stale mirror of live rows. The
- * picture reads the same and asserts nothing. The real, named, priced inventory
- * is three bands below, straight from the catalogue.
+ * panel reads the same and asserts nothing. The real, named, priced inventory is
+ * three bands below, straight from the catalogue.
  *
  * `free` is the *shape* of a badge, not a claim about a product — there genuinely
- * are free listings, and the illustration would misrepresent the catalogue if it
- * showed only paid ones.
+ * are free listings, and the panel would misrepresent the catalogue if it showed
+ * only paid ones.
+ *
+ * The thumbnails are supplied brand assets in `public/brand/`, not product media:
+ * each illustrates a *category*, which is why they can be committed and why they
+ * carry no alt text — the panel is decorative in full, see `HeroSurface`.
+ *
+ * They are matched to the row by subject rather than by the order they arrived in:
+ * the admin dashboard sits on "Client manager", the shop-and-cart screens on
+ * "Storefront", the phone infographic on "Shift planner". Filenames are the
+ * *role*, not the source, so re-pointing one is a copy over the file rather than
+ * an edit here.
  */
 export const HERO_WINDOWS = [
-  { title: "Client manager", kind: "Sales", thumb: "chart", free: true },
-  { title: "Storefront", kind: "Retail", thumb: "grid", free: true },
-  { title: "Shift planner", kind: "Care & HR", thumb: "rows", free: false },
+  {
+    title: "Client manager",
+    kind: "Sales",
+    src: "/brand/preview-client-manager.png",
+    free: false,
+  },
+  { title: "Storefront", kind: "Retail", src: "/brand/preview-storefront.png", free: true },
+  {
+    title: "Shift planner",
+    kind: "Care & HR",
+    src: "/brand/preview-shift-planner.png",
+    free: false,
+  },
 ] as const;
+
+/**
+ * The hero's background photograph, and the template screenshot in front of it.
+ *
+ * Both live in `public/brand/` rather than in object storage: they are brand
+ * furniture that changes when the brand does, and a homepage which cannot paint
+ * until S3 answers is a homepage with a worse first paint.
+ */
+export const HERO_MEDIA = {
+  background: "/brand/hero-studio.jpg",
+  templateShot: "/brand/template-preview.png",
+  /** Intrinsic size, so the box is reserved and the screenshot cannot shift. */
+  templateShotSize: { width: 757, height: 480 },
+  /** What the mock address bar reads. Not a destination — it is the promise. */
+  templateUrl: "https://your-website.com",
+} as const;
 
 /** What CoSetup does after the software exists. Order is the lifecycle order. */
 export const SERVICES = [

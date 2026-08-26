@@ -1,24 +1,23 @@
-import { Check } from "lucide-react";
-import { HERO_WINDOWS } from "../data";
+import Image from "next/image";
+import { Check, Lock } from "lucide-react";
+import { HERO_MEDIA, HERO_WINDOWS } from "../data";
 
 /**
- * The hero illustration — layered product surfaces, **drawn rather than
- * photographed**.
+ * The hero's foreground — the catalogue, and a front-end running in a browser.
  *
- * ## Why there is no photograph in here
+ * ## Chrome is drawn, content is real
  *
- * The brief rules out generic stock imagery — people at laptops, phones in hands,
- * offices — and asks for the product itself: browser windows, dashboard previews,
- * storefronts, template thumbnails. A stock photo of a device is the thing it bans
- * wearing the costume of the thing it wants, and the first attempt at this
- * component proved it: three Unsplash tiles and a phone-in-a-hand shot, which said
- * nothing about software.
+ * The split matters and it is deliberate. Everything structural — the panels, the
+ * browser frame, the address bar, the badges — is composed from the design tokens,
+ * so it is theme-aware, weighs nothing and cannot go stale. Everything *shown
+ * inside* it is a real supplied asset: a real front-end screenshot in the browser,
+ * real category thumbnails in the rows.
  *
- * So the surfaces are composed from the design tokens: browser chrome, a list of
- * catalogue rows, and a wireframe of a template's front page. It reads as a
- * product preview because it *is* a product interface, drawn in the same system as
- * the real one — and it cannot go stale, cannot 404, and costs no image bytes on
- * the LCP path.
+ * That is the arrangement the brief actually asks for — "layered browser/product
+ * windows" whose media is product, not stock. An earlier pass had this the other
+ * way round, drawing a grey-bar wireframe *because* the only images available were
+ * stock photographs of devices; given a genuine product shot the wireframe has
+ * nothing left to argue for.
  *
  * ## What it deliberately does not claim
  *
@@ -29,11 +28,14 @@ import { HERO_WINDOWS } from "../data";
  * below, straight from the catalogue. One `Free` badge and two `Paid` because both
  * exist; showing only one would misrepresent the shelf.
  *
+ * The address bar says `your-website.com` for the same reason: it names the
+ * customer's outcome rather than the file they are buying.
+ *
  * ## Smaller, not busier, on a phone
  *
  * The failure mode for a layered composition is "a pile of tiny unreadable
- * screenshots". The floating pill is hidden below `sm` and the overlap tightens,
- * so three legible surfaces survive instead of five illegible ones.
+ * screenshots". The step pills are hidden below `sm` and the overlap tightens, so
+ * two legible surfaces survive instead of five illegible ones.
  */
 /** What happens after a purchase, in order. Drawn as a cascade below. */
 const STEPS = ["Download", "Setup", "Go live"] as const;
@@ -62,7 +64,9 @@ export function HeroSurface() {
               key={item.title}
               className="border-border bg-background/60 flex items-center gap-3.5 rounded-2xl border p-2.5"
             >
-              <Thumb kind={item.thumb} />
+              <span className="border-border bg-surface-muted relative size-11 shrink-0 overflow-hidden rounded-xl border">
+                <Image src={item.src} alt="" fill sizes="44px" className="object-cover" />
+              </span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[14px] font-medium">{item.title}</div>
                 <div className="text-subtle font-mono text-[10.5px]">{item.kind}</div>
@@ -85,42 +89,41 @@ export function HeroSurface() {
           <span className="bg-border-strong size-2 rounded-full" />
           <span className="bg-border-strong size-2 rounded-full" />
           <span className="bg-border-strong size-2 rounded-full" />
-          <span className="bg-background text-subtle ml-2 flex-1 truncate rounded-md px-2 py-1 font-mono text-[9.5px]">
-            website-template.preview
+          {/*
+            The address bar reads as the customer's own domain, not ours.
+
+            It used to say `website-template.preview`, which describes the file
+            they are buying. `https://your-website.com` describes the outcome —
+            the same shift the headline makes from "Build it" to "Make it yours".
+          */}
+          <span className="bg-background text-subtle ml-2 flex flex-1 items-center gap-1.5 truncate rounded-md px-2 py-1 font-mono text-[9.5px]">
+            <Lock className="size-2.5 shrink-0" />
+            {HERO_MEDIA.templateUrl}
           </span>
         </div>
 
-        {/* a front page, wireframed */}
-        <div className="bg-background/40 flex flex-col gap-3 p-4 sm:p-5">
-          <div className="flex items-center justify-between">
-            <span className="bg-foreground/80 h-2.5 w-16 rounded-full" />
-            <span className="flex gap-1.5">
-              <span className="bg-border-strong h-2 w-8 rounded-full" />
-              <span className="bg-border-strong h-2 w-8 rounded-full" />
-              <span className="bg-signal h-2 w-10 rounded-full" />
-            </span>
-          </div>
+        {/*
+          A real screenshot of a real front-end, at its own aspect ratio.
 
-          <div className="border-border bg-surface flex flex-col gap-2 rounded-xl border p-3.5">
-            <span className="bg-foreground/70 h-3 w-2/3 rounded-full" />
-            <span className="bg-border-strong h-2 w-full rounded-full" />
-            <span className="bg-border-strong h-2 w-4/5 rounded-full" />
-            <span className="bg-signal mt-1 h-5 w-24 rounded-full" />
-          </div>
+          This was a hand-drawn wireframe — grey bars standing in for a page —
+          because the alternative at the time was a stock photograph. Given an
+          actual product shot, the wireframe has nothing left to argue for: the
+          brief asks for product previews as the hero media, and this is one.
 
-          <div className="grid grid-cols-3 gap-2">
-            {[0, 1, 2].map((tile) => (
-              <div
-                key={tile}
-                className="border-border bg-surface flex flex-col gap-1.5 rounded-lg border p-2"
-              >
-                <span className="bg-surface-muted aspect-[4/3] w-full rounded-md" />
-                <span className="bg-border-strong h-1.5 w-3/4 rounded-full" />
-                <span className="bg-border-strong h-1.5 w-1/2 rounded-full" />
-              </div>
-            ))}
-          </div>
-        </div>
+          `width`/`height` are the intrinsic pixels, so the box is reserved before
+          the bytes land and the panel cannot jump. `loading="eager"` rather than
+          `priority`, because the background photograph is the LCP element and
+          promoting two images competes for the same first connections.
+        */}
+        <Image
+          src={HERO_MEDIA.templateShot}
+          alt=""
+          width={HERO_MEDIA.templateShotSize.width}
+          height={HERO_MEDIA.templateShotSize.height}
+          sizes="(min-width: 1024px) 480px, 90vw"
+          loading="eager"
+          className="block h-auto w-full"
+        />
       </div>
 
       {/*
@@ -153,49 +156,5 @@ export function HeroSurface() {
         ))}
       </div>
     </div>
-  );
-}
-
-/**
- * A catalogue row's thumbnail, as a miniature of what that kind of software
- * looks like — a chart, a grid of products, a week of shifts.
- *
- * Three tiny compositions rather than three cropped photographs: at 44px a
- * photograph is a smudge, while a bar chart is still recognisably a bar chart.
- */
-function Thumb({ kind }: { kind: "chart" | "grid" | "rows" }) {
-  return (
-    <span className="border-border bg-surface grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl border">
-      {kind === "chart" && (
-        <span className="flex h-5 items-end gap-[3px]">
-          <span className="bg-border-strong h-2 w-1 rounded-sm" />
-          <span className="bg-border-strong h-3.5 w-1 rounded-sm" />
-          <span className="bg-signal h-5 w-1 rounded-sm" />
-          <span className="bg-border-strong h-2.5 w-1 rounded-sm" />
-        </span>
-      )}
-      {kind === "grid" && (
-        <span className="grid grid-cols-2 gap-[3px]">
-          {[0, 1, 2, 3].map((cell) => (
-            <span
-              key={cell}
-              className={
-                cell === 0
-                  ? "bg-signal size-2 rounded-sm"
-                  : "bg-border-strong size-2 rounded-sm"
-              }
-            />
-          ))}
-        </span>
-      )}
-      {kind === "rows" && (
-        <span className="flex w-5 flex-col gap-[3px]">
-          <span className="bg-signal h-1 w-full rounded-full" />
-          <span className="bg-border-strong h-1 w-3/4 rounded-full" />
-          <span className="bg-border-strong h-1 w-full rounded-full" />
-          <span className="bg-border-strong h-1 w-2/3 rounded-full" />
-        </span>
-      )}
-    </span>
   );
 }

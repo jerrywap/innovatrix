@@ -2,10 +2,11 @@ import { Suspense } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { ArrowRight, LayoutTemplate, Package, Wand2 } from "lucide-react";
+import Image from "next/image";
 import { SearchBox } from "@/features/marketplace/components/search-box";
 import { getPublishedProductCount, getTaxonomyIndex } from "@/services/marketplace";
 import { DEFAULT_CURRENCY } from "@/config/storefront";
-import { HERO_CHIPS, HERO_PATHS } from "../data";
+import { HERO_CHIPS, HERO_MEDIA, HERO_PATHS } from "../data";
 import { HeroSurface } from "./hero-surface";
 
 /**
@@ -38,6 +39,73 @@ const PATH_ICONS = {
 export function Hero() {
   return (
     <section className="relative overflow-hidden">
+      {/*
+        The photograph, on the left, with the subject in the clear.
+
+        ## Three columns, and why the photo is not a backdrop
+
+        The obvious arrangement — text left, everything else right — puts the
+        photograph behind the product panels, which occlude the person entirely and
+        leave a warm blur that reads as an accident. So the hero is three columns
+        instead: photograph, then type, then the panels. Nothing overlaps anything
+        it was meant to be seen through, and the one genuinely human thing on the
+        page is the first thing in the reading order.
+
+        The asset is the right-hand half of the supplied file. That file is a
+        diptych — plain plaster wall, then the studio, with a **hard vertical seam**
+        between them — and the wall was doing a job the page ground already does
+        better. Cropping it removed the seam and took 471KB down to 88KB.
+
+        ## The gradient is the join, and it finishes before the type starts
+
+        The photograph has no border and no rounded corner; it dissolves into the
+        page on its right edge and along its bottom, which is what stops it reading
+        as an image pasted into a layout.
+
+        `35%` is not a taste decision. On a 1440px viewport the type column begins
+        at 513px, and 35% is 504px — so the gradient has already resolved to flat
+        page colour before any text starts. At 43% the fade tail ran under the first
+        hundred pixels of the paragraph, which put `--muted-foreground` at roughly
+        4.3:1 against a blend of page and photograph: under AA, and *variably* under
+        it, since the blend changes with the viewport. Ending the band short of the
+        column means no text is ever over the photograph, so the contrast is just
+        the token contrast.
+
+        ## Below `lg` it goes behind, not away
+
+        There are not three columns on a phone. The photograph becomes a full-width
+        ground with a heavy veil over it — present enough to set the tone, faint
+        enough that the headline on top of it keeps its contrast.
+
+        Static, as asked: no parallax, no scroll coupling. A hero that moves under a
+        headline fights the headline — and it would then owe
+        `prefers-reduced-motion` an opinion.
+      */}
+      <div
+        aria-hidden
+        // Height, not `inset-y-0`. Left to fill the section the photograph runs
+        // under the three path cards and the vendor line beneath them, and text
+        // over a photograph is text with no contrast guarantee. The band stops
+        // above the cards and the bottom gradient covers the handover.
+        className="pointer-events-none absolute top-0 left-0 h-full w-full lg:h-[700px] lg:w-[35%]"
+      >
+        <Image
+          src={HERO_MEDIA.background}
+          alt=""
+          fill
+          sizes="(min-width: 1024px) 35vw, 100vw"
+          // The page's LCP element, so it is fetched with the document.
+          priority
+          className="object-cover object-[60%_center] dark:opacity-[0.22]"
+        />
+        {/* the join: photograph on the left, page on the right */}
+        <div className="to-background absolute inset-0 bg-gradient-to-r from-transparent from-40% lg:from-45%" />
+        {/* and along the bottom, so it never ends on a line */}
+        <div className="to-background absolute inset-x-0 bottom-0 h-52 bg-gradient-to-b from-transparent" />
+        {/* phone only: the veil that keeps the headline legible on top of it */}
+        <div className="bg-background/78 absolute inset-0 lg:hidden" />
+      </div>
+
       {/* atmosphere — decorative, and never in the way of the text */}
       <div
         aria-hidden
@@ -49,16 +117,46 @@ export function Hero() {
       />
       <div
         aria-hidden
-        className="bg-grid pointer-events-none absolute inset-x-0 top-0 h-[620px] [mask-image:radial-gradient(ellipse_at_top,black,transparent_72%)] opacity-40"
+        // Dark only. In light mode the photograph supplies the texture and a grid
+        // on top of it is just noise; in dark the photograph sits at 18% and the
+        // grid is what stops the band reading as flat black.
+        className="bg-grid pointer-events-none absolute inset-x-0 top-0 hidden h-[620px] [mask-image:radial-gradient(ellipse_at_top,black,transparent_72%)] opacity-40 dark:block"
       />
 
       <div className="relative mx-auto max-w-[1400px] px-5 pt-12 pb-16 lg:px-10 lg:pt-20 lg:pb-24">
+        {/*
+          Twelve columns, and the first four are the photograph's.
+
+          The type starts at column five rather than column one, which is what
+          leaves the left of the band to the photograph instead of putting the two
+          on top of each other. Below `lg` the grid collapses and the photograph
+          moves behind — see the note on the media layer above.
+        */}
         <div className="grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
-          <div className="lg:col-span-6">
-            <div className="border-border bg-surface/70 inline-flex items-center gap-2.5 rounded-full border py-1.5 pr-4 pl-2 backdrop-blur">
+          <div className="lg:col-span-4 lg:col-start-5">
+            {/*
+              A claim, not a label — so it is set as a sentence.
+
+              This said "SOFTWARE MARKETPLACE & DELIVERY" in tracked-out mono
+              uppercase, which is the house style for a *category* eyebrow and the
+              wrong treatment for a line that is trying to make somebody stop:
+              at 10.5px with 0.16em of tracking, in muted grey, a sentence this
+              long is decoration rather than something read.
+
+              So it keeps the pill and the pulsing dot and changes everything that
+              was making it quiet — sentence case, 13.5px, `--foreground` instead
+              of `--muted-foreground`, an opaque surface rather than 70%, and the
+              stronger border. `shadow-lift` sits it above the photograph behind it
+              rather than flat against it.
+
+              Deliberately *not* orange. The headline's third line and the primary
+              buttons already carry the accent, and the brand guide is explicit
+              that orange stays an accent rather than flooding a surface.
+            */}
+            <div className="border-border-strong bg-surface shadow-lift inline-flex items-center gap-2.5 rounded-full border py-2 pr-5 pl-2.5">
               <span className="animate-pulse-ring bg-signal inline-block size-2 rounded-full" />
-              <span className="text-muted-foreground font-mono text-[10.5px] tracking-[0.16em] uppercase">
-                Software marketplace &amp; delivery
+              <span className="text-foreground text-[13.5px] font-medium tracking-[-0.01em]">
+                Your app might already exist
               </span>
             </div>
 
@@ -73,15 +171,18 @@ export function Hero() {
               four routes here and not the main one.
             */}
             {/*
-              `6.4vw`, down from `8.5vw`.
+              The scale is set by the *longest* line inside the *narrowest*
+              column it has to live in.
 
-              The scale is set by the *longest* line, and that is now "Make it
-              yours." at fourteen characters rather than "Build it." at nine. At
-              the old rate it wrapped to four lines from `lg` up to about 1200px,
-              which broke the three-beat rhythm the whole headline depends on.
-              6.4vw keeps all three lines unwrapped from 390px to the 5.75rem cap.
+              Two things shrank it. "Make it yours." is fourteen characters where
+              "Build it." was nine, and the three-column hero gives the type four
+              columns where it used to have six. Together those took the headline
+              from `8.5vw` to `4.1vw`: at anything larger it wraps to four lines
+              somewhere between `lg` and `xl`, which breaks the three-beat rhythm
+              the whole headline is built on. Measured across seven widths rather
+              than guessed — see the note in the commit.
             */}
-            <h1 className="mt-7 text-[clamp(2.6rem,6.4vw,5.75rem)] leading-[0.95] font-semibold tracking-[-0.045em]">
+            <h1 className="mt-6 text-[clamp(2.4rem,4.1vw,3.7rem)] leading-[1] font-semibold tracking-[-0.04em]">
               Find it.
               <br />
               Make it yours.
@@ -89,12 +190,12 @@ export function Hero() {
               <span className="text-signal-text">Run it.</span>
             </h1>
 
-            <p className="text-muted-foreground mt-7 max-w-[46ch] text-[17px] leading-[1.65] lg:text-[18.5px]">
+            <p className="text-muted-foreground mt-6 max-w-[42ch] text-[16px] leading-[1.6] lg:text-[17px]">
               Ready-made applications, scripts and website templates — including free ones. Use
               them as they are, have them adapted, or tell us what to build.
             </p>
 
-            <div className="mt-9 max-w-[560px]">
+            <div className="mt-8 max-w-[560px]">
               {/*
                 `SearchBox` reads `useSearchParams()`, which opts the whole route
                 out of prerendering unless it is behind a boundary — the build
@@ -138,7 +239,7 @@ export function Hero() {
             </div>
           </div>
 
-          <div className="lg:col-span-6">
+          <div className="lg:col-span-4">
             <HeroSurface />
           </div>
         </div>
