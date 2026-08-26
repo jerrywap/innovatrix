@@ -109,6 +109,16 @@ export interface AiConversationDoc {
   productId?: Types.ObjectId;
   productVersionId?: Types.ObjectId;
   productVersionNumber?: string;
+  /**
+   * §24: the custom-build conversation this one grew out of, when the customer
+   * took a marketplace recommendation instead. Their side of that transcript is
+   * replayed as background so they are not asked to explain it twice, and the
+   * link is the audit trail for why this conversation exists at all.
+   *
+   * Not a merge. The old conversation keeps its own messages and its own
+   * `recommendationChoice`; nothing is copied across the collection.
+   */
+  carriedFromConversationId?: Types.ObjectId;
   messages: AiMessage[];
   structuredAnswers: Record<string, unknown>;
   requirements: Requirement[];
@@ -128,6 +138,7 @@ const aiConversationSchema = new Schema<AiConversationDoc>(
     anonymousKey: { type: String, index: true },
 
     contextType: { type: String, enum: AI_CONTEXT_TYPES, required: true },
+    carriedFromConversationId: { type: Schema.Types.ObjectId, ref: "AiConversation" },
     // §20/§101 — a customisation keeps an explicit link to the base product AND
     // the exact version, so staff never receive "customer wants CRM".
     productId: { type: Schema.Types.ObjectId, ref: "Product" },
@@ -261,6 +272,21 @@ export interface CustomerRequestDoc {
   quoteIds: Types.ObjectId[];
   budgetRange?: { min?: number; max?: number; currency?: string };
   desiredTimeline?: string;
+  /**
+   * The customer's own "anything else", verbatim.
+   *
+   * It had a textarea, a `maxLength`, and a Zod rule validating it — and then
+   * `submitRequirementsAction` did not pass it on, because neither `SubmitInput`
+   * nor this document had anywhere to put it. So every word anyone typed there
+   * was parsed, trimmed, validated and dropped. This is the somewhere.
+   *
+   * Free prose on purpose, and kept out of `customerRequirements`: it is
+   * context, not a line to be quoted and built. It is also **theirs** — the same
+   * §34 rule that makes the requirement arrays immutable to staff applies to a
+   * sentence they wrote, so staff record their reading in
+   * `internalInterpretation` rather than tidying this up.
+   */
+  customerNotes?: string;
   submittedAt?: Date;
   /**
    * `"innovatrix"` is deliberate, and deliberately not renamed by the CoSetup
@@ -332,6 +358,7 @@ const customerRequestSchema = new Schema<CustomerRequestDoc>(
 
     budgetRange: { min: Number, max: Number, currency: String },
     desiredTimeline: String,
+    customerNotes: String,
     submittedAt: Date,
     /** Drives the §32 "Waiting for Customer" / "Awaiting Staff" queues. */
     waitingOn: { type: String, enum: ["customer", "innovatrix"] },

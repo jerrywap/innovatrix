@@ -51,6 +51,7 @@ async function main() {
 
   const { resolveAiConfig } = await import("../src/services/ai/settings");
   const { streamAssistantTurn } = await import("../src/services/ai/chat");
+  const { splitAssistantOptions } = await import("../src/lib/assistant-options");
   const { extractStructured } = await import("../src/services/ai/extract");
   const { systemPrompt, productContext } = await import("../src/services/ai/prompts");
   const { structuredSupport, findModel } = await import("../src/services/ai/models");
@@ -97,7 +98,22 @@ async function main() {
             onDone: (result) => {
               note(result.usage);
               resolve({
-                text: result.message.content,
+                /*
+                 * Stripped of the options marker, because every assertion below
+                 * is about what the *customer* reads.
+                 *
+                 * The probe calls `streamAssistantTurn` directly, one level under
+                 * the SSE route that normally does this — so without it the raw
+                 * `::options:: …` line lands in the previews printed here, and in
+                 * anything that counts characters or question marks. The route
+                 * strips it before the reply is shown, stored or replayed; the
+                 * probe should measure the same text.
+                 *
+                 * Note the guardrail has already run over the full completion by
+                 * this point, marker included, which is the property section 2
+                 * exercises. Stripping here cannot weaken it.
+                 */
+                text: splitAssistantOptions(result.message.content).text,
                 replaced: result.replaced,
                 deltas,
                 truncated: result.truncated,

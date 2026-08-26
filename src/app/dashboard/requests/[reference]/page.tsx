@@ -124,6 +124,24 @@ export default async function Page({ params }: PageProps<"/dashboard/requests/[r
         </section>
       )}
 
+      {request.customerNotes && (
+        /*
+          Their own words, and until this ticket they were thrown away.
+
+          "Anything else" had a textarea, a `maxLength` and a Zod rule, and then
+          `submitRequirementsAction` never passed it to the service — so every
+          sentence anyone wrote there was validated and dropped. Shown here
+          because it is the one part of the request in their voice rather than
+          ours, which is exactly the part worth being able to point at.
+        */
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-[17px] tracking-[-0.02em]">What else you told us</h2>
+          <p className="border-border bg-surface rounded-xl border px-4 py-3 text-[13.5px] leading-relaxed whitespace-pre-wrap">
+            {request.customerNotes}
+          </p>
+        </section>
+      )}
+
       <Attachments
         requestId={request.id}
         reference={request.reference}

@@ -85,6 +85,15 @@ export const LIMITS = {
   licenceActivation: { name: "licence-activation", limit: 20, windowSeconds: 3600 },
   /** Cost protection, not abuse protection — a turn is an AI call we pay for. */
   aiTurn: { name: "ai-turn", limit: 60, windowSeconds: 3600 },
+  /**
+   * Drafting the brief. Tighter than a turn, because it costs more and is
+   * *repeatable on one button* — "Review and submit" re-extracts the whole
+   * transcript at up to the full output allowance, with an automatic retry on a
+   * second strategy if the first parse fails. A customer legitimately redrafts
+   * two or three times after editing; ten in an hour is a stuck finger or a
+   * script, and either way we are paying for it.
+   */
+  aiExtract: { name: "ai-extract", limit: 10, windowSeconds: 3600 },
   download: { name: "download", limit: 100, windowSeconds: 86_400 },
   /** §46: revealing a demo credential is exactly the thing to scrape. */
   demoReveal: { name: "demo-reveal", limit: 20, windowSeconds: 3600 },

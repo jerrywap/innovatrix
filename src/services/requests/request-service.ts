@@ -322,6 +322,8 @@ export interface SubmitInput {
   baseProductVersionId?: string;
   baseProductVersionNumber?: string;
   desiredTimeline?: string;
+  /** The customer's free-text "anything else". Context, never a requirement. */
+  customerNotes?: string;
   budgetRange?: { min?: number; max?: number; currency?: string };
 }
 
@@ -404,6 +406,7 @@ export async function submitFromConversation(input: SubmitInput): Promise<Custom
           submittedAt: new Date(),
           waitingOn: "innovatrix",
           ...(input.desiredTimeline ? { desiredTimeline: input.desiredTimeline } : {}),
+          ...(input.customerNotes ? { customerNotes: input.customerNotes } : {}),
           ...(input.budgetRange ? { budgetRange: input.budgetRange } : {}),
         },
       ],

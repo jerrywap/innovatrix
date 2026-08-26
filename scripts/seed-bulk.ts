@@ -28,6 +28,7 @@ import "dotenv/config";
 import mongoose from "mongoose";
 import { buildProductFacets } from "../src/lib/db/models/catalog";
 import { LICENCE_TYPES, type LicenceType } from "../src/lib/db/enums";
+import { profileFor } from "./customization-vocabulary";
 
 const TOTAL = Number(process.argv[2] ?? 1000);
 
@@ -387,6 +388,25 @@ async function main() {
             ],
             "customization.available": random() < 0.65,
             "customization.aiWorkflowEnabled": random() < 0.5,
+            /*
+             * Features and suggested areas, from the category.
+             *
+             * These were both absent, and their absence was invisible: the
+             * customisation assistant reads `features` to open on something the
+             * product does and `suggestedAreas` to decide what to ask about, and
+             * with a thousand products carrying neither, every interview it ran
+             * was the generic one the prompt exists to avoid. Nothing failed —
+             * it just quietly asked worse questions.
+             *
+             * Sliced by the seeded `random()` so the count varies per product
+             * but a given slug gets the same list on every machine, like the
+             * placeholder image above.
+             */
+            features: profileFor(categorySlug).features.slice(0, 4 + Math.floor(random() * 3)),
+            "customization.suggestedAreas": profileFor(categorySlug).areas.slice(
+              0,
+              2 + Math.floor(random() * 3),
+            ),
             "demo.exposure": exposure,
             isFeatured: random() < 0.04,
             orderCount: Math.floor(random() ** 3 * 240),

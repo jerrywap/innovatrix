@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { getSession, requireOrg } from "@/lib/auth/dal";
-import { AI_CONTEXT_TYPES, REQUIREMENT_ORIGINS } from "@/lib/db/enums";
+import { AI_CONTEXT_TYPES, REQUIREMENT_ORIGINS, type RequestStatus } from "@/lib/db/enums";
 import type { Requirement } from "@/lib/db/models/requests";
+import { LIMITS, consume } from "@/lib/rate-limit";
 import { objectIdSchema } from "@/validators/common";
 import { aiConfigured } from "@/services/ai/client";
 import {
@@ -126,7 +127,6 @@ export async function summariseConversationAction(conversationId: string): Promi
     businessContext?: string;
     integrations: string[];
     timeline?: string;
-    notes?: string;
   }>
 > {
   return withAction(async () => {
@@ -145,6 +145,39 @@ export async function summariseConversationAction(conversationId: string): Promi
       return fail("There isn't enough here to summarise yet. Answer a question or two first.");
     }
 
+    // Nothing to redraft. The review panel replaces itself with the reference on
+    // success so this should be unreachable from the UI, but the action is a
+    // public POST and drafting is the expensive thing on this page.
+    if (conversation.status !== "active") {
+      return fail("You've already sent this one to us.");
+    }
+
+    /*
+     * Cost protection, and the reason this limit is tighter than a turn.
+     *
+     * Drafting re-extracts the entire transcript at up to the full output
+     * allowance, at `temperature: 0`, with an automatic retry on a second
+     * strategy if the first parse fails — so one press can be two paid calls.
+     * And unlike a turn, it is *repeatable without saying anything new*: the
+     * button sits there and the transcript does not have to change for the price
+     * to be charged again.
+     *
+     * Keyed the same way as `aiTurn`: the signed-in id where there is one, the
+     * anonymous conversation key otherwise, so clearing a cookie does not buy a
+     * fresh allowance. Falling back to the conversation id is the last resort —
+     * it is at least per-conversation rather than global.
+     */
+    const budget = await consume(
+      LIMITS.aiExtract,
+      session?.user.id ?? anonymousKey ?? conversationId,
+    );
+    if (!budget.allowed) {
+      return fail(
+        "You've redrafted this a few times in a row. Give it a minute, or edit the " +
+          "brief below by hand — nothing you've told us is lost.",
+      );
+    }
+
     if (!aiConfigured()) {
       return fail("The assistant is unavailable. Use the form to describe what you need.");
     }
@@ -159,6 +192,11 @@ export async function summariseConversationAction(conversationId: string): Promi
         config,
         contextType: conversation.contextType,
         messages: conversation.messages,
+        // Without this the preface in `summary.ts` is dead code: it is written to
+        // tell the extractor that requirements are *changes to a named product*
+        // rather than a whole system, and it has been guarded on a `productName`
+        // that no caller passed.
+        ...(await productNameFor(conversation.productId)),
       });
 
       return ok({
@@ -174,7 +212,19 @@ export async function summariseConversationAction(conversationId: string): Promi
           : {}),
         integrations: result.summary.integrations,
         ...(result.summary.timeline ? { timeline: result.summary.timeline } : {}),
-        ...(result.summary.notes ? { notes: result.summary.notes } : {}),
+        /*
+         * `result.summary.notes` is deliberately **not** returned.
+         *
+         * It used to seed the customer's "Anything else" box, which put sentences
+         * like "Conversation is in early discovery; the customer has not yet
+         * answered which manual processes cause the biggest issues" into a field
+         * attributed to the customer. That is our reading of the conversation, in
+         * their voice, in a field they are then invited to submit.
+         *
+         * The box now starts empty and holds only what they write. The extractor
+         * still produces the observation; giving it a home staff can read is a
+         * column and a surface this change does not add.
+         */
       });
     } catch (error) {
       if (error instanceof ExtractionFailedError) {
@@ -222,10 +272,19 @@ const submitSchema = z.object({
  * review step. A line they leave unticked stays an assumption however sure the
  * model was. §34's "customer-confirmed" has to mean the customer confirmed it.
  */
+/**
+ * What the confirmation needs to show, straight from the created request.
+ *
+ * `submittedAt` and `status` rather than the client assuming them: the timestamp
+ * is the server's and stamping a second one in the browser would disagree with
+ * the request page by however far the two clocks are apart, and the status is the
+ * state machine's answer rather than a constant this file would have to keep in
+ * step with `submitFromConversation`.
+ */
 export async function submitRequirementsAction(
   _previous: unknown,
   formData: FormData,
-): Promise<ActionResult<{ reference: string }>> {
+): Promise<ActionResult<{ reference: string; submittedAt?: string; status: RequestStatus }>> {
   return withAction(async () => {
     // Submitting requires an account — an anonymous request has nobody to send
     // the quote to. Anything started anonymously was claimed at sign-in.
@@ -281,10 +340,17 @@ export async function submitRequirementsAction(
         ? { baseProductVersionNumber: conversation.productVersionNumber }
         : {}),
       ...(parsed.timeline ? { desiredTimeline: parsed.timeline } : {}),
+      // Validated since the day the field shipped, and until now dropped on the
+      // floor immediately afterwards.
+      ...(parsed.notes ? { customerNotes: parsed.notes } : {}),
     });
 
     revalidatePath("/dashboard/requests");
-    return ok({ reference: request.reference });
+    return ok({
+      reference: request.reference,
+      ...(request.submittedAt ? { submittedAt: request.submittedAt.toISOString() } : {}),
+      status: request.status,
+    });
   });
 }
 
@@ -363,4 +429,28 @@ export async function recordRecommendationChoiceAction(
     await recordRecommendation(parsed.conversationId, parsed.choice, parsed.shownSlugs);
     return ok({ recorded: true as const });
   });
+}
+
+/**
+ * The product's name, shaped as a spreadable `{ productName }` or nothing.
+ *
+ * Its own read rather than a field on the conversation: the name is denormalised
+ * nowhere, and a rename between the interview and the brief should show the
+ * current name, since that is what the customer sees on the listing.
+ *
+ * Never throws. A missing product costs the extractor one line of context, and
+ * losing the whole draft over it would be a poor trade.
+ */
+async function productNameFor(productId: unknown): Promise<{ productName?: string }> {
+  if (!productId) return {};
+
+  try {
+    const { Product } = await import("@/lib/db/models/catalog");
+    const product = await Product.findById(productId)
+      .select({ name: 1 })
+      .lean<{ name: string }>();
+    return product ? { productName: product.name } : {};
+  } catch {
+    return {};
+  }
 }

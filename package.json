@@ -22,6 +22,7 @@
     "db:seed": "tsx --conditions=react-server --env-file=.env.local scripts/seed.ts",
     "db:indexes": "tsx --conditions=react-server --env-file=.env.local scripts/sync-indexes.ts",
     "db:backfill:catalogue": "tsx --conditions=react-server --env-file=.env.local scripts/backfill-catalogue.ts",
+    "db:backfill:customization": "tsx --conditions=react-server --env-file=.env.local scripts/backfill-customization.ts",
     "db:docs": "tsx scripts/generate-docs.ts",
     "storage:probe": "tsx --conditions=react-server --env-file=.env.local scripts/storage-probe.ts",
     "db:seed:bulk": "tsx --conditions=react-server --env-file=.env.local scripts/seed-bulk.ts",
