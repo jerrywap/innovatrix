@@ -139,6 +139,26 @@ const SAMPLES: Array<{ slug: string; label: string; message: EmailMessage }> = [
       "/dashboard/selling/verification",
     ),
   },
+  /*
+   * The account-security alerts. Four events, one writer, so previewing two
+   * covers the shape and the two wordings that differ most — a change with no
+   * detail beyond itself, and one naming a provider.
+   */
+  {
+    slug: "security-password-changed",
+    label: "Security — password changed",
+    message: written("PasswordChanged", 0, undefined as never, "/dashboard/account/security"),
+  },
+  {
+    slug: "security-google-disconnected",
+    label: "Security — Google disconnected",
+    message: written(
+      "SocialAccountUnlinked",
+      0,
+      { userId: "6a8cf6b072bbfac3477950f8", provider: "google" } as never,
+      "/dashboard/account/security",
+    ),
+  },
   {
     slug: "notification-billing",
     label: "Notification — billing (essential)",

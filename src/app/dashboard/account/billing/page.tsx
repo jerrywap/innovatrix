@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireOrgRoleOrForbid } from "@/lib/auth/dal";
-import { BILLING_ROLES } from "@/features/account/actions";
+import { BILLING_ROLES } from "@/features/account/roles";
 import { BillingDetailsForm } from "@/features/account/components/billing-form";
 import { Panel } from "@/features/account/components/panel";
 

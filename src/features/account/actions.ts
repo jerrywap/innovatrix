@@ -8,12 +8,13 @@ import { isAPIError } from "better-auth/api";
 import { z } from "zod";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { formDataToObject } from "@/lib/action-result";
-import { requireOrg, requireUser, type OrgContext } from "@/lib/auth/dal";
+import { requireOrg, requireUser } from "@/lib/auth/dal";
 import { ForbiddenError } from "@/lib/errors";
 import { connectToDatabase } from "@/lib/db/client";
 import { toObjectId } from "@/lib/db/base";
 import { Organization } from "@/lib/db/models/identity";
 import { billingSchema } from "@/validators/checkout";
+import { BILLING_ROLES } from "./roles";
 import { getAuth } from "@/lib/auth/auth";
 import { serverEnv } from "@/config/env";
 import { emit } from "@/lib/events";
@@ -481,8 +482,3 @@ export async function saveBillingDetailsAction(
     return ok({ saved: true as const });
   });
 }
-
-/** Who may correct an invoice address. Mirrors how `Invoices` is gated in the nav. */
-export const BILLING_ROLES = ["owner", "admin", "billing"] as const satisfies ReadonlyArray<
-  OrgContext["role"]
->;
