@@ -18,13 +18,32 @@ import { recordRecommendationChoiceAction } from "../actions";
  * afterwards.
  *
  * It would be easy to make this a nag — the marketplace sale is cheaper for us.
- * That is exactly why the spec forbids it, and why the honest version says what
- * each product *doesn't* cover as well as what it does.
+ * That is exactly why the spec forbids it, and why the copy says plainly that none
+ * of these will be an exact fit rather than selling them as one.
  *
  * ## What was shown, and what they chose, is recorded
  *
  * A valuable business signal: it says which custom requests we could already
  * have served, which is how the catalogue learns what to build next.
+ *
+ * ## Choosing one no longer means starting over
+ *
+ * §24 ends with *"Do not make them start over"*, and until now it did: the link
+ * went to a bare `/customize/<slug>` and the customer arrived at an empty
+ * interview, having just spent four answers explaining their business to a
+ * conversation they were walking away from. The link now carries `?from=`, and the
+ * new conversation replays **their** side of the old one as background — see
+ * `carriedContext` in `services/ai/prompts`.
+ *
+ * ## What it does not claim
+ *
+ * §24 asks for what each candidate covers and, honestly, what it does not. It can
+ * do the first: the summary is the vendor's own sentence. It cannot do the second
+ * per product — nothing here has read the requirements against the software, and a
+ * generated "this probably won't cover payments" is a guess presented as a
+ * finding. So the honest version of that half is said once, plainly, about all of
+ * them: none of these is going to be an exact fit, which is what the
+ * customisation conversation is for.
  */
 export function Recommendations({
   conversationId,
@@ -37,7 +56,7 @@ export function Recommendations({
   if (dismissed || products.length === 0) return null;
 
   return (
-    <section className="border-border bg-surface flex flex-col gap-4 rounded-xl border p-4">
+    <section className="border-border bg-surface flex flex-col gap-4 rounded-2xl border p-4">
       <div className="flex items-start gap-2.5">
         <Store className="text-subtle mt-0.5 size-4 shrink-0" aria-hidden />
         <div>
@@ -47,7 +66,8 @@ export function Recommendations({
           </h2>
           <p className="text-muted-foreground mt-1 text-[13px]">
             Worth a look before we build from scratch — buying one and adapting it is usually
-            faster. Nothing you&rsquo;ve told us is lost either way.
+            faster. None of them will be an exact fit; that&rsquo;s what asking for changes is
+            for, and everything you&rsquo;ve told us comes with you.
           </p>
         </div>
       </div>
@@ -67,7 +87,7 @@ export function Recommendations({
               )}
             </div>
             <Link
-              href={`/customize/${product.slug}` as Route}
+              href={`/customize/${product.slug}?from=${conversationId}` as Route}
               onClick={() =>
                 void recordRecommendationChoiceAction({
                   conversationId,

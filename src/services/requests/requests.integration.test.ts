@@ -107,6 +107,7 @@ async function submitted(organizationId = ORG) {
     assumptions: [
       { key: "mobile", label: "Mobile access", origin: "assumed", acceptedByCustomer: false },
     ],
+    customerNotes: "We are moving offices in the spring, so nothing on the old server.",
   });
 }
 
@@ -123,6 +124,25 @@ describe("submission — §19, §25", () => {
     const conv = await models.AiConversation.findById(request.aiConversationId).lean();
     expect(conv!.status).toBe("submitted");
     expect(String(conv!.submittedRequestId)).toBe(String(request._id));
+  });
+
+  it("keeps the customer's own notes", async () => {
+    /*
+     * Not a formality. "Anything else" had a textarea, a `maxLength` and a Zod
+     * rule validating it, and then `submitRequirementsAction` never passed it on
+     * — `SubmitInput` had no field and the document had no column — so every
+     * sentence anyone wrote there was parsed, trimmed, validated and dropped.
+     * Nothing failed and nothing said so.
+     *
+     * Asserted here rather than in a unit test because the write happens inside
+     * the submission transaction, alongside the conversation update and the
+     * activity row: what matters is that it is on the document that actually
+     * committed, not that a mapping function returned it.
+     */
+    const request = await submitted();
+    expect(request.customerNotes).toBe(
+      "We are moving offices in the spring, so nothing on the old server.",
+    );
   });
 
   it("keeps confirmed requirements and assumptions in separate fields", async () => {

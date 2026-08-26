@@ -114,6 +114,43 @@ export async function getConversation(id: string, viewer: Viewer): Promise<AiCon
   return conversation;
 }
 
+/**
+ * The customer's side of a conversation this one was carried over from — §24.
+ *
+ * ## Their turns only
+ *
+ * `recommend.ts` searches the catalogue on the customer's words for a stated
+ * reason: the assistant's turns are full of *our* vocabulary and our guesses, so
+ * matching on them matches half the catalogue. The same reasoning applies with
+ * more force here. Replaying the assistant's side would let a feature it merely
+ * offered — and the customer never accepted — cross into a new interview looking
+ * like something they had asked for, which is exactly what §23 and §33 exist to
+ * stop.
+ *
+ * ## Scoped, and never fatal
+ *
+ * The id arrives from a query string, so it is a claim rather than a fact.
+ * `getConversation` is the same check the page made, run again here because a
+ * second cheap check is worth more than an assumption about the caller. If it
+ * fails for any reason — wrong owner, deleted, malformed — the customer simply
+ * gets an interview without the background. A missing convenience must not cost
+ * them their turn.
+ */
+export async function carriedCustomerMessages(
+  conversationId: string,
+  viewer: Viewer,
+): Promise<string[]> {
+  try {
+    const source = await getConversation(conversationId, viewer);
+    return source.messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.content.trim())
+      .filter((content) => content.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 /* ────────────────────────────────────────────── lifecycle */
 
 export interface StartInput {
@@ -124,6 +161,14 @@ export interface StartInput {
   userId?: string;
   organizationId?: string;
   anonymousKey?: string;
+  /**
+   * §24: the custom-build conversation this one came out of, when the customer
+   * took a marketplace recommendation. Only honoured on **creation** — resuming
+   * deliberately ignores it, because a customer who comes back to a customisation
+   * they have already started is continuing that, not restarting it from an older
+   * conversation they have since moved past.
+   */
+  carriedFromConversationId?: string;
 }
 
 /**
@@ -185,6 +230,9 @@ export async function startOrResume(input: StartInput): Promise<AiConversationDo
     ...(input.userId ? { userId: toObjectId(input.userId) } : {}),
     ...(input.organizationId ? { organizationId: toObjectId(input.organizationId) } : {}),
     ...(input.anonymousKey ? { anonymousKey: input.anonymousKey } : {}),
+    ...(input.carriedFromConversationId
+      ? { carriedFromConversationId: toObjectId(input.carriedFromConversationId) }
+      : {}),
     // Recorded at creation, so a conversation is always attributable to the
     // wording that shaped it even after the prompts move on.
     promptVersion: PROMPT_VERSION,
@@ -192,6 +240,28 @@ export async function startOrResume(input: StartInput): Promise<AiConversationDo
   });
 
   return created.toObject() as AiConversationDoc;
+}
+
+/**
+ * Union this turn's reported coverage into the conversation.
+ *
+ * `$addToSet`, so it accumulates and never shrinks — a model that lists seven ids
+ * this turn and six the next has not un-answered anything, and a progress
+ * indicator that goes backwards is worse than none. Filtering to ids this build
+ * knows happens at the call site, which has the context type.
+ *
+ * No-op on an empty list rather than an update writing nothing: `timestamps: true`
+ * would otherwise bump `updatedAt` on every turn that reported nothing, and
+ * `startOrResume` resumes on `updatedAt` order.
+ */
+export async function recordCoverage(conversationId: string, topics: string[]): Promise<void> {
+  if (topics.length === 0) return;
+
+  await connectToDatabase();
+  await AiConversation.updateOne(
+    { _id: toObjectId(conversationId) },
+    { $addToSet: { coveredTopics: { $each: topics } } },
+  );
 }
 
 export async function appendMessage(conversationId: string, message: AiMessage): Promise<void> {

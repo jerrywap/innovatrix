@@ -3,15 +3,19 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth/dal";
 import { LIMITS, callerIp, consume, tooManyRequests } from "@/lib/rate-limit";
 import { objectIdSchema } from "@/validators/common";
+import { splitAssistantOptions } from "@/lib/assistant-options";
+import { isKnownTopic, readyToClose } from "@/features/requirements/checklist";
 import { DomainError, NotFoundError } from "@/lib/errors";
 import { streamAssistantTurn } from "@/services/ai/chat";
 import { aiConfigured } from "@/services/ai/client";
 import {
   appendMessage,
+  carriedCustomerMessages,
   getConversation,
   readAnonymousKey,
+  recordCoverage,
 } from "@/services/ai/conversation-service";
-import { productContext, systemPrompt } from "@/services/ai/prompts";
+import { carriedContext, productContext, systemPrompt } from "@/services/ai/prompts";
 import { resolveAiConfig } from "@/services/ai/settings";
 
 /**
@@ -88,15 +92,17 @@ export async function POST(
   // `Retry-After` tells a client to back off and not for how long, so it picks.
   if (!budget.allowed) return tooManyRequests(budget.retryAfterSeconds);
 
+  // Named, because the carried-conversation read below has to be scoped by the
+  // same viewer — a second conversation is a second thing to authorise.
+  const viewer = {
+    ...(session?.user.id ? { userId: session.user.id } : {}),
+    ...(session?.activeOrganizationId ? { organizationId: session.activeOrganizationId } : {}),
+    ...(anonymousKey ? { anonymousKey } : {}),
+  };
+
   let conversation;
   try {
-    conversation = await getConversation(id.data, {
-      ...(session?.user.id ? { userId: session.user.id } : {}),
-      ...(session?.activeOrganizationId
-        ? { organizationId: session.activeOrganizationId }
-        : {}),
-      ...(anonymousKey ? { anonymousKey } : {}),
-    });
+    conversation = await getConversation(id.data, viewer);
   } catch (error) {
     if (error instanceof NotFoundError) return problem(404, "No such conversation.");
     throw error;
@@ -128,13 +134,33 @@ export async function POST(
       system += `\n\n${productContext({
         name: product.name,
         ...(product.summary ? { summary: product.summary } : {}),
+        ...(product.description ? { description: product.description } : {}),
         ...(conversation.productVersionNumber
           ? { version: conversation.productVersionNumber }
           : {}),
+        ...(product.category ? { category: product.category } : {}),
+        ...(product.industry ? { industry: product.industry } : {}),
         features: product.features,
+        addons: product.addons,
+        technologies: product.technologies,
+        licenceTerms: product.licenceTerms,
         customizationAreas: product.customizationAreas,
       })}`;
     }
+  }
+
+  /*
+   * §24 — what they told the custom-build interview before choosing this product.
+   *
+   * After the product, because the product is what the interview is *about* and
+   * this is background to it. Their turns only; `carriedCustomerMessages` says why.
+   */
+  if (conversation.carriedFromConversationId) {
+    const carried = await carriedCustomerMessages(
+      String(conversation.carriedFromConversationId),
+      viewer,
+    );
+    if (carried.length > 0) system += `\n\n${carriedContext(carried)}`;
   }
 
   const history = conversation.messages.map((message) => ({
@@ -177,8 +203,75 @@ export async function POST(
           onDelta: (text) => send("delta", { text }),
 
           onDone: (result) => {
+            /*
+             * The options marker comes off here, once, and everything downstream
+             * sees the reply without it.
+             *
+             * Order matters and it is not arbitrary. `streamAssistantTurn` has
+             * already run the §73 guardrails over the **whole** completion,
+             * marker included, so an option offering "from £500" trips the
+             * withheld-content path exactly like the same words in prose would.
+             * Stripping first would have opened a channel the guardrail does not
+             * watch.
+             *
+             * Persisting the stripped text is the other half. The transcript is
+             * §19 evidence that staff read and it is replayed to the model as
+             * history — neither wants our delimiter in it, and a marker in the
+             * history is an invitation to imitate it in the wrong place.
+             */
+            const { text, options, covered, enough } = splitAssistantOptions(
+              result.message.content,
+            );
+
+            /*
+             * Coverage, filtered to ids this build actually has.
+             *
+             * `splitAssistantOptions` lives in `lib/` and deliberately knows
+             * nothing about the topic vocabulary — it only refuses things that are
+             * not shaped like an id. This is where a real id is told from an
+             * invented one, because this is the layer that knows the context type.
+             */
+            const topics = covered.filter((id) => isKnownTopic(conversation.contextType, id));
+            // `?? []` because `.lean()` skips schema defaults, so every conversation
+            // written before this field existed comes back without it.
+            const coveredNow = [...new Set([...(conversation.coveredTopics ?? []), ...topics])];
+
             send("done", {
-              content: result.message.content,
+              content: text,
+              options,
+              covered: coveredNow,
+              /*
+               * Whether discovery has what it came for.
+               *
+               * Decided here rather than in the browser so one answer serves the
+               * page on load and the stream mid-conversation — and so the customer
+               * turn count it depends on is the server's, not a client tally that a
+               * reload would reset.
+               *
+               * `+ 1` because the customer's turn for this exchange was persisted
+               * above; `conversation` is the document as it was read before that.
+               */
+              ready:
+                /*
+                 * Either signal closes it, and the `enough` half is not a
+                 * fallback — it is the fix for a failure seen live: the assistant
+                 * announced "I have enough to put a brief together" while its own
+                 * coverage line was a topic short, so it stopped asking and the
+                 * page kept waiting. An interview that has ended and a page that
+                 * has not is worse than the open-ended one this replaced.
+                 *
+                 * The prompt asks the two to agree. When they do not, closing
+                 * wins: a brief drafted a little early is editable, and the
+                 * conversation is still there to add to.
+                 */
+                enough ||
+                readyToClose({
+                  contextType: conversation.contextType,
+                  covered: coveredNow,
+                  customerTurns:
+                    conversation.messages.filter((message) => message.role === "user").length +
+                    1,
+                }),
               // The client discards what it rendered and shows this instead.
               replaced: result.replaced,
               truncated: result.truncated,
@@ -189,7 +282,8 @@ export async function POST(
             // Outside the response, so a disconnected browser still gets the
             // turn written down.
             after(async () => {
-              await appendMessage(id.data, result.message);
+              await appendMessage(id.data, { ...result.message, content: text });
+              await recordCoverage(id.data, topics);
             });
           },
 
@@ -222,27 +316,71 @@ export async function POST(
 /**
  * The bits of a product the interview needs. `null` when it has gone away.
  *
- * Read straight from the model rather than through `getProductDetail`: the
- * interview needs `customization.suggestedAreas`, which is staff-authored and
- * deliberately absent from the cached customer-facing DTO.
+ * Read straight from the model rather than through `getProductDetail`, for two
+ * reasons: that read takes a slug and a conversation stores an id, and it filters
+ * on `status: "published"` — so a request against a product that has since been
+ * unpublished would silently lose its context mid-interview, which is the one
+ * moment the context matters most.
+ *
+ * ## Why it selects so much more than it used to
+ *
+ * It used to select `{ name, summary, features, customization }` and map the
+ * features to their titles. Reasonable, until you count the catalogue: `features`
+ * is set on eleven products out of a thousand and `suggestedAreas` on none, so
+ * for practically every listing this returned a name and one sentence and the
+ * assistant interviewed accordingly. Everything added below is a field a listing
+ * really does carry, so the common case stops being the empty one.
+ *
+ * `feature.detail` now travels with `feature.title`. It was being discarded, and
+ * it is the half that says what the feature actually does.
  */
 async function productDetailFor(productId: string) {
   try {
     const { Product } = await import("@/lib/db/models/catalog");
+
     const product = await Product.findById(productId)
-      .select({ name: 1, summary: 1, features: 1, customization: 1 })
+      .select({
+        name: 1,
+        summary: 1,
+        descriptionText: 1,
+        features: 1,
+        addons: 1,
+        facets: 1,
+        licencePackages: 1,
+        customization: 1,
+      })
       .lean<{
         name: string;
         summary?: string;
-        features?: { title: string }[];
+        descriptionText?: string;
+        features?: { title: string; detail?: string }[];
+        addons?: { name: string }[];
+        facets?: string[];
+        licencePackages?: {
+          name: string;
+          activationLimit?: number;
+          supportMonths?: number;
+          updateMonths?: number;
+        }[];
         customization?: { suggestedAreas?: string[] };
       }>();
     if (!product) return null;
 
+    const names = await taxonomyNames(product.facets ?? []);
+
     return {
       name: product.name,
       summary: product.summary,
-      features: (product.features ?? []).map((feature) => feature.title),
+      description: product.descriptionText,
+      category: names.category,
+      industry: names.industry,
+      technologies: names.technologies,
+      features: (product.features ?? []).map((feature) =>
+        feature.detail ? `${feature.title} — ${feature.detail}` : feature.title,
+      ),
+      // Names only. `productContext` explains why the prices stay behind.
+      addons: (product.addons ?? []).map((addon) => addon.name),
+      licenceTerms: licenceTerms(product.licencePackages ?? []),
       // §50 — what staff flagged as sensibly customisable. This is what makes
       // the interview product-specific rather than generic.
       customizationAreas: product.customization?.suggestedAreas ?? [],
@@ -250,6 +388,81 @@ async function productDetailFor(productId: string) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Facet slugs → the names a person would recognise.
+ *
+ * A targeted query rather than `getTaxonomyIndex()`, which is a `"use cache"`
+ * read belonging to the marketplace layer. Pulling a cached catalogue-wide index
+ * into an SSE handler to name three terms is the wrong trade, and it would couple
+ * the assistant to a cache scoped by catalogue for reasons that have nothing to
+ * do with it.
+ *
+ * Matched on kind **and** slug: nothing stops a category and an industry sharing
+ * a slug, and "Finance" is in fact both.
+ */
+async function taxonomyNames(
+  facets: string[],
+): Promise<{ category?: string; industry?: string; technologies: string[] }> {
+  const { Taxonomy, parseFacet, FACET_PREFIX } = await import("@/lib/db/models/catalog");
+
+  const kindFor = new Map<string, "category" | "industry" | "technology">([
+    [FACET_PREFIX.category, "category"],
+    [FACET_PREFIX.industry, "industry"],
+    [FACET_PREFIX.technology, "technology"],
+  ]);
+
+  const wanted: { kind: "category" | "industry" | "technology"; slug: string }[] = [];
+  for (const facet of facets) {
+    const parsed = parseFacet(facet);
+    const kind = parsed && kindFor.get(parsed.prefix);
+    if (parsed && kind) wanted.push({ kind, slug: parsed.slug });
+  }
+  if (wanted.length === 0) return { technologies: [] };
+
+  const rows = await Taxonomy.find({ isActive: true, $or: wanted })
+    .select({ kind: 1, name: 1 })
+    .lean<{ kind: string; name: string }[]>();
+
+  const first = (kind: string) => rows.find((row) => row.kind === kind)?.name;
+
+  return {
+    ...(first("category") ? { category: first("category")! } : {}),
+    ...(first("industry") ? { industry: first("industry")! } : {}),
+    technologies: rows.filter((row) => row.kind === "technology").map((row) => row.name),
+  };
+}
+
+/**
+ * Licence terms as sentences, so the assistant can answer "can I put it on two
+ * sites" without being handed a price to be tempted by.
+ *
+ * The first package only. A listing with three tiers differs between them mostly
+ * on price, which is the one thing that must not reach the model.
+ */
+function licenceTerms(
+  packages: {
+    name: string;
+    activationLimit?: number;
+    supportMonths?: number;
+    updateMonths?: number;
+  }[],
+): string[] {
+  const first = packages[0];
+  if (!first) return [];
+
+  const terms = [`Licence: ${first.name}`];
+  if (first.activationLimit) {
+    terms.push(
+      first.activationLimit === 1
+        ? "One installation"
+        : `Up to ${first.activationLimit} installations`,
+    );
+  }
+  if (first.updateMonths) terms.push(`${first.updateMonths} months of updates`);
+  if (first.supportMonths) terms.push(`${first.supportMonths} months of support`);
+  return terms;
 }
 
 function problem(status: number, message: string): Response {

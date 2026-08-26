@@ -1,3 +1,5 @@
+import { CUSTOMIZATION_AREAS, type CustomizationArea } from "@/lib/db/enums";
+
 /**
  * Opening lines for the assistant, in the customer's words.
  *
@@ -187,4 +189,108 @@ export function openersFor(count = 3): string[] {
   }
 
   return [...pool.slice(0, take), ESCAPE_HATCH];
+}
+
+/* ────────────────────────────────────────────── customisation */
+
+/**
+ * Opening lines for `/customize/[slug]`, where the visitor already has a product.
+ *
+ * ## A different job from the pool above
+ *
+ * Those hundred openers exist to help somebody name a problem they have not
+ * described yet. Somebody who has clicked "request customization" on a specific
+ * listing has already done that — they have found something close and want to say
+ * what is not right about it. The opener they need is not "I run a care agency",
+ * it is a place to start on *this*.
+ *
+ * What was there before was three literals inlined in the page: "I want to change
+ * how it looks", "I need it to work differently", "I need it to connect to
+ * something else". True of every product in the catalogue, which is what made them
+ * useless — a chip that would fit anything tells you nothing about what you are
+ * looking at, and the page offered no other clue either.
+ *
+ * ## Wishes, not offers
+ *
+ * Each line below is phrased as the **customer's** want, and that is a deliberate
+ * limit rather than a stylistic one. `options-form.tsx` warns whoever fills in
+ * `suggestedAreas` that "an offer it cannot honour is worse than no offer", and we
+ * are further from knowing than they are: a seeded listing is a name, a category
+ * and two sentences. So nothing here says the product supports anything. "I want
+ * different people to see different things" is a sentence about what the customer
+ * needs; the assistant is forbidden from confirming feasibility either way, and a
+ * technical analyst decides.
+ *
+ * The product-specific half of the page is the listing panel beside these, which
+ * quotes the listing's own words rather than paraphrasing them, and the model's
+ * first reply, which has the whole listing in context and can hedge and ask.
+ *
+ * ## Ordered by the vendor where a vendor has said
+ *
+ * A product with `customization.suggestedAreas` filled in has been curated —
+ * those are the areas somebody who knows the software picked. Those come first.
+ * The rest follow in a fixed order so the page does not reshuffle on every visit;
+ * unlike the discovery pool there is no variety to buy here, and a chip that
+ * moves between two visits to the same listing just looks unstable.
+ *
+ * ## The word "dashboard" is missing on purpose
+ *
+ * `CUSTOMIZATION_AREAS` includes `dashboard` and `openers.test.ts` bans the word
+ * as jargon (§100), which is not a contradiction — the enum is our vocabulary and
+ * the chip is theirs. Hence "the first screen people see".
+ */
+const AREA_WISHES: Record<CustomizationArea, string> = {
+  workflows: "I need it to work the way we actually work",
+  user_roles: "I want different people to see different things",
+  reports: "I need to get different numbers out of it",
+  integrations: "I need it to talk to something we already use",
+  notifications: "I want it to tell people when something happens",
+  branding: "I want it to look like us",
+  payment_methods: "I need it to take payment differently",
+  dashboard: "I want to change the first screen people see",
+};
+
+/** The order the rest appear in, once a vendor's own picks are in front. */
+const WISH_ORDER: readonly CustomizationArea[] = [
+  "workflows",
+  "user_roles",
+  "reports",
+  "integrations",
+  "notifications",
+  "branding",
+  "payment_methods",
+  "dashboard",
+];
+
+/**
+ * Up to `count` customisation openers plus the escape hatch.
+ *
+ * `suggestedAreas` comes straight off the product and is a permissive `[String]`
+ * in Mongoose — the enum constraint lives in the Zod schema, so a stored document
+ * may hold an area this build has never heard of. Anything unrecognised is
+ * dropped rather than rendered raw, because the alternative is a chip reading
+ * `payment_methods`.
+ */
+export function customizationOpenersFor(
+  suggestedAreas: readonly string[] = [],
+  count = 4,
+): string[] {
+  /*
+   * Deduplicated, and not defensively — `suggestedAreas` is a permissive
+   * `[String]` in Mongoose and the Zod schema constrains the *values* without
+   * requiring them to be distinct, so `["reports", "reports"]` is a document this
+   * function can really be handed. It used to render the same chip twice, which
+   * `conversation.tsx` keys on the string and so collides on.
+   */
+  const preferred = [...new Set(suggestedAreas.filter(isKnownArea))];
+  const ordered = [...preferred, ...WISH_ORDER.filter((area) => !preferred.includes(area))];
+
+  return [
+    ...ordered.slice(0, Math.max(0, count)).map((area) => AREA_WISHES[area]),
+    ESCAPE_HATCH,
+  ];
+}
+
+function isKnownArea(area: string): area is CustomizationArea {
+  return (CUSTOMIZATION_AREAS as readonly string[]).includes(area);
 }

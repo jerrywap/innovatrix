@@ -1,4 +1,5 @@
 import "server-only";
+import { REQUEST_STATUS_COPY } from "./status-copy";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import type { RequestStatus } from "@/lib/db/enums";
@@ -49,6 +50,14 @@ export interface RequestDetailView {
   waitingOn?: "customer" | "innovatrix";
 
   customerRequirements: Requirement[];
+  /**
+   * The customer's own "anything else", verbatim.
+   *
+   * Both audiences see it and neither may edit it. It is context rather than a
+   * requirement — deliberately not folded into `customerRequirements`, because a
+   * line in that array is a line that gets quoted and built.
+   */
+  customerNotes?: string;
   assumptions: Requirement[];
   requirementsVersion: number;
   /** Only while the request is still theirs to change. */
@@ -83,68 +92,6 @@ export interface RequestDetailView {
   organizationId?: string;
   assigneeName?: string;
 }
-
-/**
- * §70 in the customer's words, and — the part that matters — *what happens
- * next*. A status alone leaves them guessing whether it is their move.
- */
-const STATUS_COPY: Record<RequestStatus, { what: string; next: string }> = {
-  draft: {
-    what: "You haven't sent this to us yet.",
-    next: "Finish it whenever you're ready.",
-  },
-  submitted: {
-    what: "We've got it.",
-    next: "Someone will pick it up and read it properly. Nothing needed from you.",
-  },
-  under_review: {
-    what: "Someone is going through it.",
-    next: "We'll come back with questions or a quote.",
-  },
-  waiting_for_customer: {
-    what: "We've asked you something.",
-    next: "Have a look below — we can't go further until you answer.",
-  },
-  technical_review: {
-    what: "Our technical team is scoping it.",
-    next: "They're working out what it takes. A quote follows.",
-  },
-  quoted: {
-    what: "We've sent you a quote.",
-    next: "Have a read and let us know either way.",
-  },
-  approved: {
-    what: "You accepted the quote.",
-    next: "We'll get the work scheduled and be in touch.",
-  },
-  converted: {
-    // Was "Work has started", which it is not — this state means the money
-    // arrived and the job is queued. Saying work had started while it sat in a
-    // handover queue is how a customer concludes nobody is doing anything.
-    what: "Payment received — this is with our team.",
-    next: "We'll confirm when someone picks it up.",
-  },
-  in_progress: {
-    what: "Work has started.",
-    next: "We'll post updates here as it moves.",
-  },
-  delivered: {
-    what: "It's ready for you to look at.",
-    next: "Have a look and tell us if anything isn't right.",
-  },
-  completed: {
-    what: "All done.",
-    next: "Get in touch any time if you need changes or help.",
-  },
-  rejected: {
-    what: "We couldn't take this one on.",
-    next: "Get in touch if you'd like to talk about it.",
-  },
-  cancelled: {
-    what: "This was cancelled.",
-    next: "Start a new request whenever you need to.",
-  },
-};
 
 /** Only while it is still the customer's to change (§34). */
 const EDITABLE_IN: readonly RequestStatus[] = ["draft", "submitted", "waiting_for_customer"];
@@ -275,11 +222,12 @@ export async function loadRequest(
     kind: request.kind,
     title: request.title,
     status: request.status,
-    statusExplanation: STATUS_COPY[request.status],
+    statusExplanation: REQUEST_STATUS_COPY[request.status],
     ...(request.submittedAt ? { submittedAt: formatDateTime(request.submittedAt) } : {}),
     ...(request.waitingOn ? { waitingOn: request.waitingOn } : {}),
 
     customerRequirements: request.customerRequirements,
+    ...(request.customerNotes ? { customerNotes: request.customerNotes } : {}),
     assumptions: request.assumptions,
     requirementsVersion: request.requirementsVersion,
     canEditRequirements: EDITABLE_IN.includes(request.status),

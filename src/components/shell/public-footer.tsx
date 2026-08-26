@@ -64,7 +64,15 @@ export function PublicFooter() {
     <footer className="border-border border-t">
       <div className="mx-auto max-w-[1400px] px-5 py-14 lg:px-10">
         <div className="border-border grid gap-10 border-b pb-11 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="lg:col-span-2">
+          {/*
+            One track, not two.
+
+            It spanned two of the four, which with three link columns needs five —
+            so "Legal" wrapped onto a second row and the space beside the brand
+            read as an empty cell. A column per thing: brand, Platform, Sell with
+            us, Legal.
+          */}
+          <div>
             <Brand />
             <p className="text-muted-foreground mt-4 max-w-[34ch] text-[13.5px] leading-relaxed">
               Find, customise, build, deploy and maintain software — in one place.

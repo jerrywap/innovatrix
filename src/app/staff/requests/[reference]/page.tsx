@@ -177,6 +177,22 @@ export default async function Page({ params }: PageProps<"/staff/requests/[refer
             </section>
           )}
 
+          {request.customerNotes && (
+            /*
+              §34 applies to this as much as to the requirement arrays: it is the
+              customer's sentence, so a reviewer's reading of it belongs in
+              `internalInterpretation` rather than on top of it.
+            */
+            <section className="flex flex-col gap-2">
+              <h2 className="font-display text-[16px] tracking-[-0.02em]">
+                What else they told us
+              </h2>
+              <p className="border-border bg-surface rounded-xl border px-4 py-3 text-[13.5px] leading-relaxed whitespace-pre-wrap">
+                {request.customerNotes}
+              </p>
+            </section>
+          )}
+
           <Attachments
             requestId={request.id}
             reference={request.reference}

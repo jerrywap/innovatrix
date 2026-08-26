@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { ClipboardList, MessagesSquare, Receipt } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
 import { getSession } from "@/lib/auth/dal";
 import { Assistant } from "@/features/requirements/components/assistant";
+import {
+  DiscoveryIntro,
+  DiscoverySteps,
+} from "@/features/requirements/components/discovery-intro";
 import { Recommendations } from "@/features/requirements/components/recommendations";
 import { openersFor } from "@/features/requirements/openers";
 import { aiConfigured } from "@/services/ai/client";
@@ -12,7 +14,7 @@ import { resolveAiConfig } from "@/services/ai/settings";
 import { pageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
-  title: "Build custom software",
+  title: "Tell us what you need",
   description:
     "Describe the problem in your own words. We'll work out what software solves it, scope it, and send you a quote.",
   path: "/custom-software",
@@ -33,7 +35,19 @@ export const metadata: Metadata = pageMetadata({
  * Once the customer has said enough, the marketplace is searched with their own
  * words. If we already sell something close, it is offered — beside an equally
  * prominent "continue with a custom build", because §24 forbids forcing it.
+ *
+ * ## The page's own contribution is now the stage, not the furniture
+ *
+ * It used to render a `PageHeader`, three explainer cards and the conversation,
+ * in that order, always — so somebody eight answers into an interview still
+ * scrolled past the pitch to reach the composer, and the brief that came out of
+ * it appeared as a third sibling below both. `Assistant` decides which of the four
+ * states this is; the page supplies the pieces each state needs and no more.
+ *
+ * `PageHeader` is gone rather than restyled: its `<h1>` is `truncate`, so a real
+ * headline cannot go through it, and the stage owns the heading now anyway.
  */
+
 /**
  * How much of a typed brief we carry over.
  *
@@ -104,26 +118,13 @@ export default async function Page({
   const recommendations = shouldRecommend ? await recommendProducts(conversation.messages) : [];
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-10">
-      <PageHeader
-        title="Build custom software"
-        description="Tell us what you're trying to do — in your words, not ours. We'll work out what it needs to be."
-      />
-
-      {(conversation === null || conversation.messages.length === 0) && (
-        <ol className="grid gap-3 sm:grid-cols-3">
-          <Step icon={MessagesSquare} n="1" title="You describe the problem">
-            A few questions, one at a time. No forms and no jargon.
-          </Step>
-          <Step icon={ClipboardList} n="2" title="You check the summary">
-            Everything we understood, in a document you can edit before sending.
-          </Step>
-          <Step icon={Receipt} n="3" title="We scope and quote it">
-            A person reviews it and sends a written quote. No prices before that.
-          </Step>
-        </ol>
-      )}
-
+    /*
+     * Wider than the old `max-w-3xl`, because the review stage is two columns.
+     * A brief plus a rail inside 768px is a brief plus a squeezed rail; 1024
+     * gives the document its own measure and still reads as one page rather than
+     * a dashboard.
+     */
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-10">
       {!available && (
         <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-[13px]">
           Our assistant is unavailable at the moment. Write out what you need below and
@@ -132,72 +133,61 @@ export default async function Page({
       )}
 
       {conversation === null ? (
-        // A plain `<a>`, not a `<Link>`: this branch exists for clients the
-        // proxy will not mint a key for, and a full navigation is what gets
-        // them one.
-        <p className="border-border bg-surface rounded-xl border px-4 py-3.5 text-[13.5px]">
-          <a href="/custom-software" className="underline underline-offset-4">
-            Start a conversation
-          </a>{" "}
-          and tell us what you need — it takes a couple of minutes.
-        </p>
-      ) : (
         <>
-          {recommendations.length > 0 && (
-            <Recommendations
-              conversationId={String(conversation._id)}
-              products={recommendations}
-            />
-          )}
-
-          <Assistant
-            conversationId={String(conversation._id)}
-            initialMessages={conversation.messages
-              .filter((message) => message.role !== "system")
-              .map((message) => ({
-                role: message.role as "user" | "assistant",
-                content: message.content,
-              }))}
-            signedIn={Boolean(session?.user.id)}
-            signInHref={`/login?next=${encodeURIComponent("/custom-software")}`}
-            startOverHref="/custom-software"
-            // Sampled here, in the Server Component, so the draw is serialised
-            // into the RSC payload and the client renders the same four. Drawn
-            // inside the `"use client"` island instead, server and client would
-            // disagree at hydration.
-            suggestions={conversation.messages.length === 0 ? openersFor(3) : undefined}
-            // Only into an empty conversation. Dropping a brief into a
-            // conversation already in progress would overwrite whatever they
-            // were part-way through typing.
-            {...(brief && conversation.messages.length === 0 ? { initialDraft: brief } : {})}
-          />
+          {/* The crawler branch still gets the invitation, because this is an
+              indexable marketing page and the copy is the point of indexing it. */}
+          <DiscoveryIntro />
+          {/*
+            A plain `<a>`, not a `<Link>`: this branch exists for clients the
+            proxy will not mint a key for, and a full navigation is what gets
+            them one.
+          */}
+          <p className="border-border bg-surface rounded-xl border px-4 py-3.5 text-[13.5px]">
+            <a href="/custom-software" className="underline underline-offset-4">
+              Start a conversation
+            </a>{" "}
+            and tell us what you need — it takes a couple of minutes.
+          </p>
+          <DiscoverySteps />
         </>
+      ) : (
+        <Assistant
+          conversationId={String(conversation._id)}
+          initialMessages={conversation.messages
+            .filter((message) => message.role !== "system")
+            .map((message) => ({
+              role: message.role as "user" | "assistant",
+              content: message.content,
+            }))}
+          signedIn={Boolean(session?.user.id)}
+          signInHref={`/login?next=${encodeURIComponent("/custom-software")}`}
+          startOverHref="/custom-software"
+          contextType="custom_build"
+          initialCovered={conversation.coveredTopics}
+          workspaceTitle="Custom software request"
+          intro={<DiscoveryIntro />}
+          introFooter={<DiscoverySteps />}
+          {...(recommendations.length > 0
+            ? {
+                aside: (
+                  <Recommendations
+                    conversationId={String(conversation._id)}
+                    products={recommendations}
+                  />
+                ),
+              }
+            : {})}
+          // Sampled here, in the Server Component, so the draw is serialised
+          // into the RSC payload and the client renders the same four. Drawn
+          // inside the `"use client"` island instead, server and client would
+          // disagree at hydration.
+          suggestions={conversation.messages.length === 0 ? openersFor(3) : undefined}
+          // Only into an empty conversation. Dropping a brief into a
+          // conversation already in progress would overwrite whatever they
+          // were part-way through typing.
+          {...(brief && conversation.messages.length === 0 ? { initialDraft: brief } : {})}
+        />
       )}
     </div>
-  );
-}
-
-function Step({
-  icon: Icon,
-  n,
-  title,
-  children,
-}: {
-  icon: typeof MessagesSquare;
-  n: string;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <li className="border-border bg-surface flex flex-col gap-2 rounded-xl border p-4">
-      <span className="bg-surface-muted text-muted-foreground grid size-8 place-items-center rounded-lg">
-        <Icon className="size-4" aria-hidden />
-      </span>
-      <p className="text-[14px] font-medium">
-        <span className="text-subtle font-mono text-[11px]">{n}. </span>
-        {title}
-      </p>
-      <p className="text-muted-foreground text-[12.5px]">{children}</p>
-    </li>
   );
 }
