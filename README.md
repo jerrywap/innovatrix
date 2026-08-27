@@ -103,7 +103,9 @@ super-admin, and the same password works for every seeded account.
 [Demo accounts](#demo-accounts) lists all sixteen and what each one can reach.
 
 > Every `db:*` and `*:probe` script passes `--env-file=.env.local` explicitly.
-> **`.env` alone will not work** — it must be `.env.local`.
+> **`.env` alone will not work** — it must be `.env.local`. The two exceptions are
+> `db:prod:bootstrap` and `db:prod:reset`, which use `--env-file-if-exists` so they
+> can run where there is no `.env.local` at all.
 
 > **Email in development: keep `EMAIL_TRANSPORT=log`.** Every seeded account is
 > on `.test`, a reserved TLD that can never receive mail, so a real send bounces
@@ -179,7 +181,8 @@ To start clean, wipe the *database*: `npm run db:reset && npm run db:seed`.
 - **4 published products** — Atlas CRM (£299), Tenancy (£450), Roster (£380),
   Freightline (£520). Each with a released `1.0.0`, prices in GBP/USD/NGN, a
   licence package and two add-ons
-- **28 taxonomy terms** across category, industry, technology and product type
+- **37 taxonomy terms** — 12 categories, 8 industries, 10 technologies, 7 product
+  types, from the one vocabulary in `scripts/taxonomy-vocabulary.ts`
 - **1 fulfilled order** (`ORD-2026-0001`) with an entitlement and a licence key,
   so My Software has something in it immediately
 - **4 tax rules** (UK VAT, NG VAT, rest-of-world zero)
@@ -220,15 +223,15 @@ and the differences are the permission model working.
 
 | Email | Role | What they can do |
 |---|---|---|
-| `super@innovatrix.test` | `super_admin` | everything — all 51 permissions |
+| `super@innovatrix.test` | `super_admin` | everything — all 60 permissions |
 | `service@innovatrix.test` | `customer_service` | front line: customers, requests, orders, messages. No pricing, refunds or publishing |
 | `sales@innovatrix.test` | `sales` | Customer 360 and the full quote lifecycle |
 | `analyst@innovatrix.test` | `technical_analyst` | triage and scope. Can **draft** a quote, cannot **issue** one |
 | `dev@innovatrix.test` | `developer` | products, files, project milestones |
 | `pm@innovatrix.test` | `project_manager` | assignment, projects, order status |
 | `support@innovatrix.test` | `support_agent` | read-only, plus internal notes and customer replies |
-| `market@innovatrix.test` | `marketplace_manager` | the storefront: products, publishing, taxonomy, discounts |
-| `finance@innovatrix.test` | `finance` | payments, invoices, refunds, tax. Deliberately **no** discounts |
+| `market@innovatrix.test` | `marketplace_manager` | the storefront: products, publishing, taxonomy, discounts, and `/admin/dashboard` |
+| `finance@innovatrix.test` | `finance` | payments, invoices, refunds, tax, and `/admin/dashboard`. Deliberately **no** discounts |
 | `devops@innovatrix.test` | `devops` | `/admin/jobs`, `/admin/audit`, settings |
 | `content@innovatrix.test` | `content_manager` | product content and taxonomy |
 
@@ -323,6 +326,91 @@ link out of `.dev-emails/`, open it, set a new password.
 
 ---
 
+## Production
+
+Everything above describes a machine with demo data on it. Production gets none
+of that: `npm run db:seed` **must never be pointed at it**, and
+`scripts/seed.ts` hard-codes its password rather than reading one from the
+environment precisely so that a seed aimed at production cannot create an
+account that looks real.
+
+What production gets instead is two scripts, deliberately split — one only ever
+adds, the other only ever destroys.
+
+### Bringing up a new database
+
+```bash
+# 1. Deploy the code first. An index the old code does not know about is
+#    harmless; an index dropped while the old code still needs it is an outage.
+
+# 2. Then, with the production environment loaded:
+npm run db:prod:bootstrap -- --admin you@yourdomain.com --name "Your Name"
+```
+
+That creates indexes, the taxonomy vocabulary, a zero-rated catch-all tax rule,
+the payment-settings singleton with everything switched off, and one staff
+account. It is idempotent — safe to re-run, and re-running is how you resend an
+invitation that has expired.
+
+It deliberately creates **no products, customers, organisations, orders or
+discount codes**. An empty marketplace is an honest empty marketplace; eleven
+fake listings with prices on them are not.
+
+**The admin has no password.** The account is created without one and Better
+Auth's reset email invites them to choose it, so nothing here can leak a
+credential because there is no credential. It also means the run proves your
+production SMTP works, which is better learned during a bootstrap than during a
+customer's password reset. The link lasts an hour.
+
+The script refuses an address on a reserved domain (`.test`, `.example`,
+`.invalid`) — an admin who can never receive the invitation is an account nobody
+can sign into, holding every permission on the platform.
+
+### Then, before you sell anything
+
+The bootstrap prints these as warnings rather than assuming them, because each
+is a decision it has no business making on a merchant's behalf:
+
+| | Why it is not seeded |
+|---|---|
+| **Tax rates** at `/admin/settings/tax` | The demo seed asserts GB VAT at 20% and NG VAT at 7.5%. A tax rule applied to the wrong country is a compliance problem, not a cosmetic one, so only the zero-rated `*` fallback is created. Charging nothing is recoverable; charging the wrong VAT is not |
+| **A payment provider** at `/admin/settings/payments` | Nothing is enabled, so nobody can check out. The demo seed turns bank transfer on and fills the instructions with `sort code 00-00-00, account 00000000` — in production that is a page telling a customer to send money to an account that does not exist. A blocked checkout beats a lost payment |
+| **More staff** | There is no way to create staff in the app — `/admin/users` is a page with an empty state and no form. Re-run the bootstrap with `--admin` and `--roles`, e.g. `--roles finance` or `--roles marketplace_manager,content_manager` |
+
+### Wiping a UAT or staging copy
+
+`db:prod:reset` drops the database. It is a **dry run by default**: with no
+arguments it prints every collection and row count and touches nothing.
+
+```bash
+npm run db:prod:reset                          # what would go
+npm run db:prod:reset -- --drop cosetup_uat    # the name must match
+npm run db:prod:bootstrap -- --admin you@yourdomain.com
+```
+
+The guard is the database name typed back, not a `--force` flag. A flag protects
+against a stray keystroke and not at all against the mistake that actually
+happens, which is running the right command against the wrong `MONGODB_URI`.
+
+A drop is used rather than a targeted purge because demo data has no provenance
+field — a thousand generated products are distinguishable only by a
+`picsum.photos` image URL, so a marker-based purge is a list of guesses whose
+failure mode is the bad one: a demo row nobody spotted, surviving in front of a
+customer. Reference data goes too, and the bootstrap rebuilds it.
+
+> Unlike every other `db:*` script, the two `db:prod:*` scripts use
+> `--env-file-if-exists=.env.local`, so they run in an environment that has no
+> `.env.local` at all. They also resolve the database from `MONGODB_DB_NAME` when
+> it is set and from the URI otherwise — deliberately **not** defaulting to
+> `innovatrix` the way `db:seed` and `db:indexes` do, since under that default a
+> URI ending `/cosetup_prod` would connect to a database called `innovatrix`
+> instead. Both print the host and database they resolved before doing anything.
+
+`ai-contexts/OPERATIONS.md` has the rest: the environment matrix, migration
+order, the deploy smoke test and rollback.
+
+---
+
 ## Scripts
 
 **Develop**
@@ -338,9 +426,12 @@ link out of `.dev-emails/`, open it, set a new password.
 |---|---|
 | `db:up` · `db:down` · `db:reset` | Docker MongoDB replica set |
 | `db:seed` · `db:seed:bulk` | seed; +1000 synthetic products |
+| `db:seed:analytics` | 13 months of back-dated trading history, so the dashboards have a shape. Idempotent, localhost-only, and `-- --purge` removes exactly what it wrote |
+| `db:backfill:catalogue` · `db:backfill:customization` | one-off, conditional backfills for rows written before a field existed |
 | `db:indexes` | sync indexes — **also drops undeclared ones**, so it is the migration path |
 | `db:docs` | regenerate `src/lib/db/{ERD,STATES,INTEGRITY}.md` |
-| `db:explain` · `db:explain:queues` | check the marketplace and staff-queue queries use their indexes |
+| `db:explain` · `db:explain:queues` · `db:explain:analytics` | check the marketplace, staff-queue and reporting queries use their indexes |
+| `db:prod:bootstrap` · `db:prod:reset` | production only — see [Production](#production) |
 
 **Probes** — drive real code against the real dev database and print what
 happened. They exist because a unit test cannot tell you that audience
@@ -351,6 +442,9 @@ resolution found the right people.
 | `jobs:probe` | the schedule, transactional enqueue, a real drain |
 | `requests:probe` · `ai:probe` | request lifecycle; AI provider connectivity |
 | `storage:probe` · `storage:media-probe` | S3 credentials, prefix enforcement, upload round-trip |
+| `vendors:probe` · `payments:probe` | vendor lifecycle and ledger; provider routing and reconciliation |
+| `notify:probe` | audience resolution against real seeded people, the staff-by-permission query, and that a re-fired event is a no-op |
+| `email:preview` | renders every template to `.dev-emails/preview/` at phone and desktop widths. Bespoke notification emails are pulled from `CATALOG` itself, so a preview cannot drift from what is sent |
 
 **Quality**
 
@@ -360,7 +454,8 @@ resolution found the right people.
 | `test:integration` | one shared in-memory replica set — minutes locally, parallelised in CI |
 | `test` | both |
 | `test:coverage` | with thresholds on `lib/`, `services/`, `config/` |
-| `lint` · `typecheck` · `format` | |
+| `test:watch` | the unit project, re-running as you save |
+| `lint` · `typecheck` · `format` | `lint:fix` and `format:check` also exist |
 | `verify` | lint + typecheck + test — what to run before pushing |
 | `scan:bundle` | after `build`: no server secret reached the browser |
 | `audit:deps` | `npm audit`, gated at high |
@@ -374,9 +469,9 @@ src/
   app/            routes only — thin, guarded, mostly Server Components
     (public)/     marketplace, product pages, cart, checkout, the AI doors
     (auth)/       sign in, register, verify, reset, accept invite
-    dashboard/    the customer portal
-    staff/        queues, requests, quotes, invoices, messages
-    admin/        products, orders, payments, users, jobs, audit, settings
+    dashboard/    the customer portal, incl. account settings and selling
+    staff/        queues, requests, quotes, invoices, messages, analytics
+    admin/        products, orders, payments, users, jobs, audit, settings, analytics
     api/          route handlers: webhooks, downloads, cron, health, AI stream
   features/       per-screen view models, server actions and components
   services/       the business logic — nothing here knows about HTTP
@@ -401,7 +496,8 @@ error rather than a 404 somebody finds later.
 | `AGENTS.md` | the conventions a feature screen must follow — **read this before writing code** |
 | `ai-contexts/00-techinical.md` | the product and technical specification, `§`-referenced throughout the code |
 | `ai-contexts/01-mvp-todo.md` | the tracker |
-| `ai-contexts/tickets/` | 30 tickets, each with what shipped and what did not |
+| `ai-contexts/tickets/` | 31 tickets, each with what shipped and what did not |
+| `ai-contexts/tickets/vendor/` | 15 more for the third-party vendor programme — outside the MVP spec |
 | `ai-contexts/SECURITY.md` | controls, rate limits, CSRF, key rotation, retention, accepted risks |
 | `ai-contexts/OPERATIONS.md` | environments, migrations, deploy, smoke test, rollback |
 | `ai-contexts/tickets/29-human-checklist.md` | the manual test plan — the four critical journeys, every persona, mobile, a11y |
@@ -411,15 +507,21 @@ error rather than a 404 somebody finds later.
 
 Honest, and expanded on in the ticket docs:
 
-- **No staging or production environment.** `OPERATIONS.md` specifies both;
-  nothing provisions them, and rollback is documented but unrehearsed.
+- **No staging or production *hosting*.** `OPERATIONS.md` specifies the
+  environments and `db:prod:bootstrap` will build a production database, but
+  nothing provisions the cluster, the bucket or the host, and rollback is
+  documented rather than rehearsed.
 - **No E2E test automation.** Deliberate — replaced by the ticket-29 human
   checklist. A journey regression will not be caught automatically.
 - **No Sentry.** Structured logging, `/api/health` and stable alert codes exist;
   nothing ingests them yet.
 - **Card payments are configured but lightly exercised.** Only Paystack is set
   up in dev and it does not take GBP, so the offline path is the one that has
-  been driven end to end.
+  been driven end to end. A fresh production database has no provider enabled at
+  all — see [Production](#production).
+- **Staff can only be created by script.** `/admin/users` renders an empty state
+  with no form, so `db:prod:bootstrap -- --admin …` is the only route to a staff
+  account, including the second one.
 - **No PDF generation.** Quote and invoice documents are print-styled HTML;
   the browser's own print-to-PDF is the pipeline.
 - **`script-src` carries `'unsafe-inline'`** — nonce-based CSP is incompatible
