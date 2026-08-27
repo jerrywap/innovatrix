@@ -18,7 +18,7 @@ expensive once there is data to migrate.
 | Payment providers | test keys | test keys | test keys | **live keys** |
 | AI | shared OpenRouter key | shared key | own key, spend cap | own key, spend cap |
 | Email | `.dev-emails/` | `.dev-emails/` | real, to a catch-all | real |
-| Seed | `npm run db:seed` | `db:seed` | anonymised subset | **never** |
+| Seed | `npm run db:seed` | `db:seed` | anonymised subset | **never** — `db:prod:bootstrap` instead |
 | `JOBS_WORKER` | `inline` | `inline` | matches production | `inline` or `off` — see below |
 
 Two things about this table are load-bearing.
@@ -33,6 +33,9 @@ password rather than reading one from the environment, precisely so that a seed
 pointed at production cannot create an account that looks real. That is a
 guard, not a convenience.
 
+What production gets instead is `npm run db:prod:bootstrap` — see
+[Bootstrapping a production database](#bootstrapping-a-production-database).
+
 ## The one open decision
 
 `JOBS_WORKER` is `inline` on a container and `off` on serverless — see
@@ -40,6 +43,82 @@ guard, not a convenience.
 this is an environment variable rather than a rewrite, and business decision
 #10 (Vercel vs a container host) can stay open until there is a reason to close
 it. On serverless, point a scheduler at `/api/cron/tick` every minute.
+
+## Bootstrapping a production database
+
+Two scripts, and the split is deliberate: one only ever adds, the other only ever
+destroys, and neither can be mistaken for the other.
+
+### `npm run db:prod:bootstrap`
+
+Additive and idempotent. Safe to re-run, and re-running is how you resend an
+invitation that expired.
+
+```
+npm run db:prod:bootstrap -- --admin you@yourdomain.com --name "Your Name"
+npm run db:prod:bootstrap -- --admin finance@yourdomain.com --roles finance
+```
+
+It creates indexes (`syncIndexes`, the same call `db:indexes` makes), the
+taxonomy vocabulary, a zero-rated catch-all tax rule, the payment-settings
+singleton with everything switched off, and one staff account.
+
+It deliberately creates **no products, customers, organisations, orders or
+discount codes**. An empty marketplace is honest; eleven fake listings with
+prices on them are not.
+
+Three of its choices are worth knowing, because each one is a place the demo seed
+does the opposite:
+
+- **Only the catch-all tax rule.** The demo seed asserts GB VAT at 20% and NG VAT
+  at 7.5%. Those are not ours to assert on a merchant's behalf —
+  `validators/checkout.ts` already records that a tax rule applied to the wrong
+  country is a compliance problem rather than a cosmetic one. Charging nothing is
+  recoverable; charging the wrong VAT is not. Add real rates at
+  `/admin/settings/tax`, which is a working screen.
+- **No payment method enabled.** The demo seed turns bank transfer on and fills
+  the instructions with `sort code 00-00-00, account 00000000` — in production
+  that is a page telling a customer to send money to an account that does not
+  exist. A blocked checkout beats a lost payment. Configure a provider at
+  `/admin/settings/payments`.
+- **The admin has no password.** The account is created without a credential row
+  and Better Auth's reset email invites them to choose one; `resetPassword`
+  creates the `credential` row when none exists, so a first password and a changed
+  password take the same path. Nothing can leak a secret because there is no
+  secret, and the run proves production SMTP works — which is better learned
+  during a bootstrap than during a customer's password reset. The link lasts an
+  hour.
+
+The script refuses an address on a reserved domain (`.test`, `.example`,
+`.invalid`). That is the mirror of the seed's guard: an admin who can never
+receive the invitation is an account nobody can sign into, holding every
+permission on the platform.
+
+**There is no way to create staff in the app.** `/admin/users` is a page with an
+empty state and no form, so this script is the only route — for the first account
+and every one after it.
+
+### `npm run db:prod:reset`
+
+Drops the database. **Dry run by default**: with no arguments it prints every
+collection and row count and touches nothing.
+
+```
+npm run db:prod:reset                          # what would go
+npm run db:prod:reset -- --drop cosetup_prod   # the name must match
+```
+
+The guard is the database name typed back, not a `--force` flag. A flag protects
+against a stray keystroke and not at all against the mistake that actually
+happens, which is running the right command against the wrong `MONGODB_URI`.
+
+Both scripts resolve the database from `MONGODB_DB_NAME` when it is set and from
+the URI otherwise — deliberately **not** defaulting to `innovatrix` the way
+`db:seed` and `db:indexes` do. Under that default a production URI ending
+`/cosetup_prod` would connect to a database called `innovatrix` instead. Harmless
+when creating indexes; not harmless when dropping.
+
+A drop leaves no indexes, so nothing works until the bootstrap runs again.
 
 ## Migrations
 
