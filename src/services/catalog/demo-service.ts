@@ -164,6 +164,77 @@ export async function revealCredentials(
 }
 
 /**
+ * The gated demo *addresses* — the customer portal and the back office.
+ *
+ * ## Why this is not `revealCredentials()`
+ *
+ * That function is right here, applies the same gate, and would return these two
+ * URLs among its results. Using it would still be wrong, for two reasons that
+ * both come from the rules this module already keeps:
+ *
+ * - **It decrypts passwords.** `demo-panel.tsx` states the principle — the gate
+ *   goes *before* the component so there is nothing in scope to leak. The
+ *   preview page can never render a password, so a password must never reach it,
+ *   and holding plaintext beside a client boundary is one refactor from
+ *   shipping it.
+ * - **It writes `demo.credentials_viewed`.** Opening a preview is not viewing a
+ *   credential. Logging it under that name would make the audit answer a
+ *   different question than the one it is asked, and quietly inflate the count
+ *   that matters.
+ *
+ * The gate itself is shared: one `canRevealCredentials` decides both, so there is
+ * no second rule to keep in step.
+ *
+ * `null`, not `{}`, when the viewer does not qualify — the same shape
+ * `revealCredentials` uses, so a caller cannot confuse "not entitled" with
+ * "entitled, but none configured".
+ *
+ * **Never cache the result.** It is derived from who is asking.
+ */
+export async function revealDemoUrls(
+  productId: string,
+  viewer: DemoViewer,
+): Promise<GatedDemoUrls | null> {
+  await connectToDatabase();
+
+  const product = await products.findById(productId);
+  if (!product) throw new NotFoundError("product", { id: productId });
+
+  const exposure = product.demo?.exposure ?? "authenticated";
+  if (!canRevealCredentials(exposure, viewer)) return null;
+
+  return gatedDemoUrls(product);
+}
+
+export interface GatedDemoUrls {
+  customerUrl?: string;
+  adminUrl?: string;
+}
+
+/**
+ * The two gated URLs and **nothing else**, from a product document.
+ *
+ * Split out of `revealDemoUrls` so this half is a pure function of a document,
+ * exactly as `publicDemoView` is — which is what lets the property that matters
+ * be asserted in the unit project rather than behind seven minutes of mongod.
+ * The property: whatever else is on `product.demo`, only these two keys come
+ * back.
+ *
+ * Built key by key rather than spread, for `publicDemoView`'s reason: a spread
+ * of `product.demo` would carry `credentials`, ciphertext and all.
+ *
+ * The **gate is the caller's job** and is not repeated here. One rule, in
+ * `canRevealCredentials`; a second copy inside this function would be a second
+ * thing to keep in step with §9.
+ */
+export function gatedDemoUrls(product: ProductDoc): GatedDemoUrls {
+  return {
+    ...(product.demo?.customerUrl ? { customerUrl: product.demo.customerUrl } : {}),
+    ...(product.demo?.adminUrl ? { adminUrl: product.demo.adminUrl } : {}),
+  };
+}
+
+/**
  * §90's "demo credentials viewed", and the two reasons it is narrower than that.
  *
  * The service doc has referenced this audit since ticket 07 and nothing wrote

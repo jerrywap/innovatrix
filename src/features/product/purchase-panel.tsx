@@ -16,6 +16,16 @@ export interface DemoCta {
   publicUrl?: string;
   hasCredentials: boolean;
   roleCount: number;
+  /**
+   * Is there anything at all on `/preview/{slug}` — a live demo **or** a
+   * screenshot?
+   *
+   * Computed in `purchase-section` from the full `ProductDetail`, and passed as
+   * a boolean rather than the media itself: this component is handed a
+   * three-field view precisely so nothing larger can drift into the client
+   * bundle behind it, and a screenshot array would be the first thing to.
+   */
+  previewable: boolean;
 }
 import type {
   DetailAddon,
@@ -270,6 +280,13 @@ export function PurchasePanel({
           dropping it silently while the row is still ticked is worse than sending
           them through the basket, which is what that row is for.
         */}
+        {/*
+          Preview first, then the money, then the alternatives — the order
+          somebody actually buys in. It used to sit third, under both purchase
+          buttons, which put "decide" above "look".
+        */}
+        <PreviewDemo demo={demo} slug={slug} />
+
         {total === 0 && chosenAddons.size === 0 ? (
           <GetItFree
             productId={productId}
@@ -300,8 +317,6 @@ export function PurchasePanel({
           </Link>
         )}
 
-        <TryDemo demo={demo} />
-
         {saveButton}
       </div>
 
@@ -317,54 +332,48 @@ export function PurchasePanel({
 }
 
 /**
- * §8's third CTA — "opens the demo panel / external demo".
+ * The first CTA — look before you decide.
  *
- * ## Two destinations, because there are two situations
+ * ## It goes to our own page now
  *
- * - **A public demo exists** → straight there, in a new tab. Nobody wants a
- *   scroll when the thing they asked for is a URL away.
- * - **Only credentials exist** → down to the demo section, which either shows
- *   them or explains what unlocks them. Sending somebody to a locked panel is
- *   still better than a dead button, because the panel says *why*.
+ * This was an outbound `target="_blank"` anchor straight to the vendor's demo:
+ * the visitor left CoSetup, landed somewhere with no way back but the Back
+ * button, and had no way to see a template at phone width. `/preview/{slug}`
+ * frames it instead, with our bar around it and a width switcher — and the
+ * leaving still happens, one level in, from a control that page owns.
  *
- * ## It renders nothing when there is no demo
+ * So no `target="_blank"`, no `rel`, and no "(opens in a new tab)": a `<Link>`
+ * to a route of ours, like every other internal navigation.
  *
- * A greyed-out "Try Demo" is a promise the product cannot keep, and four CTAs
- * where one never works reads as a broken page rather than an honest one.
+ * ## It renders far more often than it used to
+ *
+ * The old condition was "a demo URL or credentials exist", which is **five of a
+ * thousand published products** and none of the 135 templates. `previewable` is
+ * the honest question instead — is there anything on that page at all — and the
+ * preview falls back to screenshots, which every product has.
+ *
+ * It can still render nothing: a product with neither a demo nor a screenshot
+ * has nothing to show, and a greyed-out button is a promise the product cannot
+ * keep.
  *
  * ## What it is not allowed to know
  *
- * `hasCredentials` is a boolean and `roleCount` is a number. This is a **client
- * component**, so anything it receives is in the RSC payload — which is exactly
- * the leak `DemoPanel`'s two-function split exists to prevent. The rule holds
- * here too.
+ * This is a **client component**, so anything it receives is in the RSC payload
+ * — which is exactly the leak `DemoPanel`'s two-function split exists to
+ * prevent. It gets a URL, two booleans and a count, and `previewable` is a
+ * boolean rather than the media array for the same reason.
  */
-function TryDemo({ demo }: { demo: DemoCta }) {
-  if (!demo.publicUrl && !demo.hasCredentials) return null;
+function PreviewDemo({ demo, slug }: { demo: DemoCta; slug: string }) {
+  if (!demo.previewable) return null;
 
-  const label = demo.publicUrl ? "Try the demo" : "See demo access";
-
-  const className =
-    "border-border hover:bg-surface-muted flex items-center justify-center gap-2 " +
-    "rounded-full border px-5 py-3 text-[14px] font-medium transition";
-
-  if (demo.publicUrl) {
-    return (
-      <a href={demo.publicUrl} target="_blank" rel="noopener noreferrer" className={className}>
-        <MonitorPlay className="size-4" aria-hidden />
-        {label}
-        <span className="sr-only">(opens in a new tab)</span>
-      </a>
-    );
-  }
-
-  // A plain anchor, not a router link: `#demo` is on this page, and routing
-  // through Next to reach it would re-render the route to scroll.
   return (
-    <a href="#demo" className={className}>
+    <Link
+      href={`/preview/${slug}` as Route}
+      className="border-border hover:bg-surface-muted flex items-center justify-center gap-2 rounded-full border px-5 py-3 text-[14px] font-medium transition"
+    >
       <MonitorPlay className="size-4" aria-hidden />
-      {label}
-    </a>
+      Preview Demo
+    </Link>
   );
 }
 

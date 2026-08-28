@@ -53,6 +53,16 @@ export default function robots(): MetadataRoute.Robots {
              does not want indexing.
           */
           "/search?q=",
+          /*
+            The demo frame holder. Every one of these is a bar around somebody
+            else's site, and what content it does have belongs to the product
+            page it came from — so it is `noindex` at the page level too, and
+            this saves the crawler a round trip per product to find that out.
+
+            A prefix rather than one query shape: the whole subtree is
+            uninteresting, not part of it.
+          */
+          "/preview",
         ],
       },
     ],

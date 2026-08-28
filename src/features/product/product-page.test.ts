@@ -136,28 +136,50 @@ describe("§8's four primary CTAs", () => {
   const section = readFileSync(sectionPath, "utf8");
 
   it("renders all four", () => {
-    // Buy As-Is, Request Customization, Try Demo, Save for Later. Three of
-    // four shipped first time round — "Try Demo" was specified and missed,
+    // Preview Demo, Buy As-Is, Request Customization, Save for Later. Three of
+    // four shipped first time round — the demo CTA was specified and missed,
     // which is why this is a test rather than a memory.
+    expect(panel).toContain("<PreviewDemo");
     expect(panel).toContain("<AddToCart");
     expect(panel).toContain("Request customization");
-    expect(panel).toContain("<TryDemo");
     expect(panel).toContain("{saveButton}");
   });
 
-  it("sends Try Demo to the external demo when there is one, and to the panel otherwise", () => {
-    const cta = panel.slice(panel.indexOf("function TryDemo"));
-    // A public URL opens externally; credentials-only anchors to the section
-    // that either shows them or explains what unlocks them.
-    expect(cta).toContain('target="_blank"');
-    expect(cta).toContain('href="#demo"');
-    expect(cta).toContain('rel="noopener noreferrer"');
+  /**
+   * The order is the point of the change, so it is asserted rather than left to
+   * whoever next edits the block.
+   *
+   * Look, then buy, then the alternatives. Preview sat third for a while, under
+   * both purchase buttons, which put "decide" above "look".
+   */
+  it("puts the preview above the purchase buttons", () => {
+    const preview = panel.indexOf("<PreviewDemo");
+    const buy = panel.indexOf("<AddToCart");
+    const customise = panel.indexOf("Request customization");
+    const save = panel.indexOf("{saveButton}");
+
+    expect(preview).toBeGreaterThan(0);
+    expect(preview).toBeLessThan(buy);
+    expect(buy).toBeLessThan(customise);
+    expect(customise).toBeLessThan(save);
   });
 
-  it("renders no Try Demo at all when nothing is configured", () => {
-    const cta = panel.slice(panel.indexOf("function TryDemo"));
-    // A greyed-out CTA is a promise the product cannot keep.
-    expect(cta).toMatch(/if \(!demo\.publicUrl && !demo\.hasCredentials\) return null;/);
+  it("sends the preview to our own page, not off-site", () => {
+    const cta = panel.slice(panel.indexOf("function PreviewDemo"));
+    // It was a `target="_blank"` anchor at the vendor's demo. `/preview/{slug}`
+    // frames it instead, so the visitor keeps our chrome and a way back — and
+    // an internal route is a `<Link>` like any other.
+    expect(cta).toContain("/preview/${slug}");
+    expect(cta).toContain("<Link");
+    expect(cta).not.toContain('target="_blank"');
+  });
+
+  it("renders no preview CTA when there is nothing to preview", () => {
+    const cta = panel.slice(panel.indexOf("function PreviewDemo"));
+    // A greyed-out CTA is a promise the product cannot keep. `previewable` is
+    // computed server-side from "a live demo *or* a screenshot" — see
+    // `purchase-section.tsx`, which is where the media stays.
+    expect(cta).toMatch(/if \(!demo\.previewable\) return null;/);
   });
 
   it("hands the CTA no credential, because it is a client component", () => {
