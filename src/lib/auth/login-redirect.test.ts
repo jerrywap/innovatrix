@@ -109,12 +109,12 @@ describe("session cookie names", () => {
     expect(sessionCookieNames()).toContain("innovatrix.session_token");
   });
 
-  it("deletes what is present and reports how many", () => {
+  it("expires what is present and reports how many", () => {
     // One current, one legacy — both must go.
     const present = new Set(["cosetup.session_token", "innovatrix.session_data"]);
     const cleared = clearSessionCookies({
       has: (name) => present.has(name),
-      delete: (name) => present.delete(name),
+      set: (cookie) => present.delete(cookie.name),
     });
 
     expect(cleared).toBe(2);
@@ -122,6 +122,43 @@ describe("session cookie names", () => {
   });
 
   it("is happy when there is nothing to clear", () => {
-    expect(clearSessionCookies({ has: () => false, delete: () => undefined })).toBe(0);
+    expect(clearSessionCookies({ has: () => false, set: () => undefined })).toBe(0);
+  });
+
+  /**
+   * The bug this pins down cost a permanent white screen on UAT.
+   *
+   * `cookies().delete(name)` emits `name=; Path=/; Expires=<epoch>` and no
+   * `Secure`. A browser must reject any `Set-Cookie` for a `__Secure-`-prefixed
+   * name that does not carry `Secure`, so that instruction is silently
+   * discarded — and on HTTPS the live session cookie *is* `__Secure-` prefixed.
+   * The route written to break the redirect loop could not break it.
+   *
+   * It passed every local check because `APP_URL` is http in development, where
+   * the cookie is plain-named and `delete()` works, and it passed every scripted
+   * check because `curl` does not enforce the prefix rule.
+   */
+  it("expires a __Secure- cookie with the Secure attribute, or the browser ignores it", () => {
+    const written: Array<{ name: string; secure: boolean; expires: Date; path: string }> = [];
+    clearSessionCookies({
+      has: (name) => name === "__Secure-cosetup.session_token",
+      set: (cookie) => written.push(cookie),
+    });
+
+    expect(written).toHaveLength(1);
+    expect(written[0]!.secure, "a __Secure- cookie cannot be expired without it").toBe(true);
+    expect(written[0]!.path).toBe("/");
+    expect(written[0]!.expires.getTime()).toBe(0);
+  });
+
+  it("expires a plain-named cookie without it, so a pre-rebrand http one still goes", () => {
+    const written: Array<{ name: string; secure: boolean }> = [];
+    clearSessionCookies({
+      has: (name) => name === "innovatrix.session_token",
+      set: (cookie) => written.push(cookie),
+    });
+
+    expect(written).toHaveLength(1);
+    expect(written[0]!.secure).toBe(false);
   });
 });

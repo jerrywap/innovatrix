@@ -9,7 +9,11 @@ import {
   type StorefrontCurrency,
 } from "@/config/storefront";
 import { REQUEST_ID_HEADER } from "@/config/observability";
-import { COOKIE_PREFIX } from "@/lib/auth/cookie-prefix";
+import {
+  COOKIE_PREFIX,
+  sessionCookieExpiry,
+  sessionCookieNames,
+} from "@/lib/auth/cookie-prefix";
 import { CONVERSATION_COOKIE, conversationCookie } from "@/services/ai/conversation-cookie";
 import {
   pushRecentlyViewed,
@@ -181,10 +185,54 @@ function currencyToPersist(request: NextRequest): StorefrontCurrency | null {
   return requested;
 }
 
+/**
+ * Is this the DAL telling us the cookie it just saw is dead?
+ *
+ * `loginDestination()` sends a visitor whose session cookie exists but no longer
+ * validates to `/login?expired=1`. This is the half of that handshake the DAL
+ * cannot perform itself, and there are two distinct jobs in it — **do not
+ * bounce**, and **expire the cookies** — because doing only the first leaves a
+ * dead credential that re-breaks `/dashboard` on the visitor's next click.
+ *
+ * ## Why the proxy, and not the route handler that used to do this
+ *
+ * Because the proxy is the only thing that runs *before the response starts*.
+ * With Cache Components the static shell is flushed before any page guard
+ * resolves, so by the time the DAL knows the session is stale, the status line
+ * is committed and its `redirect()` can only be carried out by the client
+ * router — which cannot render a Route Handler. `/api/auth/stale-session`
+ * therefore became unreachable by the only path that led to it. The proxy has
+ * no such problem: it decides before a byte is written, and `NextResponse` can
+ * carry `Set-Cookie`.
+ *
+ * ## `?expired=1` is attacker-influenceable, and that is acceptable
+ *
+ * A link to `/login?expired=1` signs the visitor out. That is the same exposure
+ * `/api/auth/stale-session` already had as a GET, it costs an attacker's target
+ * one sign-in, and it grants nothing — there is no state to forge here, only
+ * state to discard. Treating it as sensitive would mean a POST, and a page
+ * cannot redirect to one.
+ */
+function clearingStaleSession(request: NextRequest): boolean {
+  return (
+    request.nextUrl.pathname === "/login" && request.nextUrl.searchParams.get("expired") === "1"
+  );
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
   const hasSessionCookie = Boolean(getSessionCookie(request, { cookiePrefix: COOKIE_PREFIX }));
   const id = requestId(request);
+  /*
+   * Deliberately not `hasSessionCookie && …`. That flag comes from Better
+   * Auth's reader, which only knows the *current* prefix — so a visitor still
+   * carrying a pre-rebrand `innovatrix.*` cookie is invisible to it, while the
+   * DAL's own shape test does match one and will have sent them here. Gating on
+   * it would mean the one cookie nothing else cleans up is the one cookie this
+   * never clears. The expiry loop below writes only names that are present, so
+   * asking is cheaper than qualifying.
+   */
+  const clearStale = clearingStaleSession(request);
 
   if (!hasSessionCookie && PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))) {
     const login = new URL("/login", request.url);
@@ -195,7 +243,9 @@ export function proxy(request: NextRequest): NextResponse {
     return NextResponse.redirect(login);
   }
 
-  if (hasSessionCookie && AUTH_PAGES.some((p) => pathname === p)) {
+  // `!clearStale`, so the one URL that exists to escape a dead cookie is not
+  // bounced back into the area that dead cookie cannot render.
+  if (hasSessionCookie && !clearStale && AUTH_PAGES.some((p) => pathname === p)) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
@@ -254,6 +304,25 @@ export function proxy(request: NextRequest): NextResponse {
   // network tab is the same one in the logs.
   response.headers.set(REQUEST_ID_HEADER, id);
   for (const cookie of pending) response.cookies.set(cookie);
+
+  /*
+   * Expire the dead session, on the response that renders the sign-in form.
+   *
+   * Only the names this request actually carries. Expiring all twelve spellings
+   * unconditionally works, but it puts two kilobytes of `Set-Cookie` on a page
+   * plenty of people reach with nothing to clear — and which of the plain and
+   * `__Secure-` names is even live depends on `APP_URL`. A browser holding one
+   * sends it; that is the whole test.
+   *
+   * `sessionCookieExpiry` is what makes a `__Secure-` name actually go — see its
+   * docblock, and note that `response.cookies.delete()` would not.
+   */
+  if (clearStale) {
+    for (const name of sessionCookieNames()) {
+      if (request.cookies.has(name)) response.cookies.set(sessionCookieExpiry(name));
+    }
+  }
+
   return response;
 }
 
