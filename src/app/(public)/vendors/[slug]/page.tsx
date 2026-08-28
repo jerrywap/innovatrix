@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CATALOGUE_SURFACE } from "@/config/catalogue";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BreadcrumbJsonLd, type Crumb } from "@/components/json-ld";
@@ -131,7 +132,16 @@ export default async function Page({ params }: PageProps<"/vendors/[slug]">) {
 /** One array, two consumers — the visible breadcrumb and the `BreadcrumbList`. */
 function crumbsFor(storefront: VendorProfile): Crumb[] {
   return [
-    { name: "Marketplace", path: "/marketplace" },
+    /*
+     * The script catalogue, and that is a judgement rather than a derivation.
+     *
+     * A vendor sells into **both** catalogues — `CatalogueScope` exists for
+     * exactly this — so unlike a product's breadcrumb there is no single
+     * catalogue to read off the record. `/marketplace` is the platform's main
+     * catalogue and where a storefront's own grid defaults, so it is the honest
+     * ancestor. If that ever stops being true, this is the line to revisit.
+     */
+    { name: CATALOGUE_SURFACE.script.plural, path: CATALOGUE_SURFACE.script.listingPath },
     { name: storefront.displayName, path: `/vendors/${storefront.slug}` },
   ];
 }

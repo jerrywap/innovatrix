@@ -13,7 +13,7 @@ import {
   toStorefrontCurrency,
 } from "@/config/storefront";
 import * as cartService from "@/services/cart/cart-service";
-import { clearGuestCookie, ensureOwnerKey, readOwnerKey } from "@/services/cart/owner";
+import { ensureOwnerKey, readOwnerKey } from "@/services/cart/owner";
 import { cartCurrency, loadCart } from "./load";
 
 /**
@@ -190,42 +190,16 @@ export async function switchCartCurrencyAction(
   });
 }
 
-/**
- * Fold the guest cart into the user's — called after sign-in.
+/*
+ * The guest-cart merge used to live here, as `mergeCartAction`, and was never
+ * called from anywhere — so a signed-out visitor's basket was lost at sign-in
+ * for as long as the feature has existed. It now lives in
+ * `features/auth/adopt-guest-state.ts`, beside the conversation claim that had
+ * the identical problem, and runs on every sign-in path.
  *
- * A separate action rather than a hook inside the auth flow: Better Auth owns
- * that flow, and reaching into it to run cart logic couples two things that
- * change for different reasons.
+ * It is not an action any more, deliberately. An exported action is a public
+ * POST endpoint, and the merge has no caller a browser should be able to be.
  */
-export async function mergeCartAction(): Promise<
-  ActionResult<{ merged: number; dropped: string[] }>
-> {
-  return withAction(async () => {
-    const session = await getSession();
-    if (!session) return ok({ merged: 0, dropped: [] });
-
-    const guestOwnerKey = await readOwnerKeyForGuestOnly();
-    if (!guestOwnerKey) return ok({ merged: 0, dropped: [] });
-
-    const currency = await cartCurrency();
-    const result = await cartService.mergeOnLogin(
-      guestOwnerKey,
-      session.user.id,
-      session.activeOrganizationId ?? undefined,
-      currency,
-    );
-
-    await clearGuestCookie();
-    refreshCart();
-
-    return ok(result);
-  });
-}
-
-/** The guest key specifically, ignoring the session — only the merge wants this. */
-async function readOwnerKeyForGuestOnly(): Promise<string | undefined> {
-  return readOwnerKey(undefined);
-}
 
 async function loadForCount(): Promise<number> {
   const view = await loadCart();

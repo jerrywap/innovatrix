@@ -110,6 +110,15 @@ export function Conversation({
   const [offered, setOffered] = useState<string[] | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  /*
+   * Has the workspace box taken its height yet?
+   *
+   * Seeded from the messages this mounted with, so a conversation reloaded
+   * mid-thread never runs the hand-off below — it already has its height on the
+   * first paint and there is nothing to land.
+   */
+  const opened = useRef(initialMessages.length > 0);
   /*
    * A signal rather than a dependency array: `useAutoScroll` needs to fire when
    * the thread grows *or* the stream advances, and a hook taking a spread array
@@ -193,8 +202,36 @@ export function Conversation({
     [busy, conversationId, onCoverage, rememberScrollIntent],
   );
 
+  /*
+   * The workspace opening is a jump, so land it deliberately.
+   *
+   * The box has no height until there is a thread, so the first message grows it
+   * by up to 62dvh in a single commit — and the composer the customer just used
+   * would otherwise end up below the fold, which on a phone reads as the page
+   * having thrown them somewhere. `block: "end"` puts it back under the thumb.
+   *
+   * Once only. `html { scroll-behavior: smooth }` is already set globally and
+   * `prefers-reduced-motion` already resets it to `auto`, so this needs no
+   * `behavior` of its own and honours the preference for free.
+   */
+  useEffect(() => {
+    if (opened.current || messages.length === 0) return;
+    opened.current = true;
+    shellRef.current?.scrollIntoView({ block: "end" });
+  }, [messages.length]);
+
   // The server's openers until the assistant has offered its own. See `offered`.
   const chips = offered ?? suggestions ?? [];
+
+  /*
+   * Nothing to scroll yet, so nothing to reserve room for.
+   *
+   * `messages` is appended optimistically *before* the request goes out, so this
+   * flips on the same commit as the customer's first send — there is no frame in
+   * which a sent message renders into a collapsed box. It flips back if that send
+   * fails and the optimistic message is retracted, which is also right.
+   */
+  const empty = messages.length === 0 && streaming === null;
 
   return (
     /*
@@ -215,14 +252,34 @@ export function Conversation({
      * full-bleed and is right at every width without measuring anything —
      * `62dvh` follows the phone's shrinking viewport, and the floor and ceiling
      * stop it collapsing on a landscape phone or stretching on a tall monitor.
+     *
+     * ## …but only once there is a thread
+     *
+     * The height was unconditional, which meant the *invitation* reserved up to
+     * 62% of the viewport for a transcript that did not exist yet — and on a
+     * phone that pushed the chips and the composer to the bottom of the screen,
+     * below a tall blank rectangle. There is nothing to bound before the first
+     * message, so nothing is bounded: the box takes its height on the same commit
+     * as the first send, and never changes again.
+     *
+     * Rejected: `max-h` with a growing box. It is one class prettier and it
+     * re-creates the exact bug this docblock was written to remove for the first
+     * two turns — the page would grow on every streaming delta and the composer
+     * would drift under the thumb mid-reply. One deliberate jump beats continuous
+     * drift.
      */
-    <div className="flex h-[clamp(24rem,62dvh,44rem)] min-h-0 flex-col">
+    <div
+      ref={shellRef}
+      className={`flex min-h-0 flex-col ${empty ? "" : "h-[clamp(24rem,62dvh,44rem)]"}`}
+    >
       <div
         ref={viewportRef}
         // `overscroll-contain` so reaching the top of the thread does not start
         // scrolling the page behind it, which is what makes a nested scroller feel
         // broken on a trackpad.
-        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain pr-1 pb-4"
+        // `pb-4` only when there is something to sit above the border — an empty
+        // box would otherwise keep 16px of nothing between the intro and the chips.
+        className={`flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain pr-1 ${empty ? "" : "pb-4"}`}
         aria-live="polite"
         aria-busy={busy}
       >
@@ -291,9 +348,33 @@ export function Conversation({
         )}
 
         {chips.length > 0 && !busy && (
-          // §17: offer options *and* free text. Chips are faster on a phone,
-          // which is where a lot of this conversation happens.
-          <div className="flex flex-wrap gap-2">
+          /*
+            §17: offer options *and* free text. Chips are faster on a phone,
+            which is where a lot of this conversation happens.
+
+            ## One scrolling row, not a wrapping block
+
+            The strongest reason is not width. This footer is `shrink-0` inside a
+            fixed-height box, so a row that wraps changes the footer's height
+            between turns — which resizes the transcript above it and shifts what
+            the customer is reading. The model offers a different number of
+            options every turn, so that jitter happened constantly, at every
+            breakpoint. Hence all breakpoints, not `max-lg:`.
+
+            `-m-1 … p-1` on *both* axes, and it is load-bearing: the focus ring is
+            `outline: 2px` at `outline-offset: 2px`, so it sits 4px outside a
+            pill, and `overflow-x: auto` forces `overflow-y` to compute to `auto`
+            too. Without the padding the ring is clipped at the container edge and
+            a spurious vertical scrollbar appears; the negative margin cancels it
+            so nothing moves. `scroll-p-1` keeps a Tab-focused pill off the edge,
+            `overscroll-x-contain` stops a swipe past the last one panning the page
+            or triggering the iOS back gesture, and `pb-2` clears the scrollbar
+            gutter `globals.css` paints. Same idiom as `account-tabs.tsx`.
+
+            The scrollbar is kept: it is the only affordance a mouse-only visitor
+            has that there is more to the right.
+          */
+          <div className="-m-1 flex scroll-p-1 gap-2 overflow-x-auto overscroll-x-contain p-1 pb-2">
             {chips.map((chip) => (
               <button
                 key={chip}
@@ -316,7 +397,10 @@ export function Conversation({
                   void send(chip);
                 }}
                 disabled={disabled}
-                className="border-border hover:border-border-strong hover:bg-surface-muted rounded-full border px-3.5 py-1.5 text-left text-[12.5px] transition-colors"
+                // `shrink-0` or flex squeezes the pills into wrapped columns
+                // instead of overflowing; `whitespace-nowrap` keeps each one on
+                // its own single line once the row does overflow.
+                className="border-border hover:border-border-strong hover:bg-surface-muted shrink-0 rounded-full border px-3.5 py-1.5 text-left text-[12.5px] whitespace-nowrap transition-colors"
               >
                 {chip}
               </button>

@@ -381,9 +381,23 @@ export function ReviewPanel({
             <p className="text-subtle text-[12px]">Free to submit &middot; no obligation</p>
           </div>
         ) : (
-          // §17: an anonymous visitor may do the whole interview and is asked to
-          // sign in only at the point of submitting. The conversation is claimed
-          // on the way back, so nothing here is retyped.
+          /*
+            §17: an anonymous visitor may do the whole interview and is asked to
+            sign in only at the point of submitting.
+
+            The transcript survives the round trip — `adoptGuestState` claims it
+            on whichever sign-in path creates the session, and `assistantViewer`
+            claims it again when this page re-renders. Until both of those
+            existed, this comment described something no code did, and the
+            interview was genuinely lost here.
+
+            **The drafted brief is not yet covered.** It is client state, so on
+            the way back the customer lands at the discovery stage with the full
+            transcript and `autoDrafted` re-runs the summariser — any edits they
+            made to the draft itself are gone. That is why the copy below says
+            "written", which is true of the conversation, and why it should not
+            be widened to promise the brief until the draft is persisted.
+          */
           <div className="border-border bg-surface-muted flex flex-col gap-2 rounded-xl border p-3.5">
             <p className="text-[13px]">
               Sign in to send this to us. Everything you&rsquo;ve written stays exactly as it

@@ -11,6 +11,7 @@ import {
   type AiMessage,
 } from "@/lib/db/models/requests";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
+import { log } from "@/lib/logger";
 import { CONVERSATION_COOKIE, conversationCookie } from "./conversation-cookie";
 import { PROMPT_VERSION } from "./prompts";
 
@@ -56,6 +57,67 @@ export async function ensureAnonymousKey(): Promise<string> {
 }
 
 /* ────────────────────────────────────────────── access */
+
+/**
+ * Who is asking on an assistant page — and the safety net for §17's transfer.
+ *
+ * ## Read the cookie whether or not there is a session
+ *
+ * Both assistant pages used to read the anonymous key **only when signed out**,
+ * which is the bug in one line: after signing in there was a session, so the key
+ * was never read, so nothing connected the person to the interview they had just
+ * spent five minutes on.
+ *
+ * ## It must run before `startOrResume`, and that is not a style preference
+ *
+ * `startOrResume` looks up `{ userId }` alone. An unclaimed row still carries
+ * `anonymousKey` and no `userId`, so it is not found and a brand-new empty
+ * conversation is written — the interview appears to have vanished. Claiming
+ * *afterwards*, from a client effect, was the original intent and cannot work:
+ * by the time an effect runs the empty row exists, and the customer is looking
+ * at it.
+ *
+ * ## Why here as well as at sign-in
+ *
+ * `adoptGuestState` already runs on every sign-in path, which is what the cart
+ * needs. This is the net for the cases that never pass through one: a session
+ * created in another tab an hour ago, and — the common one — `/login`'s "Create
+ * an account" link, which drops `?next=` and lands the visitor on `/dashboard`.
+ * The cookie lives 30 days, so they are recovered whenever they come back.
+ *
+ * Idempotent: `claimForUser` unsets `anonymousKey`, so every later call matches
+ * nothing. That is also why the cookie is not cleared here — a Server Component
+ * cannot, and one indexed no-op query is the whole cost of leaving it.
+ */
+export async function assistantViewer(
+  session: { user: { id: string }; activeOrganizationId: string | null } | null,
+): Promise<Viewer> {
+  const anonymousKey = await readAnonymousKey();
+
+  if (!session?.user.id) return anonymousKey ? { anonymousKey } : {};
+
+  const organizationId = session.activeOrganizationId ?? undefined;
+
+  if (anonymousKey) {
+    try {
+      const claimed = await claimForUser(anonymousKey, session.user.id, organizationId);
+      if (claimed > 0) {
+        log.info("Claimed an anonymous conversation on arrival", {
+          code: "ai.conversation.claimed",
+          count: claimed,
+        });
+      }
+    } catch (error) {
+      // Never fail the page over this. The worst case is the empty conversation
+      // they would have had before this function existed.
+      log.exception("Could not claim an anonymous conversation", error, {
+        code: "ai.conversation.claim_failed",
+      });
+    }
+  }
+
+  return { userId: session.user.id, ...(organizationId ? { organizationId } : {}) };
+}
 
 export interface Viewer {
   userId?: string;
@@ -287,14 +349,27 @@ export async function appendMessage(conversationId: string, message: AiMessage):
 export async function claimForUser(
   anonymousKey: string,
   userId: string,
-  organizationId: string,
+  /**
+   * Optional, deliberately.
+   *
+   * A session whose `activeOrganizationId` is null — staff, or a customer
+   * between organisations — would otherwise be unable to claim at all, and the
+   * interview would stay orphaned for the one person most likely to notice.
+   * Without it the row gets a `userId` and no `organizationId`, which
+   * `assertCanRead` accepts on its `userId` branch; `submitRequirementsAction`
+   * supplies the organisation later, from `requireOrg()`.
+   */
+  organizationId?: string,
 ): Promise<number> {
   await connectToDatabase();
 
   const result = await AiConversation.updateMany(
     { anonymousKey, status: "active", userId: { $exists: false } },
     {
-      $set: { userId: toObjectId(userId), organizationId: toObjectId(organizationId) },
+      $set: {
+        userId: toObjectId(userId),
+        ...(organizationId ? { organizationId: toObjectId(organizationId) } : {}),
+      },
       // Cleared, or the next visitor sharing this browser inherits them.
       $unset: { anonymousKey: "" },
     },

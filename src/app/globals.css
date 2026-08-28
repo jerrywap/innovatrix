@@ -475,6 +475,44 @@
 }
 
 @layer utilities {
+  /*
+     A scroller whose bar appears when you approach it.
+
+     The global rules above paint every scrollbar all the time, which is right for
+     the page and wrong for a panel: a permanent 10px bar down the inside edge of
+     the filter rail reads as chrome on a surface that is mostly whitespace.
+
+     `:focus-within` as well as `:hover`, deliberately — a keyboard user tabbing
+     into a control inside the panel gets the same cue a mouse user gets on
+     approach, and without it the bar would be invisible to them at the exact
+     moment they need to know there is more below.
+
+     Colour still comes from `--scrollbar-thumb`, so light and dark are inherited
+     rather than restated, and `scrollbar-gutter` is deliberately *not* set: the
+     gutter is already reserved by the 10px width above, so the content does not
+     shift when the thumb fades in.
+  */
+  .scrollbar-on-hover {
+    scrollbar-color: transparent transparent;
+  }
+
+  .scrollbar-on-hover:hover,
+  .scrollbar-on-hover:focus-within {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  @supports selector(::-webkit-scrollbar) {
+    .scrollbar-on-hover::-webkit-scrollbar-thumb {
+      background-color: transparent;
+      transition: background-color 150ms ease-out;
+    }
+
+    .scrollbar-on-hover:hover::-webkit-scrollbar-thumb,
+    .scrollbar-on-hover:focus-within::-webkit-scrollbar-thumb {
+      background-color: var(--scrollbar-thumb);
+    }
+  }
+
   /* Structural grid — the Swiss bones, dialled down so they read as texture. */
   .bg-grid {
     background-image:

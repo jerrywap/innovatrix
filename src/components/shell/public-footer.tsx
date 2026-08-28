@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CATALOGUE_SURFACE } from "@/config/catalogue";
 import type { Route } from "next";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Brand } from "./brand";
@@ -20,10 +21,19 @@ const COLUMNS: ReadonlyArray<{
   {
     heading: "Platform",
     links: [
-      { label: "Marketplace", href: "/marketplace" },
+      /*
+       * The same names the header, the page headings and a product's breadcrumb
+       * use — the labels come from `CATALOGUE_SURFACE`, the `href`s stay `Route`
+       * literals for `typedRoutes`.
+       *
+       * These were the last copies of the old vocabulary in chrome. "Marketplace"
+       * here while the header link above says "Software & Scripts" is two names
+       * for one destination on the same screen, which is the whole defect.
+       */
+      { label: CATALOGUE_SURFACE.script.plural, href: "/marketplace" },
       // Added with the catalogue split — `/templates` shipped with a header entry
       // and no footer one, so the footer was quietly a page behind.
-      { label: "Templates", href: "/templates" },
+      { label: CATALOGUE_SURFACE.template.plural, href: "/templates" },
       { label: "Custom build", href: "/custom-software" },
       /*
        * `/services` lives here and **only** here now.

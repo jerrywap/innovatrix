@@ -1,5 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
+import { X } from "lucide-react";
+import { SortSelect } from "./sort-select";
 import {
   activeFilterCount,
   marketplaceHref,
@@ -43,6 +45,9 @@ const DIMENSIONS = [
   { key: "productType", kind: "product_type", label: "Type" },
 ] as const;
 
+/** Offered only alongside a search query — see `sortOptions`. */
+const RELEVANCE_SORT = { value: "relevance", label: "Best match" } as const;
+
 const SORTS: Array<{ value: MarketplaceSort; label: string }> = [
   { value: "latest", label: "Newest" },
   { value: "popular", label: "Most bought" },
@@ -50,64 +55,60 @@ const SORTS: Array<{ value: MarketplaceSort; label: string }> = [
   { value: "price_desc", label: "Price: high to low" },
 ];
 
-export function FilterRail({
-  basePath,
+/**
+ * The sidebar — the browse dimensions, and nothing else.
+ *
+ * ## Why it is only taxonomy now
+ *
+ * It used to hold everything: sort, price, currency, the two options, the seller
+ * chip and the escape hatch, on top of four term lists. That is a column a
+ * visitor has to *read* before they can use it, and once it gained an inner
+ * scroll (see `results-section.tsx`) the controls people reach for most were the
+ * ones behind the scroll.
+ *
+ * The cross-cutting controls moved next to the search box, into `<FilterPanel>`
+ * behind a single button. What is left here is the one thing a sidebar is
+ * genuinely good at: a long, scannable list you browse *by*, always visible,
+ * never collapsed.
+ *
+ * Below `lg` this does not render at all — the same panel carries the taxonomy
+ * there. See `FilterPanel`.
+ */
+/**
+ * The browse dimensions — one list, rendered in two places.
+ *
+ * The sidebar shows it at `lg` and above; the filter panel shows it below `lg`,
+ * where there is no sidebar. It was briefly duplicated between the two, which is
+ * four term lists and a counting rule in two copies — so it is one component
+ * that both call.
+ *
+ * Counts are the caller's to supply, because the two callers get them at
+ * different moments: the sidebar renders inside the boundary that already ran
+ * the search, and the panel streams them in separately so its button does not
+ * wait on a query. `countableDimensions` decides which dimensions show a number
+ * at all — see `dimensionsWithHonestCounts`.
+ */
+export function FilterTaxonomy({
   raw,
   taxonomy,
   facetCounts,
   countableDimensions,
-  currency,
-  currencyInUrl,
-  vendorLabels,
-  /** Dimensions a landing page owns — rendered as context, not as a control. */
+  hrefFor,
   locked = [],
 }: {
-  basePath: string;
   raw: RawSearchParams;
   taxonomy: TaxonomyIndex;
   facetCounts: readonly FacetCount[];
   countableDimensions: readonly FacetCount["dimension"][];
-  currency: StorefrontCurrency;
-  currencyInUrl: boolean;
-  /** Slug → display name for any vendor filter in the URL — vendor ticket 11. */
-  vendorLabels?: ReadonlyMap<string, string>;
+  hrefFor: (changes: Parameters<typeof marketplaceHref>[2]) => string;
   locked?: ReadonlyArray<(typeof DIMENSIONS)[number]["key"]>;
 }) {
   const countOf = new Map(
     facetCounts.map((count) => [`${count.dimension}:${count.slug}`, count.count]),
   );
 
-  /**
-   * Every href in this rail, through one function.
-   *
-   * It exists to honour `currencyInUrl`, which is `currencyMustBeInUrl(query)` —
-   * "there is a price bound, so the URL has to say 50,000 *of what*". That
-   * invariant was declared, tested, and then enforced in exactly one place: the
-   * currency chip. So a rail link that carried a `minPrice` forward without a
-   * `currency` produced precisely the URL the invariant forbids, and two people
-   * opening it saw different result sets.
-   *
-   * `changes` spreads last so a caller can still override — which the currency
-   * chips do, and which is the only reason they can.
-   */
-  const hrefFor = (changes: Parameters<typeof marketplaceHref>[2]) =>
-    marketplaceHref(basePath, raw, currencyInUrl ? { currency, ...changes } : changes);
-
   return (
-    <aside className="flex flex-col gap-6" aria-label="Filters">
-      <Section title="Sort">
-        <div className="flex flex-col gap-0.5">
-          {SORTS.map((option) => (
-            <RailLink
-              key={option.value}
-              href={hrefFor({ sort: option.value })}
-              active={(raw.sort ?? "latest") === option.value}
-              label={option.label}
-            />
-          ))}
-        </div>
-      </Section>
-
+    <>
       {DIMENSIONS.filter((dimension) => !locked.includes(dimension.key)).map((dimension) => {
         const terms = taxonomy[dimension.kind];
         if (terms.length === 0) return null;
@@ -146,7 +147,142 @@ export function FilterRail({
           </Section>
         );
       })}
+    </>
+  );
+}
 
+export function FilterRail({
+  basePath,
+  raw,
+  taxonomy,
+  currency,
+  currencyInUrl,
+  locked = [],
+  facetCounts,
+  countableDimensions,
+}: {
+  basePath: string;
+  raw: RawSearchParams;
+  taxonomy: TaxonomyIndex;
+  currency: StorefrontCurrency;
+  currencyInUrl: boolean;
+  /** Dimensions a landing page owns — rendered as context, not as a control. */
+  locked?: ReadonlyArray<(typeof DIMENSIONS)[number]["key"]>;
+  facetCounts: readonly FacetCount[];
+  countableDimensions: readonly FacetCount["dimension"][];
+}) {
+  const hrefFor = hrefBuilder(basePath, raw, currency, currencyInUrl);
+
+  return (
+    /*
+     * A surface of its own, not the page's background.
+     *
+     * `--surface` against `--background` is the same one-step separation every
+     * card on the site uses, and it inherits both themes rather than restating
+     * them — white on warm off-white in light, `#141416` on `#0b0b0c` in dark.
+     * Without it a sticky column that scrolls independently had no visible edge,
+     * so the scroll looked like the page tearing.
+     */
+    <aside
+      className="border-border bg-surface flex flex-col gap-6 rounded-xl border p-4"
+      aria-label="Filters"
+    >
+      <FilterTaxonomy
+        raw={raw}
+        taxonomy={taxonomy}
+        facetCounts={facetCounts}
+        countableDimensions={countableDimensions}
+        hrefFor={hrefFor}
+        locked={locked}
+      />
+    </aside>
+  );
+}
+
+/**
+ * Everything that is not a browse dimension, behind one button by the search box.
+ *
+ * Sort, price, currency, the two options, the seller chip and the escape hatch.
+ * They have one thing in common that the taxonomy does not: none of them is
+ * something you *scan*. Each is a single decision, so each costs a click to reach
+ * and nothing to ignore — which is the trade a sidebar cannot make, because a
+ * sidebar is always on screen.
+ *
+ * ## It carries the taxonomy too, but only below `lg`
+ *
+ * The sidebar is `lg:block`, so without this a phone would have no way to filter
+ * by category at all. Rendering the same sections here under `lg:hidden` is what
+ * lets the drawer go: one control, every width.
+ *
+ * **No counts on that copy**, and that is the one real cost of the move. Counts
+ * come from the result set, and this panel is rendered beside the search box —
+ * outside the Suspense boundary that runs the query — so that the button paints
+ * with the static shell rather than waiting on a database round trip. The lists
+ * are complete and every term is still clickable; only the numbers are absent,
+ * and only on a phone.
+ */
+export function FilterPanel({
+  basePath,
+  raw,
+  currency,
+  currencyInUrl,
+  sort,
+  vendorLabels,
+  taxonomySlot,
+}: {
+  basePath: string;
+  raw: RawSearchParams;
+  currency: StorefrontCurrency;
+  currencyInUrl: boolean;
+  /**
+   * The **effective** sort, from `parseMarketplaceQuery` — not `raw.sort`.
+   *
+   * The rail used to derive it as `raw.sort ?? "latest"`, which disagrees with
+   * the parser: with a search query present the pipeline defaults to
+   * `"relevance"`. In a list of four links that was a wrong highlight. In a
+   * `<select>`, whose closed state *asserts* what is currently applied, it would
+   * be a false statement.
+   */
+  sort: MarketplaceSort;
+  /** Slug → display name for any vendor filter in the URL — vendor ticket 11. */
+  vendorLabels?: ReadonlyMap<string, string>;
+  /** The term lists, streamed in by the caller once the counts resolve. */
+  taxonomySlot: React.ReactNode;
+}) {
+  const hrefFor = hrefBuilder(basePath, raw, currency, currencyInUrl);
+  const filterCount = activeFilterCount(raw);
+  const sortOptions = raw.q ? [RELEVANCE_SORT, ...SORTS] : SORTS;
+
+  return (
+    <div className="flex flex-col gap-6">
+      {filterCount > 0 && (
+        /*
+          First, not last. It is the only control here whose job is to *undo*, and
+          it used to sit below every section — about 1,300px down with a full
+          taxonomy, and now behind the rail's own inner scroll as well. A rail
+          that can put you in a zero-result view and then hides the way out is the
+          dead end the drawer's docblock already worries about.
+
+          Still a `<Link>`, not a `<button>`: it is a navigation to `basePath`,
+          and making it a button would cost the no-JS guarantee on the one control
+          most likely to be reached for when something has gone wrong.
+
+          Naming the count reuses the number the drawer trigger badges, so a
+          closed drawer saying "3" and an open one saying "Clear 3 filters" cannot
+          disagree.
+
+          It clears `?currency=` too, which looks like a bug and is not: the
+          cookie still holds the choice, so the viewer keeps their currency.
+          Currency is not a filter, which is why it is absent from `FILTER_KEYS`.
+        */
+        <Link
+          href={basePath as Route}
+          className="border-border hover:bg-surface-muted flex h-8 items-center justify-center gap-1.5 rounded-lg border text-[12.5px]"
+        >
+          <X className="size-3.5" aria-hidden />
+          {filterCount === 1 ? "Clear 1 filter" : `Clear ${filterCount} filters`}
+        </Link>
+      )}
       {/*
         Vendor ticket 11 — shown only when a vendor filter is active.
         
@@ -169,6 +305,34 @@ export function FilterRail({
           </div>
         </Section>
       )}
+
+      <Section title="Sort">
+        <SortSelect action={basePath} value={sort} options={sortOptions}>
+          {/*
+            `currencyInUrl`, not an unconditional `currency` — and this is the
+            subtlest line in the rail.
+
+            The price form always names the currency because it *creates* a bound
+            and the URL has to say 50,000 of what. Sorting creates no bound, so
+            emitting `?currency=GBP` here would put a currency in the URL that the
+            visitor never chose — and with JavaScript off, a document submission
+            sends `sec-fetch-dest: document`, which is exactly what `proxy.ts`
+            accepts as a deliberate choice and persists to a cookie. With
+            JavaScript on it is a router push (`empty`), which the same gate
+            ignores. So the bug would exist only for no-JS visitors and would
+            never once be seen in development.
+          */}
+          <CarriedFilters
+            raw={raw}
+            currency={currency}
+            includeCurrency={currencyInUrl}
+            omit={["sort", "page"]}
+          />
+        </SortSelect>
+      </Section>
+      <Section title={`Price (${currency})`}>
+        <PriceFilter basePath={basePath} raw={raw} currency={currency} />
+      </Section>
 
       <Section title="Options">
         {/*
@@ -196,10 +360,6 @@ export function FilterRail({
           active={raw.customisable === "true"}
           label="Can be adapted"
         />
-      </Section>
-
-      <Section title={`Price (${currency})`}>
-        <PriceFilter basePath={basePath} raw={raw} currency={currency} />
       </Section>
 
       {/*
@@ -248,15 +408,83 @@ export function FilterRail({
         </div>
       </Section>
 
-      {hasAnyFilter(raw) && (
-        <Link
-          href={basePath as Route}
-          className="text-subtle text-[12.5px] underline underline-offset-4"
-        >
-          Clear all filters
-        </Link>
+      {/*
+        The sidebar's job at `lg` and above; here only when there is no sidebar.
+
+        A slot rather than rendered inline, because its counts come from the
+        search and this panel is deliberately built without running one — see
+        `FilterControls`. The caller streams it in behind its own boundary, so
+        the button and the controls above never wait on a query.
+      */}
+      <div className="flex flex-col gap-6 lg:hidden">{taxonomySlot}</div>
+    </div>
+  );
+}
+
+/**
+ * Every href in this rail, through one function.
+ *
+ * It exists to honour `currencyInUrl`, which is `currencyMustBeInUrl(query)` —
+ * "there is a price bound, so the URL has to say 50,000 *of what*". That
+ * invariant was declared, tested, and then enforced in exactly one place: the
+ * currency chip. So a rail link that carried a `minPrice` forward without a
+ * `currency` produced precisely the URL the invariant forbids, and two people
+ * opening it saw different result sets.
+ *
+ * `changes` spreads last so a caller can still override — which the currency
+ * chips do, and which is the only reason they can.
+ *
+ * Shared by both halves now that the rail is in two pieces, so the sidebar and
+ * the panel cannot start building different URLs from the same filters.
+ */
+function hrefBuilder(
+  basePath: string,
+  raw: RawSearchParams,
+  currency: StorefrontCurrency,
+  currencyInUrl: boolean,
+) {
+  return (changes: Parameters<typeof marketplaceHref>[2]) =>
+    marketplaceHref(basePath, raw, currencyInUrl ? { currency, ...changes } : changes);
+}
+
+/**
+ * The other filters, as hidden inputs.
+ *
+ * A form submission replaces the query string wholesale, so anything not
+ * restated here is silently dropped. Both GET forms in this rail need it, which
+ * is why it is a component rather than four lines inlined twice.
+ *
+ * `page` is always omitted: it is derived, and `marketplaceHref` drops it for the
+ * reason recorded there — staying on page 7 of a set that now has two shows an
+ * empty grid and reads as "no results".
+ *
+ * `currency` is the caller's decision, and the two callers differ. See the
+ * comment at each call site.
+ */
+function CarriedFilters({
+  raw,
+  currency,
+  includeCurrency,
+  omit,
+}: {
+  raw: RawSearchParams;
+  currency: StorefrontCurrency;
+  includeCurrency: boolean;
+  omit: readonly string[];
+}) {
+  const carried = Object.entries(raw).filter(
+    ([key]) => !omit.includes(key) && !(includeCurrency && key === "currency"),
+  );
+
+  return (
+    <>
+      {carried.flatMap(([key, value]) =>
+        asArray(value).map((item, index) => (
+          <input key={`${key}-${index}`} type="hidden" name={key} value={item} />
+        )),
       )}
-    </aside>
+      {includeCurrency && <input type="hidden" name="currency" value={currency} />}
+    </>
   );
 }
 
@@ -277,18 +505,16 @@ function PriceFilter({
   raw: RawSearchParams;
   currency: StorefrontCurrency;
 }) {
-  const carried = Object.entries(raw).filter(
-    ([key]) => !["minPrice", "maxPrice", "page", "currency"].includes(key),
-  );
-
   return (
     <form action={basePath} method="get" className="flex flex-col gap-2">
-      {carried.flatMap(([key, value]) =>
-        asArray(value).map((item, index) => (
-          <input key={`${key}-${index}`} type="hidden" name={key} value={item} />
-        )),
-      )}
-      <input type="hidden" name="currency" value={currency} />
+      {/* Unconditional `currency` here, unlike the sort form: this is the control
+          that *creates* the bound, so it has to name what the number is in. */}
+      <CarriedFilters
+        raw={raw}
+        currency={currency}
+        includeCurrency
+        omit={["minPrice", "maxPrice", "page"]}
+      />
 
       <div className="flex items-center gap-1.5">
         <input
@@ -368,18 +594,6 @@ function RailLink({
       )}
     </Link>
   );
-}
-
-/*
- * The list this used to hold inline now lives in `query.ts` as `FILTER_KEYS`.
- *
- * It had already drifted once — vendor ticket 04 added the `vendor` dimension and missed the copy
- * here, so "Clear all filters" did not appear for a vendor-only filter, which is a view with no way
- * back out of it. The mobile drawer needs the same list to badge its trigger, and a third copy is
- * where that stops being a near miss.
- */
-function hasAnyFilter(raw: RawSearchParams): boolean {
-  return activeFilterCount(raw) > 0;
 }
 
 function first(value: string | string[] | undefined): string | undefined {

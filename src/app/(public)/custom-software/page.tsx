@@ -8,7 +8,7 @@ import {
 import { Recommendations } from "@/features/requirements/components/recommendations";
 import { openersFor } from "@/features/requirements/openers";
 import { aiConfigured } from "@/services/ai/client";
-import { readAnonymousKey, startOrResume } from "@/services/ai/conversation-service";
+import { assistantViewer, startOrResume } from "@/services/ai/conversation-service";
 import { recommendProducts } from "@/services/ai/recommend";
 import { resolveAiConfig } from "@/services/ai/settings";
 import { pageMetadata } from "@/lib/seo";
@@ -74,9 +74,16 @@ export default async function Page({
   const brief = typeof first === "string" ? first.trim().slice(0, MAX_BRIEF) : "";
 
   const session = await getSession();
-  // Read-only. `proxy.ts` mints this before the page runs — a Server
-  // Component cannot set a cookie, and the first version of this tried to.
-  const anonymousKey = session?.user.id ? undefined : await readAnonymousKey();
+  /*
+   * Reads the cookie whether or not there is a session — and claims anything
+   * started before sign-in, which is the half that was missing.
+   *
+   * `proxy.ts` mints the key before the page runs, because a Server Component
+   * cannot set a cookie and the first version of this tried to. Reading it is
+   * still safe here; the *write* is the claim, and it is an update to a row the
+   * caller's own cookie already owns. See `assistantViewer`.
+   */
+  const viewer = await assistantViewer(session);
 
   /*
    * No owner means no conversation — and that is a page, not an error.
@@ -89,17 +96,10 @@ export default async function Page({
    * `startOrResume` now refuses an owner-less conversation rather than writing
    * one nobody can read — so calling it unconditionally would 500 Googlebot.
    */
-  const owner = Boolean(session?.user.id || anonymousKey);
+  const owner = Boolean(viewer.userId || viewer.anonymousKey);
 
   const conversation = owner
-    ? await startOrResume({
-        contextType: "custom_build",
-        ...(session?.user.id ? { userId: session.user.id } : {}),
-        ...(session?.activeOrganizationId
-          ? { organizationId: session.activeOrganizationId }
-          : {}),
-        ...(anonymousKey ? { anonymousKey } : {}),
-      })
+    ? await startOrResume({ contextType: "custom_build", ...viewer })
     : null;
 
   const config = await resolveAiConfig();

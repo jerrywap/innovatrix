@@ -31,7 +31,20 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       footer={
         <>
           New here?{" "}
-          <Link href="/register" className="text-signal-text hover:underline">
+          {/*
+            `next` travels, which it did not before.
+
+            Without it the commonest first-time funnel — an anonymous assistant
+            interview, "Sign in and send", "Create an account" — registered the
+            visitor and dropped them on `/dashboard`, nowhere near the interview
+            they were part-way through. `registerAction` already honours `next`;
+            only the link was missing it. The claim recovers them whenever they
+            navigate back, but landing in the right place beats being recoverable.
+          */}
+          <Link
+            href={next ? `/register?next=${encodeURIComponent(next)}` : "/register"}
+            className="text-signal-text hover:underline"
+          >
             Create an account
           </Link>
         </>

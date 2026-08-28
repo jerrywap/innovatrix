@@ -7,8 +7,8 @@ import { ListingPanel } from "@/features/requirements/components/listing-panel";
 import { customizationOpenersFor } from "@/features/requirements/openers";
 import { aiConfigured } from "@/services/ai/client";
 import {
+  assistantViewer,
   getConversation,
-  readAnonymousKey,
   startOrResume,
 } from "@/services/ai/conversation-service";
 import { getProductDetail, screenshots } from "@/services/marketplace/detail";
@@ -78,20 +78,21 @@ export default async function Page({ params, searchParams }: PageProps<"/customi
   if (!product) notFound();
 
   const session = await getSession();
-  // Read-only. `proxy.ts` mints this before the page runs — a Server
-  // Component cannot set a cookie, and the first version of this tried to.
-  const anonymousKey = session?.user.id ? undefined : await readAnonymousKey();
+  /*
+   * Reads the cookie whether or not there is a session, and claims anything
+   * started before sign-in — see `assistantViewer`. `proxy.ts` mints the key
+   * before the page runs, because a Server Component cannot set one.
+   *
+   * It also repairs `?from=` below: a conversation carried over from an
+   * anonymous `/custom-software` interview used to fail `verifyCarried` after
+   * sign-in, because the viewer no longer held the key that owned it.
+   */
+  const viewer = await assistantViewer(session);
 
   // No owner, no conversation — a crawler, since `proxy.ts` mints for everyone
   // else. `startOrResume` refuses to write one nobody could read, so this has
   // to branch rather than 500 an indexable page. See `/custom-software`.
-  const owner = Boolean(session?.user.id || anonymousKey);
-
-  const viewer = {
-    ...(session?.user.id ? { userId: session.user.id } : {}),
-    ...(session?.activeOrganizationId ? { organizationId: session.activeOrganizationId } : {}),
-    ...(anonymousKey ? { anonymousKey } : {}),
-  };
+  const owner = Boolean(viewer.userId || viewer.anonymousKey);
 
   /*
    * §20 — the version they own travels with the request.
@@ -120,11 +121,7 @@ export default async function Page({ params, searchParams }: PageProps<"/customi
           ? { productVersionId: version.id, productVersionNumber: version.version }
           : {}),
         ...(carriedFrom ? { carriedFromConversationId: carriedFrom } : {}),
-        ...(session?.user.id ? { userId: session.user.id } : {}),
-        ...(session?.activeOrganizationId
-          ? { organizationId: session.activeOrganizationId }
-          : {}),
-        ...(anonymousKey ? { anonymousKey } : {}),
+        ...viewer,
       })
     : null;
 
