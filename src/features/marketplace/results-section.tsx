@@ -2,14 +2,11 @@ import "server-only";
 import { getTaxonomyIndex, searchMarketplace } from "@/services/marketplace";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import {
-  activeFilterCount,
   currencyMustBeInUrl,
   parseMarketplaceQuery,
   type RawSearchParams,
 } from "@/services/marketplace/query";
 import { logZeroResultSearch } from "@/services/marketplace/saved";
-import { vendorNames } from "@/services/marketplace/storefront";
-import { FilterDrawer } from "./components/filter-drawer";
 import { FilterRail } from "./components/filter-rail";
 import { DiscoveryRails } from "./components/rails";
 import type { CatalogueScope } from "@/config/catalogue";
@@ -62,15 +59,11 @@ export async function MarketplaceResults({
     ...(forced ? { forced } : {}),
   });
 
-  const [result, taxonomy, vendorLabels] = await Promise.all([
+  const [result, taxonomy] = await Promise.all([
     searchMarketplace(query),
     // Scoped, which is what stops one catalogue's rail advertising the other's
     // categories greyed out at zero.
     getTaxonomyIndex(catalogue),
-    // Vendor ticket 11. Only for the slugs actually in the URL — a vendor is not a taxonomy,
-    // so there is no index to read a name from, and listing every seller in the rail would be
-    // a query on every render for a control nobody could scan.
-    vendorNames(query.vendor ?? []),
   ]);
 
   // §74 — "log searches with zero results; that list is a product-roadmap
@@ -103,12 +96,11 @@ export async function MarketplaceResults({
     query.page === 1;
 
   /*
-   * One element, two placements.
+   * One placement now, not two.
    *
-   * Below `lg` the rail goes in a drawer and above it stays in the grid column. Assigning it once and
-   * using the variable twice is the difference between two placements and two *call sites*: the rail
-   * takes nine props, and a second `<FilterRail …/>` would be nine chances for the phone and the
-   * desktop to start showing different filters.
+   * The rail used to be assigned once and rendered twice — in the grid column above `lg` and inside a
+   * drawer below it. The drawer is gone: the filter button beside the search box carries the taxonomy
+   * on a phone (see `FilterPanel`), so there is one sidebar, at one breakpoint.
    *
    * React renders it once per placement, and the hidden one costs nothing that matters — it is markup,
    * not queries. Every value it needs was already fetched above for the other placement.
@@ -122,28 +114,39 @@ export async function MarketplaceResults({
       countableDimensions={result.countableDimensions}
       currency={currency}
       currencyInUrl={currencyMustBeInUrl(query)}
-      vendorLabels={vendorLabels}
       {...(locked ? { locked } : {})}
     />
   );
 
   return (
     <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[220px_1fr] lg:gap-8">
-      {/* Above the results on a phone, so the grid is the first thing under the trigger rather than
-          the last thing under a thousand pixels of filters.
+      {/*
+        Sticky, with its own scroll — and the classes are here rather than on the
+        rail's own `<aside>` for two reasons, both load-bearing.
 
-          The `key` is how the drawer closes on navigation. It holds `open` in client state, and a
-          key that changes with the query string remounts it back to closed — React's own answer to
-          "reset state when a value changes", and it keeps the drawer ignorant of the URL. Doing it
-          with a `useEffect` that calls `setState` is what the React Compiler lint refuses, and it
-          would cascade a render to boot. */}
-      <div className="lg:hidden">
-        <FilterDrawer key={drawerKey(raw)} activeCount={activeFilterCount(raw)}>
-          {rail}
-        </FilterDrawer>
+        **This is the grid item.** `self-start` only means anything on a grid
+        child; without it the item stretches to the row height, which both defeats
+        `max-h` and leaves `sticky` with nothing to travel through.
+
+        **The same `<aside>` element is also rendered inside the drawer** — one
+        element, two placements, see the comment above `rail`. Any `lg:` class put
+        on it would ship into the Sheet too. Inert today, because the drawer is
+        `lg:hidden`, but "inert because a sibling hides it" is the kind of
+        coupling that breaks the next time somebody moves a breakpoint.
+
+        `lg:top-24` is the offset every sticky aside in this codebase uses and
+        clears the 67px sticky header; the max-height/overflow trio is the tall
+        variant, copied from `assistant.tsx` rather than reinvented.
+        `overscroll-contain` is what stops a flick inside the rail scrolling the
+        page behind it.
+
+        One consequence to know: the rail is now capped, so anything past roughly
+        the fifth section needs scrolling *inside* it. That is why the section
+        order puts the escape hatch and the price at the top.
+      */}
+      <div className="scrollbar-on-hover hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100dvh-8rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain">
+        {rail}
       </div>
-
-      <div className="hidden lg:block">{rail}</div>
 
       <div className="flex flex-col gap-12">
         {/* The currency travels as a prop. One resolution per request means the
@@ -205,15 +208,4 @@ function appendSearch(
   for (const slug of forced?.industry ?? []) params.append("industry", slug);
 
   return params.toString();
-}
-
-function drawerKey(raw: RawSearchParams): string {
-  return Object.entries(raw)
-    .flatMap(([key, value]) =>
-      (Array.isArray(value) ? value : value === undefined ? [] : [value]).map(
-        (item) => `${key}=${item}`,
-      ),
-    )
-    .sort()
-    .join("&");
 }

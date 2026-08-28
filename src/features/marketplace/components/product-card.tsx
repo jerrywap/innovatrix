@@ -66,7 +66,24 @@ export function ProductCardTile({
         <span className="sr-only">{card.name}</span>
       </Link>
 
-      <div className="bg-surface-muted relative aspect-[16/10] overflow-hidden">
+      {/*
+        `pointer-events-none` for the same reason the body below has it, and it
+        is easier to miss here because nothing in this block *looks* interactive.
+
+        The overlay link is `absolute inset-0 z-0` and comes first in the DOM.
+        This container has to be `relative` — `<Image fill>` requires a positioned
+        parent — which makes it a positioned box with `z-index: auto`, and among
+        positioned siblings at the same level the *later* one paints on top. So
+        the screenshot sat over the link and swallowed every click aimed at it:
+        at `aspect-[16/10]` that is over half the card's height, dead.
+
+        Passing pointer events through rather than raising the link's `z-index`,
+        because the vendor name below deliberately sits above the overlay at
+        `z-10` and this keeps that relationship stated in one place. Hover is
+        unaffected — the pointer lands on the overlay, which is still inside the
+        `group`, so `group-hover:scale` on the image still fires.
+      */}
+      <div className="bg-surface-muted pointer-events-none relative aspect-[16/10] overflow-hidden">
         {card.image ? (
           <Image
             src={card.image.url}

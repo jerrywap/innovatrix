@@ -566,6 +566,101 @@ describe("AI conversations", () => {
       }),
     ).resolves.toBeTruthy();
   });
+
+  /*
+   * §17's transfer — an interview started before signing in.
+   *
+   * The promise on the review panel is "Sign in to send this. Everything you've
+   * written stays exactly as it is." For as long as the feature existed that was
+   * false: `claimForUser` was written, and the action wrapping it had **zero
+   * callers**, so signing in produced a brand-new empty conversation and the row
+   * with the transcript sat in the database still holding its `anonymousKey`.
+   *
+   * Integration rather than unit, on two of the four grounds: a **real index**
+   * (`anonymousKey`, declared on the schema and applied by `syncIndexes`) and
+   * **tenancy scoping** — a row moving from cookie-scope to organisation-scope,
+   * with `assertCanRead` arbitrating who may still see it afterwards. A mock of
+   * `updateMany` would assert the shape of the call and prove nothing about
+   * either.
+   *
+   * ## What this does and does not catch — read before trusting it
+   *
+   * It would **not** have caught the original bug, and saying otherwise would be
+   * the same kind of comment as the one that caused it. The original bug was
+   * that nothing *called* `claimForUser`; this test calls it directly, so it
+   * passed perfectly well against the broken tree. A never-called function is a
+   * wiring fact, and no service-level test can see it.
+   *
+   * What `countDocuments` does catch is the design that was nearly shipped
+   * instead — claiming from a client effect, *after* the page has already
+   * resumed. That leaves two active rows with the customer looking at the empty
+   * one, and this assertion fails at 2. It is worth having for that, and for
+   * pinning the resume-finds-the-claimed-row invariant the fix depends on.
+   */
+  it("resumes the interview started before sign-in rather than duplicating it", async () => {
+    const KEY = "interview-started-signed-out";
+
+    const started = await aiConversations.startOrResume({
+      contextType: "custom_build",
+      anonymousKey: KEY,
+    });
+    const id = String(started._id);
+
+    const claimed = await aiConversations.claimForUser(KEY, USER_A, ORG_A);
+    expect(claimed).toBe(1);
+
+    // The same conversation, found by the signed-in owner — which is what the
+    // assistant page does on the very next render.
+    const resumed = await aiConversations.startOrResume({
+      contextType: "custom_build",
+      userId: USER_A,
+      organizationId: ORG_A,
+    });
+    expect(String(resumed._id)).toBe(id);
+
+    /*
+     * Two rows here means the claim ran after the resume rather than before it:
+     * the anonymous row nobody can reach any more, plus a fresh empty one — and
+     * the customer looking at the empty one.
+     */
+    expect(
+      await requests.AiConversation.countDocuments({
+        userId: new mongoose.Types.ObjectId(USER_A),
+        contextType: "custom_build",
+      }),
+    ).toBe(1);
+
+    // Idempotent, which is what lets both the sign-in path and the page claim
+    // without coordinating.
+    expect(await aiConversations.claimForUser(KEY, USER_A, ORG_A)).toBe(0);
+
+    // And the cookie is spent: a shared browser does not inherit the interview.
+    await expect(
+      aiConversations.getConversation(id, { anonymousKey: KEY }),
+    ).rejects.toBeInstanceOf(errors.NotFoundError);
+  });
+
+  /*
+   * Staff, and a customer between organisations, have no `activeOrganizationId`.
+   * `claimForUser` used to require one — this call would not have compiled — so
+   * for exactly those people the claim could not happen at all and the interview
+   * stayed orphaned. This one is red against the old signature.
+   */
+  it("claims for a session that has no organisation yet", async () => {
+    const KEY = "signed-in-without-an-org";
+
+    const started = await aiConversations.startOrResume({
+      contextType: "custom_build",
+      anonymousKey: KEY,
+    });
+
+    expect(await aiConversations.claimForUser(KEY, USER_B)).toBe(1);
+
+    // Readable on the `userId` branch, because no organisation was stamped.
+    await expect(
+      aiConversations.getConversation(String(started._id), { userId: USER_B }),
+    ).resolves.toBeTruthy();
+  });
 });
 
 /**

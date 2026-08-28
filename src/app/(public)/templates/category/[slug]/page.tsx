@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getTaxonomyIndex, getTaxonomyTerm } from "@/services/marketplace";
+import { FilterControls } from "@/features/marketplace/filter-controls";
 import { MarketplaceResults } from "@/features/marketplace/results-section";
 import { ResultsSkeleton } from "@/features/marketplace/components/results-skeleton";
 import { SearchBox } from "@/features/marketplace/components/search-box";
@@ -73,9 +74,29 @@ export default async function Page({
         description={term.description ?? defaultDescription(term.name)}
       />
 
-      <div className="mt-6 max-w-[560px]">
-        <Suspense fallback={<Skeleton className="h-11 w-full rounded-xl" />}>
-          <SearchBox basePath={`/templates/category/${slug}`} />
+      {/*
+        The search box and the filter button share a row.
+
+        Two boundaries rather than one: each resolves on its own, so a slow
+        taxonomy read cannot hold up the search input beside it. Neither runs the
+        product query — that is `MarketplaceResults`, further down and behind its
+        own boundary — which is what lets both of these paint with the shell.
+      */}
+      <div className="mt-6 flex max-w-[640px] items-center gap-2.5">
+        <div className="min-w-0 flex-1">
+          <Suspense fallback={<Skeleton className="h-11 w-full rounded-xl" />}>
+            <SearchBox basePath={`/templates/category/${slug}`} />
+          </Suspense>
+        </div>
+
+        <Suspense fallback={<Skeleton className="h-11 w-[52px] rounded-xl sm:w-[104px]" />}>
+          <FilterControls
+            searchParams={searchParams}
+            basePath={`/templates/category/${slug}`}
+            catalogue="template"
+            forced={{ category: [slug] }}
+            locked={["category"]}
+          />
         </Suspense>
       </div>
 

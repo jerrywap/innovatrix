@@ -7,6 +7,7 @@ import type {
   LicenceType,
   ProductCatalogue,
   ProductMediaKind,
+  TaxonomyCatalogue,
   TaxonomyKind,
 } from "@/lib/db/enums";
 import type { RichTextDocument } from "@/lib/rich-text/schema";
@@ -82,6 +83,13 @@ export interface DetailVersion {
   isCurrent: boolean;
 }
 
+/** A taxonomy term as a product carries it: enough to name it and to link it. */
+export interface TaxonomyRef {
+  slug: string;
+  name: string;
+  catalogue?: TaxonomyCatalogue;
+}
+
 export interface ProductDetail {
   id: string;
   /** Which storefront it belongs to — so related products stay in it. */
@@ -123,11 +131,22 @@ export interface ProductDetail {
     startingPrice?: DetailPrice;
     suggestedAreas: string[];
   };
+  /**
+   * `catalogue` is the term's own scope, and it is **optional on purpose**.
+   *
+   * `categoryLandingPath` needs it to decide whether a category's landing page
+   * lives under `/templates` or `/marketplace` — a decision that belongs to the
+   * term, not to the product. `getProductDetail` is `"use cache"`, so an entry
+   * written before this field existed deserialises without it; absence falls back
+   * to `/marketplace`, which is the term's home in every case but a
+   * `template`-scoped one. So a stale entry degrades to the previous behaviour
+   * rather than to a wrong URL.
+   */
   taxonomy: {
-    categories: Array<{ slug: string; name: string }>;
-    industries: Array<{ slug: string; name: string }>;
-    technologies: Array<{ slug: string; name: string }>;
-    productType?: { slug: string; name: string };
+    categories: TaxonomyRef[];
+    industries: TaxonomyRef[];
+    technologies: TaxonomyRef[];
+    productType?: TaxonomyRef;
   };
   versions: DetailVersion[];
   /**
@@ -204,12 +223,25 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
     listCustomerVersions(String(product._id)),
   ]);
 
-  const nameOf = (kind: TaxonomyKind, prefix: string) => {
-    const names = new Map(taxonomy[kind].map((term) => [term.slug, term.name]));
+  /*
+   * Resolved from the index by slug — `catalogue` alongside `name`, because the
+   * breadcrumb has to know which landing page a term owns. A facet whose term has
+   * gone from the index still renders its slug as a name, and then carries no
+   * catalogue, which `categoryLandingPath` reads as "/marketplace".
+   */
+  const nameOf = (kind: TaxonomyKind, prefix: string): TaxonomyRef[] => {
+    const terms = new Map(taxonomy[kind].map((term) => [term.slug, term]));
     return (product.facets ?? [])
       .map(parseFacet)
       .filter((facet): facet is { prefix: string; slug: string } => facet?.prefix === prefix)
-      .map((facet) => ({ slug: facet.slug, name: names.get(facet.slug) ?? facet.slug }));
+      .map((facet) => {
+        const term = terms.get(facet.slug);
+        return {
+          slug: facet.slug,
+          name: term?.name ?? facet.slug,
+          ...(term?.catalogue ? { catalogue: term.catalogue } : {}),
+        };
+      });
   };
 
   const currentVersionId = product.currentVersionId

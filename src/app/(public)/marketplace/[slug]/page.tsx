@@ -16,7 +16,8 @@ import {
   type ProductDetail,
 } from "@/services/marketplace/detail";
 import { DemoPanel } from "@/features/product/demo-panel";
-import { Gallery } from "@/features/product/gallery";
+import { CATALOGUE_SURFACE, categoryLandingPath } from "@/config/catalogue";
+import { Gallery, HeroExpand, ProductMedia } from "@/features/product/gallery";
 import { ProductJsonLd } from "@/features/product/json-ld";
 import { VendorByline } from "@/features/product/vendor-byline";
 import { BreadcrumbJsonLd, type Crumb } from "@/components/json-ld";
@@ -174,21 +175,34 @@ export default async function Page({ params }: PageProps<"/marketplace/[slug]">)
           </header>
 
           {hero && (
-            <div className="flex flex-col gap-2">
-              <div className="border-border bg-surface-muted relative aspect-[16/9] overflow-hidden rounded-xl border">
-                {/* A plain RSC `next/image` with `priority` — the LCP element
-                    must not wait for the gallery island to hydrate. */}
-                <Image
-                  src={hero.url}
-                  alt={hero.alt}
-                  fill
-                  sizes="(min-width: 1024px) 780px, 100vw"
-                  priority
-                  className="object-cover"
-                />
+            /*
+              `<ProductMedia>` owns the lightbox so that two siblings can open it:
+              the hero overlay and the thumbnail strip. It is not named
+              `<Gallery…>` on purpose — `product-page.test.ts` ends the hero block
+              at `indexOf("<Gallery")`, which is a prefix match, and a provider by
+              that name would end the slice before the `<Image>` below and fail a
+              page that is perfectly correct.
+            */
+            <ProductMedia images={gallery} productName={product.name}>
+              <div className="flex flex-col gap-2">
+                <div className="border-border bg-surface-muted relative aspect-[16/9] overflow-hidden rounded-xl border">
+                  {/* A plain RSC `next/image` with `priority` — the LCP element
+                      must not wait for the gallery island to hydrate. */}
+                  <Image
+                    src={hero.url}
+                    alt={hero.alt}
+                    fill
+                    sizes="(min-width: 1024px) 780px, 100vw"
+                    priority
+                    className="object-cover"
+                  />
+                  {/* Layered over the image rather than wrapping it, so the LCP
+                      element stays server-rendered and only the button hydrates. */}
+                  <HeroExpand />
+                </div>
+                <Gallery />
               </div>
-              <Gallery images={gallery} productName={product.name} />
-            </div>
+            </ProductMedia>
           )}
 
           {/*
@@ -304,42 +318,56 @@ async function RatedJsonLd({ product, origin }: { product: ProductDetail; origin
  *
  * Derived rather than written twice: a `BreadcrumbList` that disagrees with the
  * rendered breadcrumb is a structured-data policy violation, and two hand-kept
- * lists disagree the first time somebody edits one.
+ * lists disagree the first time somebody edits one. They *had* already drifted
+ * in shape — `Breadcrumbs` re-derived the same three crumbs by hand rather than
+ * mapping these — so the render below now walks this list and there is one copy.
  */
 function crumbsFor(product: ProductDetail): Crumb[] {
+  const surface = CATALOGUE_SURFACE[product.catalogue];
   const category = product.taxonomy.categories[0];
 
   return [
-    { name: "Marketplace", path: "/marketplace" },
-    ...(category
-      ? [{ name: category.name, path: `/marketplace/category/${category.slug}` }]
-      : []),
+    /*
+     * The catalogue this product *belongs to*, not the route it happens to
+     * render under.
+     *
+     * `CATALOGUE_SURFACE.template.productPath` is `/marketplace` on purpose, so
+     * a website template's detail page lives here too — and this crumb used to
+     * be the hardcoded string "Marketplace" for both. A template buyer was told
+     * the wrong shelf and handed the wrong way back to it.
+     */
+    { name: surface.plural, path: surface.listingPath },
+    // The term's own landing page, which is not always this product's catalogue.
+    // See `categoryLandingPath` — linking by `surface.categoryPath` here would
+    // manufacture a URL the sitemap deliberately withholds.
+    ...(category ? [{ name: category.name, path: categoryLandingPath(category) }] : []),
     // No `path` on the last one — schema.org's way of saying "you are here".
+    // It is also what keeps this away from `/templates/<slug>`, a route that
+    // does not exist: the product crumb is never a link.
     { name: product.name },
   ];
 }
 
 function Breadcrumbs({ product }: { product: ProductDetail }) {
-  const category = product.taxonomy.categories[0];
+  const crumbs = crumbsFor(product);
 
   return (
     <nav aria-label="Breadcrumb" className="text-subtle flex flex-wrap gap-1.5 text-[12.5px]">
-      <Link href="/marketplace" className="hover:text-foreground">
-        Marketplace
-      </Link>
-      {category && (
-        <>
-          <span aria-hidden>/</span>
-          <Link
-            href={`/marketplace/category/${category.slug}` as Route}
-            className="hover:text-foreground"
-          >
-            {category.name}
-          </Link>
-        </>
-      )}
-      <span aria-hidden>/</span>
-      <span className="text-foreground">{product.name}</span>
+      {crumbs.map((crumb, index) => (
+        <span key={`${crumb.name}-${index}`} className="flex items-center gap-1.5">
+          {index > 0 && <span aria-hidden>/</span>}
+          {crumb.path ? (
+            // `typedRoutes` cannot check a path assembled from a slug at runtime.
+            // Every value this can produce exists — the two listing paths and the
+            // two category paths — and `categoryLandingPath` is what guarantees it.
+            <Link href={crumb.path as Route} className="hover:text-foreground">
+              {crumb.name}
+            </Link>
+          ) : (
+            <span className="text-foreground">{crumb.name}</span>
+          )}
+        </span>
+      ))}
     </nav>
   );
 }

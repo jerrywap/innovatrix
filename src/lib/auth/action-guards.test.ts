@@ -110,7 +110,11 @@ const ANONYMOUS_BY_DESIGN: Record<string, string> = {
   "cart/actions.ts:setQuantityAction": "guest cart",
   "cart/actions.ts:applyDiscountAction": "guest cart",
   "cart/actions.ts:switchCartCurrencyAction": "guest cart",
-  "cart/actions.ts:mergeCartAction": "runs at sign-in, over both keys",
+  // `mergeCartAction` used to be listed here as "runs at sign-in, over both
+  // keys". It never ran anywhere — it had no callers at all — so this entry was
+  // an enforcement test documenting behaviour that did not exist. The merge is
+  // now a plain function in `features/auth/adopt-guest-state.ts`, called from
+  // every sign-in path, and is no longer an endpoint needing an exemption.
 
   // Pre-auth by definition — these are how a session comes to exist.
   "auth/actions.ts:registerAction": "creates the account",
@@ -205,6 +209,18 @@ const NON_SESSION_ROUTES: Record<string, string> = {
    */
   "auth/stale-session/route.ts":
     "the caller's session is already rejected; it only clears cookies",
+  /*
+   * It runs *because* a session was just created — it is where Google's
+   * `callbackURL` lands — so there is no earlier moment at which a guard could
+   * be satisfied by anyone but the person it is for. It reads the session off
+   * the request and does nothing at all without one.
+   *
+   * What it grants is bounded to the caller's own two guest cookies: their cart
+   * is folded into their account and their anonymous conversation is claimed.
+   * Somebody who forges neither cookie gets a redirect and nothing else.
+   */
+  "auth/after-sign-in/route.ts":
+    "it is the landing point of a sign-in; it adopts only the caller's own cookies",
 };
 
 /* ────────────────────────────────────────────── the walk */

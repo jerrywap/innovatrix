@@ -10,6 +10,7 @@ import { serverEnv } from "@/config/env";
 import { getAuth } from "@/lib/auth/auth";
 import { getSession, requireUser } from "@/lib/auth/dal";
 import { clearSessionCookies } from "@/lib/auth/session-cookies";
+import { adoptGuestStateFor, withIssuedCookies } from "./adopt-guest-state";
 import { connectToDatabase, mongoose } from "@/lib/db/client";
 import { log } from "@/lib/logger";
 import { Organization } from "@/lib/db/models/identity";
@@ -102,6 +103,10 @@ export async function registerAction(
       headers: signUp.authenticatedHeaders,
     });
 
+    // After the organization, not before: the claim stamps `organizationId` on
+    // whatever it adopts, and there is nothing to stamp until this point.
+    await adoptGuestStateFor(signUp.authenticatedHeaders);
+
     return ok(undefined as never);
   });
 
@@ -135,18 +140,9 @@ async function signUpWithHeaders(
     returnHeaders: true,
   });
 
-  const issued = result.headers
-    .getSetCookie()
-    .map((cookie) => cookie.split(";")[0]?.trim())
-    .filter((pair): pair is string => Boolean(pair));
-
-  const existing = requestHeaders.get("cookie");
-  const merged = [existing, ...issued].filter(Boolean).join("; ");
-
-  const authenticatedHeaders = new Headers(requestHeaders);
-  if (merged) authenticatedHeaders.set("cookie", merged);
-
-  return { authenticatedHeaders };
+  // The lift itself now lives in `adopt-guest-state.ts`, because sign-in needs
+  // it for the same reason. The docblock above is still the explanation.
+  return { authenticatedHeaders: withIssuedCookies(requestHeaders, result.headers) };
 }
 
 /**
@@ -267,16 +263,21 @@ export async function signInAction(
 ): Promise<ActionResult<never>> {
   const result = await withAction<never>(async () => {
     const input = parseInput(loginSchema, formDataToObject(formData));
+    const requestHeaders = await headers();
 
+    let issued: Headers;
     try {
-      await getAuth().api.signInEmail({
+      const signIn = await getAuth().api.signInEmail({
         body: {
           email: input.email,
           password: input.password,
           rememberMe: input.rememberMe,
         },
-        headers: await headers(),
+        headers: requestHeaders,
+        // For the cookie lift below, not for the body.
+        returnHeaders: true,
       });
+      issued = signIn.headers;
     } catch (error) {
       if (isAPIError(error)) {
         // Every credential failure looks identical from out here — see the
@@ -285,6 +286,16 @@ export async function signInAction(
       }
       throw error;
     }
+
+    /*
+     * §12 and §17: fold in whatever they built before signing in.
+     *
+     * The lifted headers, not `await headers()` — the session cookie is on the
+     * *response* and the browser will not send it until the next request, so
+     * reading the session off this one finds nothing and silently does nothing.
+     * That is the same trap `signUpWithHeaders` documents.
+     */
+    await adoptGuestStateFor(withIssuedCookies(requestHeaders, issued));
 
     return ok(undefined as never);
   });
@@ -332,10 +343,24 @@ export async function signInWithGoogleAction(
 
     const next = safeRedirectPath(formDataString(formData, "next"), "/dashboard");
 
+    /*
+     * `callbackURL` goes to `/api/auth/after-sign-in`, not straight to `next`.
+     *
+     * That handler folds in the cart and the conversation the visitor built
+     * before signing in, then forwards them to `next`. It has to be a Route
+     * Handler and it has to be reached this way: OAuth completes inside Better
+     * Auth with no action of ours in the path, and its callback issues a real
+     * 302, so the handler actually runs. See its docblock for why a Server
+     * Action must never redirect there.
+     *
+     * `next` has already been through `safeRedirectPath`; the handler checks it
+     * again on the way out, because by then it has been round-tripped through
+     * Google.
+     */
     const response = await getAuth().api.signInSocial({
       body: {
         provider: "google",
-        callbackURL: next,
+        callbackURL: `/api/auth/after-sign-in?next=${encodeURIComponent(next)}`,
         errorCallbackURL: "/login?error=google",
       },
       headers: await headers(),
@@ -487,6 +512,10 @@ export async function acceptInviteAction(
     if (accepted?.member?.organizationId) {
       await adoptActiveOrganization(String(accepted.member.organizationId), requestHeaders);
     }
+
+    // An invitee may well have been browsing anonymously first. The request
+    // already carries their session, so no cookie lift is needed here.
+    await adoptGuestStateFor(requestHeaders);
 
     return ok(undefined as never);
   });

@@ -39,13 +39,21 @@ export interface CatalogueSurface {
    */
   label: string;
   /**
-   * The catalogue as a collection.
+   * The catalogue as a **destination**.
    *
-   * Deliberately **not** wired into `PUBLIC_NAV`, which spells its own labels.
-   * The header sells a destination ("Software & Scripts") and a card states a
-   * fact about one item ("Full Script"); those are different jobs and forcing one
-   * string to do both makes the nav read like a database column. Kept here so the
-   * two live side by side and a change to one prompts a look at the other.
+   * The distinction from `label` is real and worth keeping: `label` is a fact
+   * about *one item* in a mixed grid ("Full Script"), while this names the shelf
+   * you are standing in front of. They are different jobs and one string cannot
+   * do both.
+   *
+   * What is *not* true any more — this docblock used to say so — is that it is
+   * "deliberately not wired in" anywhere. Three surfaces name the same
+   * destination, and until they were pointed here they disagreed: the header link
+   * said "Software & Scripts", the page it led to was titled "Marketplace", and a
+   * product's breadcrumb said "Marketplace" *for both catalogues*, offering a
+   * template buyer the wrong way back. So the listing `<h1>`, its `<title>`, the
+   * footer and the breadcrumb ancestor all read this. `PUBLIC_NAV` still spells
+   * its own, and that is the one remaining copy.
    */
   plural: string;
 }
@@ -66,6 +74,41 @@ export const CATALOGUE_SURFACE: Record<ProductCatalogue, CatalogueSurface> = {
     plural: "Website Templates",
   },
 };
+
+/**
+ * Which catalogue's landing page a category term *owns*.
+ *
+ * ## Why this is not `CATALOGUE_SURFACE[catalogue].categoryPath`
+ *
+ * Because a term's home is decided by the **term's** scope, not by the product
+ * you happened to arrive from. A term scoped `template` owns a page under
+ * `/templates`; a `both` term keeps its single page on `/marketplace` and appears
+ * under `/templates` as a *filter* instead. `sitemap.ts` splits
+ * `taxonomy.category` on exactly that rule, each landing page's
+ * `generateStaticParams` re-derives it, and `templates/category/[slug]` states
+ * the reason in full: "two pages for one term would be duplicate content we
+ * generated deliberately".
+ *
+ * Linking a breadcrumb by the product's catalogue would be a third spelling that
+ * disagrees with both — a template product in a `both` category would point at
+ * `/templates/category/<slug>`, a URL the sitemap withholds. And it would not
+ * 404: `taxonomyScopeFilter("template")` matches `template`, `both` and `null`,
+ * so the page renders. A silently crawlable duplicate is a worse outcome than a
+ * loud failure, which is why this function exists rather than a one-line lookup.
+ *
+ * Tolerant of a missing `catalogue`, which is what a `ProductDetail` cached
+ * before that field existed will hand it — see the note on
+ * `ProductDetail.taxonomy`. Absence falls to `/marketplace`, the term's home in
+ * every case but the one this exists to catch.
+ */
+export function categoryLandingPath(term: {
+  slug: string;
+  catalogue?: TaxonomyCatalogue;
+}): string {
+  const surface =
+    term.catalogue === "template" ? CATALOGUE_SURFACE.template : CATALOGUE_SURFACE.script;
+  return `${surface.categoryPath}/${term.slug}`;
+}
 
 /**
  * A **total** scope, with an explicit `"all"`.

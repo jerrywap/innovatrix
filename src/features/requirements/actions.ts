@@ -11,7 +11,6 @@ import { objectIdSchema } from "@/validators/common";
 import { aiConfigured } from "@/services/ai/client";
 import {
   abandon,
-  claimForUser,
   ensureAnonymousKey,
   getConversation,
   readAnonymousKey,
@@ -71,24 +70,6 @@ export async function startConversationAction(
     });
 
     return ok({ conversationId: String(conversation._id) });
-  });
-}
-
-/**
- * Attach anything started before sign-in to the new account — §17.
- *
- * Called from the same place the cart merge is called. Losing an interview at
- * the sign-up step would be the single most annoying possible moment to lose
- * it, which is why this exists rather than relying on the customer not signing
- * in halfway.
- */
-export async function claimConversationsAction(): Promise<ActionResult<{ claimed: number }>> {
-  return withAction(async () => {
-    const { user, organizationId } = await requireOrg();
-    const anonymousKey = await readAnonymousKey();
-    if (!anonymousKey) return ok({ claimed: 0 });
-
-    return ok({ claimed: await claimForUser(anonymousKey, user.id, organizationId) });
   });
 }
 
@@ -286,8 +267,18 @@ export async function submitRequirementsAction(
   formData: FormData,
 ): Promise<ActionResult<{ reference: string; submittedAt?: string; status: RequestStatus }>> {
   return withAction(async () => {
-    // Submitting requires an account — an anonymous request has nobody to send
-    // the quote to. Anything started anonymously was claimed at sign-in.
+    /*
+     * Submitting requires an account — an anonymous request has nobody to send
+     * the quote to.
+     *
+     * Anything started anonymously has already been claimed twice over by the
+     * time it reaches here: once by `adoptGuestState` on whichever sign-in path
+     * created the session, and again by `assistantViewer` when the page this was
+     * submitted from rendered. So `getConversation` below is deliberately asked
+     * without an `anonymousKey` — the row carries a `userId` now. This comment
+     * used to assert that and it was not true of anything: neither claim was
+     * wired up, and submitting a pre-sign-in conversation threw `NotFoundError`.
+     */
     const { user, organizationId } = await requireOrg();
 
     const parsed = parseInput(submitSchema, parseFormPayload(formData));
