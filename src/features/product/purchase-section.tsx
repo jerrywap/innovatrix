@@ -2,7 +2,11 @@ import "server-only";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { getSession } from "@/lib/auth/dal";
 import { isSaved } from "@/services/marketplace/saved";
-import { viewerOwnsProduct, type ProductDetail } from "@/services/marketplace/detail";
+import {
+  screenshots,
+  viewerOwnsProduct,
+  type ProductDetail,
+} from "@/services/marketplace/detail";
 import { PurchasePanel } from "./purchase-panel";
 import { SaveButton } from "./save-button";
 
@@ -46,6 +50,17 @@ export async function PurchaseSection({ product }: { product: ProductDetail }) {
         ...(product.demo.publicUrl ? { publicUrl: product.demo.publicUrl } : {}),
         hasCredentials: product.demo.hasCredentials,
         roleCount: product.demo.roles.length,
+        /*
+         * Computed here, where the whole `ProductDetail` is in hand, and passed
+         * as a boolean. The panel is a client component deliberately handed a
+         * three-field view of the demo; sending it the media array so it could
+         * ask this question itself would put every screenshot URL in the RSC
+         * payload to answer a yes-or-no.
+         *
+         * Both halves matter: a live demo is the good case, and a screenshot is
+         * the case that covers the other 99.5% of the catalogue.
+         */
+        previewable: Boolean(product.demo.publicUrl) || screenshots(product.media).length > 0,
       }}
       {...(product.customization.typicalTurnaround
         ? { typicalTurnaround: product.customization.typicalTurnaround }

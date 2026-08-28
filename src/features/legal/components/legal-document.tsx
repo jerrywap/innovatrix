@@ -131,31 +131,39 @@ function Block({ block, lead = false }: { block: LegalBlock; lead?: boolean }) {
 /**
  * The contents list.
  *
- * A `<details>` below `lg`, open above it. Not a media query on a hidden
- * duplicate: two copies of eighty-two links is eighty-two duplicated ids in the
- * accessibility tree, and the anchor a screen reader lands on becomes a coin
- * toss. One list, one set of links, and `open` doing the responsive work.
+ * ## A capped, scrollable index rather than a `<details>`
+ *
+ * It was a disclosure, so a phone did not have to scroll past eighty-two links
+ * to reach clause 1. Chrome paints `::-webkit-details-marker` on a `<summary>`
+ * regardless of `list-style: none` *or* `display: block` — the triangle sat on
+ * the first letter and "CONTENTS" rendered as ",ONTENTS". A `<div>` carrying the
+ * identical classes rendered it correctly, which is how the marker was
+ * identified rather than guessed at.
+ *
+ * Capping the height and letting the list scroll inside itself solves the
+ * original problem better anyway: the index is *visible* on a phone instead of
+ * being a control somebody has to know to tap, and it costs no vertical space
+ * either way.
  */
 function Contents({ document }: { document: LegalDocument }) {
   return (
-    <details
-      open
-      className="border-border bg-surface-muted/40 group h-fit rounded-[22px] border p-5 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto lg:border-0 lg:bg-transparent lg:p-0"
+    <nav
+      aria-label={`${document.title} contents`}
+      /*
+        `lg:pl-1` is load-bearing, not spacing.
+
+        `overflow-y-auto` makes this a scroll container, which clips anything
+        outside its padding box — and JetBrains Mono at 10px with `tracking-[0.2em]`
+        paints the first glyph's ink a hair left of the content origin. With
+        `lg:p-0` that hair was cut off and "CONTENTS" rendered as ",ONTENTS".
+        Four pixels of left padding is the whole fix; the mobile card never showed
+        it because `p-5` already provided the room.
+      */
+      className="border-border bg-surface-muted/40 h-fit max-h-[18rem] overflow-y-auto rounded-[22px] border p-5 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-8rem)] lg:border-0 lg:bg-transparent lg:py-0 lg:pr-3 lg:pl-1"
     >
-      {/*
-        `block`, not the default `list-item`.
+      <h2 className="text-subtle font-mono text-[10px] tracking-[0.2em] uppercase">Contents</h2>
 
-        `list-none` on its own was not enough: it sets `list-style-type`, which
-        empties `::marker`, and Chrome draws a separate `::-webkit-details-marker`
-        that ignores it — the triangle landed on the first letter and "CONTENTS"
-        rendered as ".ONTENTS". Taking the summary out of `list-item` display
-        removes both markers in every engine, and the disclosure still toggles.
-      */}
-      <summary className="block cursor-pointer font-mono text-[10px] tracking-[0.2em] uppercase lg:cursor-default">
-        Contents
-      </summary>
-
-      <nav aria-label={`${document.title} contents`} className="mt-4 flex flex-col gap-5">
+      <div className="mt-4 flex flex-col gap-5">
         {document.parts.map((part, index) => (
           <div key={part.id ?? index} className="flex flex-col gap-1.5">
             {part.heading && (
@@ -187,8 +195,8 @@ function Contents({ document }: { document: LegalDocument }) {
             </ul>
           </div>
         ))}
-      </nav>
-    </details>
+      </div>
+    </nav>
   );
 }
 

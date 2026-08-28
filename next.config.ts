@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { securityHeaders } from "./src/config/security-headers";
+import { previewHeaders, securityHeaders } from "./src/config/security-headers";
 
 /**
  * The host product media is served from, derived from the storage config.
@@ -179,7 +179,19 @@ const nextConfig: NextConfig = {
    * proxy never sees at all.
    */
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders() }];
+    return [
+      { source: "/:path*", headers: securityHeaders() },
+      /*
+       * After the catch-all, and that order is the mechanism: Next applies every
+       * matching rule in sequence, so a later one wins for a header key both
+       * set. This replaces the CSP on `/preview/[slug]` and touches nothing else.
+       *
+       * The one directive that differs is `frame-src` — see `FRAME_SRC_PREVIEW`
+       * for why that route is the exception and why it is scoped here rather
+       * than relaxed for the whole app.
+       */
+      { source: "/preview/:slug*", headers: previewHeaders() },
+    ];
   },
 };
 

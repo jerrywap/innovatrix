@@ -99,7 +99,34 @@ function storageOrigin(): string | null {
  * primitives set `style` attributes for positioning. There is no version of
  * this app that works without it, nonce or not.
  */
-function contentSecurityPolicy(): string {
+/**
+ * Everywhere except the preview route: one embedded host, and nothing else.
+ *
+ * `youtube-nocookie.com` rather than `youtube.com`: same player, and it sets no
+ * tracking cookie until the visitor actually presses play. Naming one host is the
+ * whole point of the directive — `frame-src https:` would let any injected URL
+ * become a frame, which is most of what it is for.
+ */
+const FRAME_SRC_DEFAULT = "frame-src https://www.youtube-nocookie.com";
+
+/**
+ * `/preview/[slug]` only, and only because it cannot be an allowlist.
+ *
+ * That page frames a vendor's demo, and the host is different for every product
+ * — there is no set of origins to enumerate. So the argument above has to be met
+ * rather than restated: it is about pages that render vendor- and
+ * customer-supplied content, where an injected URL could reach a `frame-src`.
+ * The preview route renders no such content. Its only frame takes a URL the
+ * server chose from a validated field, the surrounding page has no user input on
+ * it at all, and `frame-ancestors 'none'` still applies — nothing may embed
+ * *this* page while it embeds one thing.
+ *
+ * Scoped by `source` in `next.config.ts` rather than by widening the shared
+ * value, so every other route keeps the narrow one.
+ */
+const FRAME_SRC_PREVIEW = "frame-src https:";
+
+function contentSecurityPolicy(frameSrc = FRAME_SRC_DEFAULT): string {
   return [
     "default-src 'self'",
     // See above. `'unsafe-eval'` in development only: React uses `eval` to
@@ -128,22 +155,18 @@ function contentSecurityPolicy(): string {
       .filter(Boolean)
       .join(" "),
     /*
-     * One embedded host, and nothing embeds us.
+     * Defaulted, and overridden for exactly one route — see `FRAME_SRC_DEFAULT`
+     * and `FRAME_SRC_PREVIEW` above.
      *
      * This was `'none'`, with a comment saying nothing is embedded. That stopped
-     * being true when a vendor could put a YouTube walkthrough on a listing.
-     *
-     * `youtube-nocookie.com` rather than `youtube.com`: same player, and it sets
-     * no tracking cookie until the visitor actually presses play. The narrower
-     * host is also the whole point of naming one — `frame-src https:` would let
-     * any injected URL become a frame, which is most of what this directive is
-     * for.
+     * being true when a vendor could put a YouTube walkthrough on a listing, and
+     * again when a demo needed framing.
      *
      * `frame-ancestors` is unaffected and is the header that actually stops
      * clickjacking — it governs who may embed *us*. `X-Frame-Options` below is for
-     * the browsers that predate it.
+     * the browsers that predate it. Neither is relaxed anywhere.
      */
-    "frame-src https://www.youtube-nocookie.com",
+    frameSrc,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
@@ -160,8 +183,28 @@ function contentSecurityPolicy(): string {
  * below.
  */
 export function securityHeaders(): Array<{ key: string; value: string }> {
+  return headersWith(contentSecurityPolicy());
+}
+
+/**
+ * The same set with one directive relaxed, for `/preview/[slug]`.
+ *
+ * **Derived, not written out.** The other eleven directives come from the same
+ * call, so a future `connect-src` change reaches this route too — a hand-copied
+ * second policy is how one route quietly falls a year behind the other
+ * forty-nine.
+ *
+ * Applied by a second, more specific `source` in `next.config.ts`. Next applies
+ * every matching rule in order and the later one wins for a duplicate key, so
+ * this replaces the CSP on that path and nothing else moves.
+ */
+export function previewHeaders(): Array<{ key: string; value: string }> {
+  return headersWith(contentSecurityPolicy(FRAME_SRC_PREVIEW));
+}
+
+function headersWith(csp: string): Array<{ key: string; value: string }> {
   return [
-    { key: "Content-Security-Policy", value: contentSecurityPolicy() },
+    { key: "Content-Security-Policy", value: csp },
 
     // MIME sniffing turns an uploaded text file that a browser decides is HTML
     // into stored XSS. There is no case for ever omitting this.

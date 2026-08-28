@@ -7,7 +7,7 @@ import { Check, Download, Loader2 } from "lucide-react";
 import { claimFreeProductAction } from "../actions";
 
 /**
- * "Get it free" — COS-12's one click.
+ * "Download for Free" — COS-12's one click.
  *
  * ## Why it is not just `AddToCart` with a different label
  *
@@ -57,7 +57,7 @@ export function GetItFree({
         className={className}
       >
         <Download className="size-4" aria-hidden />
-        Sign in to get it free
+        Sign in to download for free
       </Link>
     );
   }
@@ -102,7 +102,7 @@ export function GetItFree({
         ) : (
           <Download className="size-4" aria-hidden />
         )}
-        {owned ? "Download again" : pending ? "Preparing…" : "Get it free"}
+        {owned ? "Download again" : pending ? "Preparing…" : "Download for Free"}
       </button>
 
       {error && (
