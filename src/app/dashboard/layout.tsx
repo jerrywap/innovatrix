@@ -118,7 +118,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
         // account, which is the one capability the two-role model exists to separate.
         isVendorOwner: vendor?.role === "owner",
       })}
-      homeHref="/dashboard"
       contextLabel={organization.isPersonal ? undefined : organization.name}
       banner={!user.emailVerified ? <VerifyEmailBanner /> : undefined}
       topBarEnd={

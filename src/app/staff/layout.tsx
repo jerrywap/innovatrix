@@ -27,7 +27,6 @@ export default async function StaffLayout({ children }: { children: React.ReactN
     <AppShell
       density="dense"
       sections={staffNavFor(permissions)}
-      homeHref="/staff"
       contextLabel="Staff"
       topBarEnd={
         <>

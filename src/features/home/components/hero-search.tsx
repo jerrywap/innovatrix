@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Search, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -53,10 +53,17 @@ import { cn } from "@/lib/utils";
  */
 export function HeroSearch({
   panel,
+  searchFormId,
   children,
 }: {
   /** The filter panel, server-rendered. See `HeroFilters`. */
   panel: React.ReactNode;
+  /**
+   * The `id` of the search `<form>` in `children`, so the split button's Search
+   * half can submit it from outside. The caller sets both from one constant —
+   * they are two consumers of one literal, on adjacent lines.
+   */
+  searchFormId: string;
   /** The search control itself, already inside its own `<Suspense>`. */
   children: React.ReactNode;
 }) {
@@ -200,19 +207,55 @@ export function HeroSearch({
           </button>
 
           {/*
-            Only in the docked bar. Inline, the hero already offers this three
-            times — a path card, the vendor line's neighbour and the eyebrow — and a
-            fourth would be noise; once the hero has scrolled away, none of them are
-            on screen.
+            A split button, and only in the docked bar.
+
+            Inline, the hero already offers custom build three times — a path
+            card, the vendor line's neighbour and the eyebrow — and a fourth
+            would be noise; once the hero has scrolled away, none of them are on
+            screen. That rule is unchanged. What changed is that the docked
+            control now carries both of the two things a person can do from a
+            search bar: run the search, or say nobody has built it yet.
+
+            ## The Search half submits a form it does not sit inside
+
+            `type="submit" form={searchFormId}` is the platform's own answer to
+            that, and it is why this works with JavaScript off: the form has a
+            real `action`, so a native GET reaches `/search` even before
+            hydration. The alternative — an `onClick` calling into `SearchBox` —
+            would need a ref or a callback across the boundary and would do
+            nothing until hydrated.
+
+            ## Two elements, one control
+
+            A `<button>` and a `<Link>` cannot be one element, so the seam is
+            drawn rather than inherited: outer radii on the ends, a 1px divider
+            between, and `-ml-px` so the two borders do not double. Each half
+            keeps its own focus ring, which is what stops it reading as one
+            target to a keyboard.
           */}
           {docked && (
-            <Link
-              href="/custom-software"
-              className="bg-signal text-signal-contrast hidden h-11 shrink-0 items-center gap-2 rounded-xl px-4 text-[13px] font-medium transition hover:opacity-90 md:inline-flex"
-            >
-              <Sparkles className="size-4" aria-hidden />
-              Request a custom build
-            </Link>
+            <div className="hidden shrink-0 md:inline-flex">
+              <button
+                type="submit"
+                form={searchFormId}
+                className="bg-signal text-signal-contrast focus-visible:ring-ring inline-flex h-11 items-center gap-2 rounded-l-xl px-4 text-[13px] font-medium transition hover:opacity-90 focus-visible:z-10 focus-visible:ring-2 focus-visible:outline-none"
+              >
+                <Search className="size-4" aria-hidden />
+                Search
+              </button>
+
+              {/* The seam. `bg-signal-contrast/25` rather than a border, so it
+                  reads as one control divided rather than two abutting. */}
+              <span className="bg-signal-contrast/25 w-px shrink-0" aria-hidden />
+
+              <Link
+                href="/custom-software"
+                className="bg-signal text-signal-contrast focus-visible:ring-ring inline-flex h-11 items-center gap-2 rounded-r-xl px-4 text-[13px] font-medium transition hover:opacity-90 focus-visible:z-10 focus-visible:ring-2 focus-visible:outline-none"
+              >
+                <Sparkles className="size-4" aria-hidden />
+                Request Custom
+              </Link>
+            </div>
           )}
         </div>
 

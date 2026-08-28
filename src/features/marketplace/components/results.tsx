@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { categoryLandingPath } from "@/config/catalogue";
 import type { Route } from "next";
 import { SearchX } from "lucide-react";
 import { AppendOnScroll } from "./append-on-scroll";
@@ -103,7 +104,19 @@ function NoResults({ query, taxonomy }: { query?: string; taxonomy: TaxonomyInde
         {taxonomy.category.slice(0, 8).map((term) => (
           <li key={term.slug}>
             <Link
-              href={`/marketplace/category/${term.slug}` as Route}
+              /*
+                `categoryLandingPath`, not a `/marketplace/category/` literal.
+                This was a live dead end on `/templates`: `getTaxonomyIndex`
+                returns template-scoped terms there, and a hardcoded
+                `/marketplace/category/<template-slug>` does **not** 404 —
+                `marketplace/category/[slug]` looks the term up with the default
+                `"all"` scope, so it resolves and renders a real heading over a
+                scripts-only grid. An empty page reached from an empty page.
+
+                Byte-identical for `script` and `both` terms, so `/marketplace`
+                is unchanged.
+              */
+              href={categoryLandingPath(term) as Route}
               className="border-border hover:bg-surface-muted rounded-full border px-3 py-1 text-[12.5px]"
             >
               {term.name}

@@ -42,6 +42,17 @@ export default function robots(): MetadataRoute.Robots {
           "/marketplace?q=",
           // Same reasoning, same page component, other catalogue.
           "/templates?q=",
+          /*
+             The cross-catalogue search — and the one whose page-level `noindex`
+             is real, carried as a literal in `search/page.tsx`.
+
+             The **query form only**, deliberately. A blanket `/search` disallow
+             would stop the crawler ever reading that `noindex`, which is how a
+             URL ends up indexed as a bare link with no snippet. Disallow the
+             infinite half; leave the bare path crawlable and let the page say it
+             does not want indexing.
+          */
+          "/search?q=",
         ],
       },
     ],

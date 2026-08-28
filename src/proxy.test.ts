@@ -201,3 +201,33 @@ describe("clearing a stale session", () => {
     expect(response.cookies.get("cosetup.session_token")).toBeUndefined();
   });
 });
+
+/**
+ * The current URL, forwarded so a layout can build links from it.
+ *
+ * The public header has no `searchParams` and no pathname, and the currency
+ * switcher's hrefs are "where you are, with `?currency=` rewritten". This is how
+ * it finds out where you are.
+ */
+describe("the forwarded path", () => {
+  it("carries pathname and search, and no origin", () => {
+    const response = visit("/marketplace?category=crm&page=2");
+    expect(response.headers.get("x-middleware-request-x-pathname")).toBe(
+      "/marketplace?category=crm&page=2",
+    );
+  });
+
+  it("overwrites an inbound value rather than honouring it", () => {
+    /*
+     * The opposite rule from `x-request-id`, which is deliberately honoured so a
+     * trace keeps its identity. This value is rendered into an `href`, so a
+     * client-supplied one would be an open redirect waiting to be built.
+     */
+    const response = visit("/marketplace", {
+      "sec-fetch-dest": "document",
+      "x-pathname": "https://evil.example/",
+    });
+
+    expect(response.headers.get("x-middleware-request-x-pathname")).toBe("/marketplace");
+  });
+});

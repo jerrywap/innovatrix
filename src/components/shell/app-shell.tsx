@@ -23,7 +23,6 @@ import { cn } from "@/lib/utils";
 export interface AppShellProps {
   sections: readonly NavSection[];
   /** Top-left, links home for this surface. */
-  homeHref: React.ComponentProps<typeof Brand>["href"];
   /** Small label under the wordmark: "Staff", "Admin", the organization name. */
   contextLabel?: string;
   /** Right side of the top bar — org switcher, account menu, actions. */
@@ -37,7 +36,6 @@ export interface AppShellProps {
 
 export function AppShell({
   sections,
-  homeHref,
   contextLabel,
   topBarEnd,
   banner,
@@ -50,7 +48,7 @@ export function AppShell({
           the flex row and never overlaps content at narrow widths. */}
       <aside className="border-border bg-sidebar sticky top-0 hidden h-dvh w-[248px] shrink-0 flex-col gap-6 overflow-y-auto border-r px-3.5 py-5 lg:flex">
         <div className="px-2.5">
-          <Brand href={homeHref} />
+          <Brand />
           {contextLabel && (
             <p className="text-subtle mt-1.5 font-mono text-[9.5px] tracking-[0.16em] uppercase">
               {contextLabel}
@@ -74,13 +72,9 @@ export function AppShell({
             )}
           >
             <div className="flex min-w-0 items-center gap-3">
-              <MobileNav
-                sections={sections}
-                homeHref={homeHref}
-                {...(contextLabel ? { contextLabel } : {})}
-              />
+              <MobileNav sections={sections} {...(contextLabel ? { contextLabel } : {})} />
               <div className="lg:hidden">
-                <Brand href={homeHref} compact />
+                <Brand compact />
               </div>
             </div>
 
