@@ -6,6 +6,10 @@ import { MongoClient, ObjectId, type Db } from "mongodb";
 import mongoose from "mongoose";
 import { afterAll, beforeAll, describe, expect, it, inject } from "vitest";
 import { organizationAc, organizationRoles } from "./organization-access";
+import {
+  activeOrganizationForSession,
+  repairMissingOrganization,
+} from "./personal-organization";
 
 /**
  * Integration tests against a real Better Auth instance and a real MongoDB.
@@ -64,17 +68,20 @@ function buildTestAuth(database: Db, mongoClient: MongoClient) {
     databaseHooks: {
       session: {
         create: {
+          /*
+           * The real function, not a copy of it. This harness mirrors `auth.ts`
+           * by hand, and the social-signup branch below is exactly the kind of
+           * thing that a mirrored copy would test in the mirror and nowhere
+           * else — so the hook's body lives in `personal-organization.ts` and
+           * both callers import it.
+           */
           before: async (session) => {
-            const membership = await database
-              .collection("organizationMembers")
-              .findOne(
-                { userId: new ObjectId(String(session.userId)) },
-                { sort: { createdAt: 1 }, projection: { organizationId: 1 } },
-              );
-            if (!membership) return;
-            return {
-              data: { ...session, activeOrganizationId: String(membership.organizationId) },
-            };
+            const activeOrganizationId = await activeOrganizationForSession(
+              database,
+              new ObjectId(String(session.userId)),
+            );
+            if (!activeOrganizationId) return;
+            return { data: { ...session, activeOrganizationId } };
           },
         },
       },
@@ -268,6 +275,166 @@ describe("active organization", () => {
   });
 });
 
+/**
+ * The Google signup that could not finish — §76.
+ *
+ * `registerAction` was the only thing that ever created an organization, and
+ * OAuth never reaches it: Better Auth's `/api/auth/callback/google` creates the
+ * user, the account and the session with nothing of ours in the path. So a
+ * first-time Google signup arrived at `/dashboard` with no membership and no
+ * `activeOrganizationId`, and the layout told them their account "isn't set up
+ * yet, which shouldn't happen".
+ *
+ * Integration rather than unit, and it earns it twice over: this is a
+ * **cross-collection invariant** — a session, a membership and an organization
+ * that have to agree — and the discriminator between the social and email paths
+ * is a *real read* of the accounts collection at a specific moment in Better
+ * Auth's own write ordering. A mock of that ordering would be a mock of the
+ * exact thing that was wrong.
+ *
+ * The OAuth callback is simulated by writing what `createOAuthUser` writes — a
+ * user and a non-credential account — and then creating a session the way the
+ * callback does. Nothing here talks to Google.
+ */
+describe("a first-time social signup gets an organization", () => {
+  async function signUpWithGoogle(name: string) {
+    const now = new Date();
+    const user = await db.collection("users").insertOne({
+      name,
+      email: uniqueEmail(),
+      emailVerified: true,
+      isStaff: false,
+      locale: "en-GB",
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.collection("accounts").insertOne({
+      userId: user.insertedId,
+      providerId: "google",
+      accountId: `google-${user.insertedId}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return user.insertedId;
+  }
+
+  /**
+   * Create a session the way the OAuth callback does, so the hook fires.
+   *
+   * The cast is the organization plugin's field: it is on the row and on the
+   * session everywhere else in the app, but `internalAdapter` is typed against
+   * the base schema and does not know the plugin extended it.
+   */
+  async function createSession(userId: ObjectId) {
+    const ctx = await auth.$context;
+    const session = await ctx.internalAdapter.createSession(String(userId));
+    return session as typeof session & { activeOrganizationId?: string | null };
+  }
+
+  it("creates the organization, and stamps it on the session being created", async () => {
+    const userId = await signUpWithGoogle("Nadia");
+    const session = await createSession(userId);
+
+    // Stamped at creation, not repaired afterwards: the session cookie carries a
+    // signed cache minted from this value, so a null here is a dashboard saying
+    // "your account isn't set up" for the next 60 seconds.
+    expect(session.activeOrganizationId).toBeTruthy();
+
+    const membership = await db
+      .collection("organizationMembers")
+      .findOne({ userId, organizationId: new ObjectId(String(session.activeOrganizationId)) });
+
+    expect(membership).not.toBeNull();
+    // An organization without an owner membership grants nobody anything —
+    // `requireOrg` reads the membership, not the organization.
+    expect(membership?.role).toBe("owner");
+    // Written explicitly, because Mongoose defaults do not fire on a raw insert
+    // and `{ status: "active" }` matches nothing when the field is absent.
+    expect(membership?.status).toBe("active");
+  });
+
+  it("names it after the person and marks it personal", async () => {
+    const userId = await signUpWithGoogle("Nadia Okonkwo");
+    const session = await createSession(userId);
+
+    const org = await db
+      .collection("organizations")
+      .findOne({ _id: new ObjectId(String(session.activeOrganizationId)) });
+
+    expect(org?.name).toBe("Nadia Okonkwo's workspace");
+    expect(org?.slug).toMatch(/^nadia-okonkwo/);
+    // Lets the dashboard hide org chrome from somebody with no colleagues.
+    expect(org?.isPersonal).toBe(true);
+    expect(org?.defaultCurrency).toBe("GBP");
+    // The session hook picks the *oldest* membership, so this is load-bearing
+    // rather than decoration.
+    expect(org?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("leaves the email path alone, so registerAction still owns that org", async () => {
+    // The bug this guards against is the mirror of the one being fixed: fire for
+    // every signup and an email registration gets a personal organization here
+    // *and* the named one `registerAction` creates a moment later.
+    const erin = await signUp("Erin");
+
+    const memberships = await db
+      .collection("organizationMembers")
+      .countDocuments({ userId: new ObjectId(erin.userId) });
+
+    expect(memberships).toBe(0);
+  });
+
+  it("does not give a second organization to someone linking Google later", async () => {
+    const frank = await signUp("Frank");
+    const organizationId = await createOrg(frank.headers, "Frank Ltd", `frank-${seq}`);
+
+    const now = new Date();
+    await db.collection("accounts").insertOne({
+      userId: new ObjectId(frank.userId),
+      providerId: "google",
+      accountId: `google-link-${frank.userId}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const session = await createSession(new ObjectId(frank.userId));
+
+    // The membership branch wins before the social branch is ever consulted.
+    expect(String(session.activeOrganizationId)).toBe(organizationId);
+    expect(
+      await db
+        .collection("organizationMembers")
+        .countDocuments({ userId: new ObjectId(frank.userId) }),
+    ).toBe(1);
+  });
+
+  it("leaves a staff account without one, because it correctly has none", async () => {
+    // No membership and no social account — the same branch as a mid-flight
+    // email signup, and the reason that branch cannot simply create one.
+    const now = new Date();
+    const staff = await db.collection("users").insertOne({
+      name: "Ops",
+      email: uniqueEmail(),
+      emailVerified: true,
+      isStaff: true,
+      locale: "en-GB",
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const session = await createSession(staff.insertedId);
+
+    expect(session.activeOrganizationId ?? null).toBeNull();
+    expect(
+      await db.collection("organizationMembers").countDocuments({ userId: staff.insertedId }),
+    ).toBe(0);
+  });
+});
+
 /* ────────────────────────────────────────────── tenant isolation */
 
 describe("cross-tenant isolation — the ticket's first acceptance criterion", () => {
@@ -393,5 +560,120 @@ describe("credential storage — §88", () => {
         headers: new Headers(),
       }),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * The repair for somebody who is stuck *right now* — the button on the
+ * dashboard's "your account isn't set up yet" screen.
+ *
+ * `activeOrganizationForSession` heals a Google signup at session creation, so
+ * anyone affected recovers by signing in again. It cannot help somebody already
+ * holding a session: their session row was stamped `activeOrganizationId: null`
+ * and nothing rewrites it for up to `AUTH_SESSION_DAYS`.
+ *
+ * This one is deliberately **broader than the hook**, and that difference is the
+ * thing worth pinning: the hook must stay social-only or it races
+ * `registerAction` and creates two organizations for one email signup, while the
+ * repair is a POST from a screen only a stuck person can see, so it can cover
+ * every stuck case. A change that quietly aligns the two would either
+ * reintroduce the double-organization bug or silently drop the two cases below.
+ */
+describe("repairing an account that is already stuck", () => {
+  async function userWithoutOrganization(overrides: Record<string, unknown> = {}) {
+    const now = new Date();
+    const user = await db.collection("users").insertOne({
+      name: "Priya",
+      email: uniqueEmail(),
+      emailVerified: true,
+      isStaff: false,
+      locale: "en-GB",
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
+    });
+    return user.insertedId;
+  }
+
+  it("repairs a credential-only user the session hook deliberately skips", async () => {
+    // `registerAction` failed after `signUpEmail`: the user exists, the password
+    // works, and nothing will ever give them an organization.
+    const userId = await userWithoutOrganization();
+    const now = new Date();
+    await db.collection("accounts").insertOne({
+      userId,
+      providerId: "credential",
+      accountId: String(userId),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // The hook leaves them alone, on purpose.
+    expect(await activeOrganizationForSession(db, userId)).toBeNull();
+
+    const organizationId = await repairMissingOrganization(db, userId);
+    expect(organizationId).toBeTruthy();
+    expect(await db.collection("organizationMembers").countDocuments({ userId })).toBe(1);
+  });
+
+  it("repairs a user with no account row at all", async () => {
+    // A callback that died between the user write and the account write. The
+    // hook cannot even recognise this as a social signup.
+    const userId = await userWithoutOrganization();
+
+    expect(await activeOrganizationForSession(db, userId)).toBeNull();
+    expect(await repairMissingOrganization(db, userId)).toBeTruthy();
+  });
+
+  it("is idempotent — a second press adds nothing", async () => {
+    const userId = await userWithoutOrganization();
+
+    const first = await repairMissingOrganization(db, userId);
+    const second = await repairMissingOrganization(db, userId);
+
+    expect(second).toBe(first);
+    expect(await db.collection("organizationMembers").countDocuments({ userId })).toBe(1);
+  });
+
+  /**
+   * The membership these two write goes in through the **raw driver**, not
+   * through the organization plugin — there is no authenticated request to hand
+   * `api.createOrganization` from a database hook. So the plugin has never
+   * agreed to it, and `adoptActiveOrganization` immediately asks it to:
+   * `setActiveOrganization` re-checks membership before switching.
+   *
+   * If the shape were wrong — a string where an ObjectId belongs, a missing
+   * `status`, the wrong role — the repair would appear to succeed and then fail
+   * on the very next call, leaving somebody with an organization they cannot be
+   * switched into. Nothing but a real plugin call can catch that.
+   */
+  it("writes a membership the organization plugin itself accepts", async () => {
+    const rita = await signUp("Rita");
+    const organizationId = await repairMissingOrganization(db, new ObjectId(rita.userId));
+
+    const switched = await auth.api.setActiveOrganization({
+      body: { organizationId: organizationId! },
+      headers: rita.headers,
+    });
+
+    expect(String(switched?.id)).toBe(organizationId);
+
+    // And the plugin agrees about who the member is, which is what `requireOrg`
+    // reads on every request.
+    const full = await auth.api.getFullOrganization({
+      query: { organizationId: organizationId! },
+      headers: rita.headers,
+    });
+    expect(full?.members?.some((m) => String(m.userId) === rita.userId)).toBe(true);
+  });
+
+  it("refuses a staff account, which correctly has none", async () => {
+    const userId = await userWithoutOrganization({ name: "Ops", isStaff: true });
+
+    expect(await repairMissingOrganization(db, userId)).toBeNull();
+    expect(
+      await db.collection("organizations").countDocuments({ name: "Ops's workspace" }),
+    ).toBe(0);
   });
 });

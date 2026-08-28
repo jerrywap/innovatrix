@@ -8,11 +8,16 @@ import { fail, formDataToObject, ok, parseInput, withAction } from "@/lib/action
 import type { ActionResult } from "@/lib/action-result";
 import { serverEnv } from "@/config/env";
 import { getAuth } from "@/lib/auth/auth";
-import { getSession } from "@/lib/auth/dal";
+import { getSession, requireUser } from "@/lib/auth/dal";
 import { clearSessionCookies } from "@/lib/auth/session-cookies";
-import { connectToDatabase } from "@/lib/db/client";
+import { connectToDatabase, mongoose } from "@/lib/db/client";
 import { log } from "@/lib/logger";
 import { Organization } from "@/lib/db/models/identity";
+import {
+  personalOrganizationName,
+  repairMissingOrganization,
+  uniqueSlug,
+} from "@/lib/auth/personal-organization";
 import {
   acceptInviteSchema,
   forgotPasswordSchema,
@@ -157,10 +162,12 @@ async function createInitialOrganization(input: {
   isPersonal: boolean;
   headers: Headers;
 }): Promise<void> {
-  const displayName = input.name ?? `${input.userName}'s workspace`;
+  // Shared with the social path, so a Google signup and an email signup with no
+  // company name produce the same thing rather than two near-identical strings.
+  const displayName = input.name ?? personalOrganizationName(input.userName);
 
   const created = await getAuth().api.createOrganization({
-    body: { name: displayName, slug: await uniqueSlug(displayName) },
+    body: { name: displayName, slug: await organizationSlug(displayName) },
     headers: input.headers,
   });
 
@@ -235,30 +242,16 @@ async function adoptActiveOrganization(
  * Slugs are unique (§76) and public — they appear in URLs — so they are derived
  * from the name but never *are* the name.
  */
-async function uniqueSlug(name: string): Promise<string> {
-  const base =
-    name
-      .normalize("NFKD")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "workspace";
-
+async function organizationSlug(name: string): Promise<string> {
   await connectToDatabase();
-
-  // A short random suffix on collision rather than an incrementing counter:
-  // `acme-2` tells the world Acme was taken, and a counter needs a read-then-
-  // write that races under concurrent signups.
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const candidate = attempt === 0 ? base : `${base}-${randomSuffix()}`;
-    const taken = await Organization.exists({ slug: candidate });
-    if (!taken) return candidate;
-  }
-  return `${base}-${randomSuffix()}${randomSuffix()}`;
-}
-
-function randomSuffix(): string {
-  return Math.random().toString(36).slice(2, 6);
+  // The rules — and the random-suffix-on-collision decision behind them — live
+  // in `personal-organization.ts`, because the Google path creates its
+  // organization through the raw driver and cannot call this. Two copies of a
+  // uniqueness rule is one copy too many; only the "is it taken" question
+  // differs, so only that is passed in.
+  return uniqueSlug(name, async (candidate) =>
+    Boolean(await Organization.exists({ slug: candidate })),
+  );
 }
 
 function formDataString(formData: FormData, key: string): string | undefined {
@@ -495,6 +488,66 @@ export async function acceptInviteAction(
       await adoptActiveOrganization(String(accepted.member.organizationId), requestHeaders);
     }
 
+    return ok(undefined as never);
+  });
+
+  if (!result.ok) return result;
+  redirect("/dashboard");
+}
+
+/* ────────────────────────────────────────────── account setup repair */
+
+/**
+ * Give a signed-in customer the organization their signup never created.
+ *
+ * ## Why this exists as an action and not as a repair on render
+ *
+ * §76's organization was created in one place, `registerAction`, and Google
+ * never reached it — so every Google signup produced a user with no membership
+ * and a dashboard reading "your account isn't set up yet". The hook in `auth.ts`
+ * fixes that at session creation, which heals anyone affected the next time they
+ * sign in. It cannot heal somebody **holding a session right now**: their session
+ * row was written with `activeOrganizationId: null` and nothing rewrites it, so
+ * they stay stuck for up to `AUTH_SESSION_DAYS`.
+ *
+ * Repairing it where the problem is *noticed* — in the dashboard layout — would
+ * mean a GET that creates an organization, and Next prefetches links on hover
+ * and in the viewport. A POST cannot be triggered that way, which is why this is
+ * a button on that screen rather than something the layout does quietly.
+ *
+ * `adoptActiveOrganization` afterwards for the reason its own docblock gives:
+ * the row is only half the job while `session.cookieCache` is on, and a Server
+ * Action is one of the two places allowed to re-issue the cookie.
+ */
+export async function completeAccountSetupAction(): Promise<ActionResult<never>> {
+  // The DAL first, like every action here, and outside `withAction` so its
+  // redirect stays navigation rather than becoming a caught error. A signed-out
+  // POST to this belongs at `/login`, not at a message on a screen it cannot
+  // see.
+  const user = await requireUser();
+
+  const result = await withAction<never>(async () => {
+    const requestHeaders = await headers();
+
+    await connectToDatabase();
+    const db = mongoose.connection.db;
+    if (!db) return fail("We couldn't finish setting up your account.", { code: "INTERNAL" });
+
+    const organizationId = await repairMissingOrganization(
+      db,
+      new mongoose.Types.ObjectId(user.id),
+    );
+
+    if (!organizationId) {
+      // Staff, or a user row that has gone. Neither is something the person
+      // reading this screen can do anything about.
+      return fail(
+        "This account can't be set up automatically. Get in touch and we'll sort it out.",
+        { code: "VALIDATION" },
+      );
+    }
+
+    await adoptActiveOrganization(organizationId, requestHeaders);
     return ok(undefined as never);
   });
 

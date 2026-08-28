@@ -14,6 +14,7 @@ import {
   verifyEmailMessage,
 } from "@/services/email";
 import { organizationAc, organizationRoles } from "./organization-access";
+import { activeOrganizationForSession } from "./personal-organization";
 
 /**
  * Better Auth configuration — §75 (auth), §76 (organizations), §88.
@@ -171,27 +172,56 @@ function buildAuth() {
       session: {
         create: {
           /**
-           * Populate `activeOrganizationId` at session creation.
+           * Populate `activeOrganizationId` at session creation — and, for a
+           * social signup, create the organization it names.
            *
-           * Nothing in the organization plugin does this, and our entire
+           * Nothing in the organization plugin does either, and our entire
            * tenancy model reads from it — a session without it means a
            * customer signs in and sees an empty dashboard.
+           *
+           * ## Why the *creation* is here and not only in `registerAction`
+           *
+           * §76's organization was created in exactly one place: `registerAction`.
+           * Google never reaches it. OAuth completes inside Better Auth's own
+           * `/api/auth/callback/google`, which creates the user, the account and
+           * the session with no action of ours anywhere in the path — so a
+           * first-time Google signup produced a user with no membership, this
+           * hook found none, `activeOrganizationId` stayed null, and
+           * `/dashboard` answered "Your account isn't set up yet… which
+           * shouldn't happen." It was right: signup could not be completed.
+           *
+           * This hook is the one seam that works. It runs **after** the user and
+           * account rows are committed — `createOAuthUser` wraps those two in a
+           * transaction that has ended by now — and **before** the session row
+           * is written, which is the half that matters: the session cookie
+           * carries a signed cache of itself, minted from what this returns. Do
+           * it any later and that cache says `null` for `cookieCache.maxAge`
+           * seconds, which is precisely the stale-organization bug
+           * `adoptActiveOrganization` exists to repair. Done here, there is
+           * nothing to repair.
+           *
+           * ## Why the email path is left alone
+           *
+           * `signUpEmail` creates a session too, at a moment when its new user
+           * also has no membership — so this must not fire for it, or every
+           * email signup would get a personal organization here *and* the one
+           * `registerAction` creates a moment later from the company name on the
+           * form, which would be their second.
+           *
+           * The discriminator is the account row, committed by now: a social
+           * signup has a non-`credential` account, an email signup has only a
+           * `credential` one. Staff have neither and take the same branch —
+           * they legitimately have no organization, and the dashboard layout
+           * sends them to `/staff`.
            */
           before: async (session) => {
-            const membership = await db.collection("organizationMembers").findOne(
-              { userId: new ObjectId(String(session.userId)) },
-              // Oldest membership wins: that is the personal organization
-              // created at signup, which is the sane default landing context.
-              { sort: { createdAt: 1 }, projection: { organizationId: 1 } },
+            const activeOrganizationId = await activeOrganizationForSession(
+              db,
+              new ObjectId(String(session.userId)),
             );
 
-            if (!membership) return;
-            return {
-              data: {
-                ...session,
-                activeOrganizationId: String(membership.organizationId),
-              },
-            };
+            if (!activeOrganizationId) return;
+            return { data: { ...session, activeOrganizationId } };
           },
 
           /**
