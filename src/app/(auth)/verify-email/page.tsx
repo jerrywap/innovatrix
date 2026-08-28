@@ -32,8 +32,22 @@ export const metadata: Metadata = { title: "Confirm your email" };
  * a held-down F5 and a spam complaint. So the copy tells the truth instead, and
  * the deliberate resend is one button away.
  */
-export default async function VerifyEmailPage() {
-  const session = await getSession();
+export default async function VerifyEmailPage({ searchParams }: PageProps<"/verify-email">) {
+  const [session, params] = await Promise.all([getSession(), searchParams]);
+
+  /*
+   * Better Auth redirects here with `?error=…` when a token is rejected, and an
+   * hour's expiry means people meet this. Any value is treated the same way: the
+   * distinction between "expired" and "already used" changes nothing a reader
+   * can act on, and matching their exact vocabulary would be a guess that breaks
+   * quietly on an upgrade. What matters is that the page stops saying "open the
+   * link we emailed you" to somebody who just did.
+   *
+   * Checked before the verified branch, but *after* it in effect: a link reused
+   * once it has done its job arrives with both an error and a verified session,
+   * and "you're all set" is the truer answer there.
+   */
+  const rejected = !session?.user.emailVerified && typeof params.error === "string";
 
   if (session?.user.emailVerified) {
     return (
@@ -53,11 +67,13 @@ export default async function VerifyEmailPage() {
 
   return (
     <AuthCard
-      title="Confirm your email"
+      title={rejected ? "That link has expired" : "Confirm your email"}
       description={
-        session
-          ? `Open the link we emailed to ${session.user.email} to finish setting up.`
-          : "Open the link we emailed you to finish setting up your account."
+        rejected
+          ? "Confirmation links last an hour. Send yourself a fresh one."
+          : session
+            ? `Open the link we emailed to ${session.user.email} to finish setting up.`
+            : "Open the link we emailed you to finish setting up your account."
       }
       footer={
         <Link href="/" className="text-signal-text hover:underline">
@@ -70,14 +86,36 @@ export default async function VerifyEmailPage() {
           You can browse without confirming. You&rsquo;ll need a confirmed address before
           checking out.
         </p>
-        {session && (
+
+        {session ? (
           <div className="flex flex-col gap-2">
+            {/*
+              Two different problems, so two different sentences. Telling somebody
+              whose link expired to check their spam folder sends them looking for
+              the mail they just opened.
+            */}
             <p className="text-muted-foreground text-[13.5px]">
-              Can&rsquo;t find it? Check your spam folder, then send yourself a fresh link
-              &mdash; the last one expires an hour after it was sent.
+              {rejected
+                ? "Nothing is wrong with your account — the link simply timed out."
+                : "Can’t find it? Check your spam folder, then send yourself a fresh link — the last one expires an hour after it was sent."}
             </p>
             <ResendVerification />
           </div>
+        ) : (
+          rejected && (
+            /*
+              An expired link opened where there is no session — a different device,
+              or one that has since signed out. `ResendVerification` needs a session
+              to know whom to send to, so the only honest next step is signing in,
+              from where the button above is one page away.
+            */
+            <p className="text-muted-foreground text-[13.5px]">
+              <Link href="/login" className="text-signal-text hover:underline">
+                Sign in
+              </Link>{" "}
+              and we&rsquo;ll offer you a fresh link.
+            </p>
+          )
         )}
       </div>
     </AuthCard>

@@ -471,8 +471,15 @@ export async function resendVerificationAction(): Promise<ActionResult<{ sent: t
     if (!session) return fail("Please sign in first.", { code: "UNAUTHENTICATED" });
     if (session.user.emailVerified) return ok({ sent: true as const });
 
+    /*
+     * No `callbackURL`. `confirmationLanding` in `auth.ts` rewrites it on every
+     * verification email so both senders agree, and passing one here would read
+     * as a destination that is honoured when it is not. It used to say
+     * `/dashboard`, which is how one flow had two endings and neither of them
+     * told the person their address was confirmed.
+     */
     await getAuth().api.sendVerificationEmail({
-      body: { email: session.user.email, callbackURL: "/dashboard" },
+      body: { email: session.user.email },
       headers: await headers(),
     });
 

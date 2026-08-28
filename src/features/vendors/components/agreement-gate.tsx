@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useFieldError } from "@/features/products/components/section-form";
 import { VENDOR_AGREEMENT_SECTIONS } from "../agreement";
 
 /**
@@ -64,6 +65,21 @@ export function AgreementGate({
   const [accepted, setAccepted] = useState(false);
   const [read, setRead] = useState(false);
 
+  /*
+   * The one field on this form with no native validation behind it.
+   *
+   * Everything else is a `required` input the browser refuses before a submit is
+   * even dispatched, so in practice this is the *only* way the application can
+   * fail — and it used to fail into a summary at the top of a form whose submit
+   * button is three screens below. `SectionForm` now moves the reader to that
+   * summary; this puts the reason where they were already looking.
+   *
+   * Cleared by accepting, not by re-submitting: the message must not outlive the
+   * problem, and `accepted` flipping is the moment it stops being true.
+   */
+  const fieldError = useFieldError(name);
+  const showError = Boolean(fieldError) && !accepted;
+
   const scroller = useRef<HTMLDivElement | null>(null);
 
   const checkScrolled = useCallback(() => {
@@ -94,9 +110,19 @@ export function AgreementGate({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-describedby="agreement-state"
-        className={`border-border hover:bg-surface-muted flex w-full items-start gap-3 rounded-xl border p-4 text-left transition ${
-          accepted ? "border-[var(--signal)]" : ""
+        /*
+          `aria-describedby`, and deliberately no `aria-invalid`: the role here is
+          `button`, which does not support it — this is a control that opens a
+          dialog, not a form field, so "invalid" has nothing to attach to. The
+          message is announced by being described, and shown by the red border.
+        */
+        aria-describedby={showError ? "agreement-state agreement-error" : "agreement-state"}
+        className={`hover:bg-surface-muted flex w-full items-start gap-3 rounded-xl border p-4 text-left transition ${
+          accepted
+            ? "border-[var(--signal)]"
+            : showError
+              ? "border-destructive bg-destructive/5"
+              : "border-border"
         }`}
       >
         <span
@@ -133,6 +159,18 @@ export function AgreementGate({
       <p id="agreement-state" role="status" className="sr-only">
         {accepted ? "Vendor agreement accepted." : "Vendor agreement not yet accepted."}
       </p>
+
+      {/*
+        No `role="alert"`. `SectionForm`'s summary already announces the failure
+        and takes focus; a second live region firing on the same submission
+        interrupts it mid-sentence. This is read on arrival instead, through
+        `aria-describedby` on the control.
+      */}
+      {showError && (
+        <p id="agreement-error" className="text-destructive text-[12.5px]">
+          {fieldError}
+        </p>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent

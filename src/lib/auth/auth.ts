@@ -73,6 +73,49 @@ function authDatabase(): { client: MongoClient; db: Db } {
 
 /* ────────────────────────────────────────────── config */
 
+/**
+ * Where a confirmation link lands once Better Auth has verified the token.
+ *
+ * ## The bug this fixes
+ *
+ * Better Auth builds the link as
+ * `/api/auth/verify-email?token=…&callbackURL=…`, verifies, then redirects to
+ * that `callbackURL`. Nothing was setting one for the **sign-up** send — it is
+ * fired by `sendOnSignUp` with no caller to pass one — so it defaulted to `/`.
+ * The account really was confirmed and the person was silently dropped on the
+ * home page, which is indistinguishable from a link that did nothing. The
+ * resend path had the same shape with a different destination (`/dashboard`),
+ * so the one flow told two stories and neither said "confirmed".
+ *
+ * `/verify-email` already renders **"You're all set — your email address is
+ * confirmed"** when the session says so, and `autoSignInAfterVerification`
+ * guarantees there is a session by the time the redirect happens. So the page
+ * that answers this existed; nothing was pointing at it.
+ *
+ * ## Rewritten here rather than passed by each caller
+ *
+ * There are two senders and one of them — `sendOnSignUp` — has no call site to
+ * put an argument in. Setting it in the one function every verification email
+ * goes through is the only place that covers both, and it means a third sender
+ * cannot reintroduce the bug by forgetting.
+ *
+ * A caller wanting somewhere else should send them onward *from* the
+ * confirmation page rather than around it: the first thing a person needs after
+ * clicking a link in their email is to be told it worked.
+ *
+ * Falls back to the URL untouched if it will not parse. A malformed verification
+ * link is a problem, and swallowing the send is a worse one.
+ */
+function confirmationLanding(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set("callbackURL", "/verify-email");
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 function buildAuth() {
   const env = serverEnv();
   const { client, db } = authDatabase();
@@ -113,7 +156,7 @@ function buildAuth() {
       autoSignInAfterVerification: true,
       expiresIn: 60 * 60,
       sendVerificationEmail: async ({ user, url }) => {
-        await sendAuthEmail(verifyEmailMessage(user.email, url));
+        await sendAuthEmail(verifyEmailMessage(user.email, confirmationLanding(url)));
       },
     },
 
