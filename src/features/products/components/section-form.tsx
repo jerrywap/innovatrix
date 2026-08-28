@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { createContext, useActionState, useContext, useEffect, useRef } from "react";
 import { Check, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -121,6 +121,41 @@ export function SectionForm({
   const failed = state && !state.ok ? state : null;
   const saved = state?.ok === true;
 
+  /*
+   * Move to the error when one appears.
+   *
+   * The summary renders at the **top** of the form and the submit buttons are at
+   * the bottom, which on a short wizard step is fine and on a long one is a form
+   * that appears to do nothing. The vendor application is the case that showed
+   * it: seven fields, an agreement gate, and the one thing a person can fail —
+   * not accepting the agreement — reports itself three screens above where they
+   * clicked. It looked like the button was dead.
+   *
+   * Focus does the work, and moving focus is the point rather than a side effect
+   * of it: a `role="alert"` with `tabIndex={-1}` reaches somebody on a screen
+   * reader *and* somebody on a keyboard, who would otherwise carry on tabbing
+   * from a button below the message they cannot see.
+   *
+   * **Plain `focus()`, deliberately not `scrollIntoView`.** The first version
+   * called both and the scroll overshot badly: these forms sit inside the app
+   * shell's own scroll container, and `scrollIntoView` walks every scrollable
+   * ancestor, which left the layout scrolled past its own end with the form
+   * halfway up an empty screen. The browser's own focus scrolling moves the
+   * minimum needed and gets nested scrollers right, which is precisely the case
+   * a hand-rolled scroll gets wrong.
+   *
+   * Keyed on `state`, not on `failed`: two consecutive failed submissions
+   * produce a new object each time, so a second attempt that fails the same way
+   * moves the reader again rather than sitting silent.
+   */
+  const alertRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!failed) return;
+    alertRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `state` is the identity that changes per submission; `failed` is derived from it.
+  }, [state]);
+
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-6">
       {productId && <input type="hidden" name="productId" value={productId} />}
@@ -135,11 +170,22 @@ export function SectionForm({
         </p>
       )}
 
-      {failed && <FormErrors error={failed.error} fieldErrors={failed.fieldErrors} />}
+      {failed && (
+        <FormErrors ref={alertRef} error={failed.error} fieldErrors={failed.fieldErrors} />
+      )}
 
-      <fieldset disabled={disabled} className="flex flex-col gap-6 border-0 p-0">
-        {children}
-      </fieldset>
+      {/*
+        Field errors travel down so a control can mark *itself*, which is what
+        makes "check the highlighted fields" true rather than an instruction with
+        nothing behind it. The summary stays regardless — it is the only thing
+        that works when the failing field is off-screen, which is the argument
+        `FormErrors` makes about itself.
+      */}
+      <FieldErrorContext value={failed?.fieldErrors ?? null}>
+        <fieldset disabled={disabled} className="flex flex-col gap-6 border-0 p-0">
+          {children}
+        </fieldset>
+      </FieldErrorContext>
 
       <div className="border-border flex flex-wrap items-center gap-2 border-t pt-5">
         <SubmitButtons
@@ -225,17 +271,32 @@ export function FormErrors({
   error,
   fieldErrors,
   className,
+  ref,
 }: {
   error: string;
   fieldErrors?: Record<string, string[]>;
   className?: string;
+  /** So `SectionForm` can move focus here when a submission fails. */
+  ref?: React.Ref<HTMLDivElement>;
 }) {
   const entries = Object.entries(fieldErrors ?? {});
 
   return (
     <div
+      ref={ref}
       role="alert"
+      // `-1`: reachable by script, never in the tab order. A summary that
+      // collected a tab stop of its own would put a stop in front of every field
+      // on every subsequent pass through the form.
+      tabIndex={-1}
       className={cn(
+        /*
+          `scroll-mt-24` clears the sticky app header. Without it the browser's
+          focus scroll does its job to the letter and leaves the summary forty
+          pixels *under* the header — focus on something invisible, which is the
+          one outcome worse than not scrolling.
+        */
+        "focus-visible:ring-ring scroll-mt-24 focus-visible:ring-2 focus-visible:outline-none",
         "border-destructive/30 bg-destructive/10 flex flex-col gap-1.5 rounded-xl border px-3.5 py-3",
         className,
       )}
@@ -347,4 +408,36 @@ export function GapLink({ href, children }: { href: string; children: React.Reac
       {children}
     </Link>
   );
+}
+
+/* ────────────────────────────────────────────── field errors, downward */
+
+/**
+ * The failing fields of the last submission, for controls that can mark themselves.
+ *
+ * ## Why a context rather than a prop
+ *
+ * `SectionForm` takes `children`, so it never sees the controls it wraps and
+ * cannot hand anything to one three levels down. Threading a prop through would
+ * mean every intermediate component carrying a value it does not use, and the
+ * ones that forgot would be exactly the ones whose errors went missing — the
+ * failure mode central rendering was introduced to end.
+ *
+ * `null` outside a `SectionForm`, so `useFieldError` is safe anywhere and simply
+ * reports nothing.
+ */
+const FieldErrorContext = createContext<Record<string, string[]> | null>(null);
+
+/**
+ * The message for one field, if the last submission rejected it.
+ *
+ * Deliberately **not** used by most controls. A native input with `required` is
+ * refused by the browser before a submit is dispatched, so a server error on one
+ * is rare and the summary covers it. This exists for the controls the browser
+ * cannot check — the agreement gate being the one that proved it necessary,
+ * since the only way to fail that form is the one field with no native
+ * validation behind it.
+ */
+export function useFieldError(name: string): string | undefined {
+  return useContext(FieldErrorContext)?.[name]?.join(" ");
 }

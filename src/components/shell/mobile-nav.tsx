@@ -27,12 +27,10 @@ import type { NavSection } from "@/lib/navigation";
  */
 export function MobileNav({
   sections,
-  homeHref,
   contextLabel,
   triggerClassName = "lg:hidden",
 }: {
   sections: readonly NavSection[];
-  homeHref: React.ComponentProps<typeof Brand>["href"];
   contextLabel?: string;
   /**
    * Where the drawer hands over to a horizontal nav.
@@ -62,7 +60,7 @@ export function MobileNav({
       <SheetContent side="left" className="w-[280px] p-0">
         <SheetHeader className="px-4 pt-5 pb-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <Brand href={homeHref} />
+          <Brand />
           {contextLabel && (
             <p className="text-subtle mt-1 font-mono text-[9.5px] tracking-[0.16em] uppercase">
               {contextLabel}

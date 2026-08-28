@@ -27,7 +27,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <AppShell
       density="dense"
       sections={adminShellNavFor(permissions)}
-      homeHref="/admin"
       contextLabel="Admin"
       topBarEnd={<AccountMenu name={user.name} email={user.email} isStaff />}
     >

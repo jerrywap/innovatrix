@@ -50,6 +50,16 @@ export interface SearchBoxProps {
   placeholder?: string;
   /** The accessible name, when "Search the marketplace" is not what this does. */
   label?: string;
+  /**
+   * Names the `<form>`, so a submit button rendered *outside* it can drive it.
+   *
+   * `<button type="submit" form="…">` is the platform's own answer to a control
+   * that belongs to a form it does not sit inside — which is what the hero's
+   * split button is, since it lives beside the box rather than within it. It
+   * submits natively with JavaScript off, so the no-JS path the `<form action>`
+   * already guarantees survives the button too.
+   */
+  formId?: string;
 }
 
 export function SearchBox(props: SearchBoxProps) {
@@ -69,6 +79,7 @@ function SearchField({
   inputId = "marketplace-search",
   placeholder = "Search by name, what it does, or the stack…",
   label = "Search the marketplace",
+  formId,
 }: SearchBoxProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -108,6 +119,7 @@ function SearchField({
 
   return (
     <form
+      {...(formId ? { id: formId } : {})}
       action={basePath}
       method="get"
       role="search"

@@ -22,6 +22,10 @@ import { customAlphabet } from "nanoid";
  * ├── products/{productId}/
  * │   ├── media/{nanoid}.{ext}                      ← screenshots/video, CDN-able
  * │   └── versions/{versionId}/{nanoid}-{safeName}  ← packages. NEVER public.
+ * ├── vendors/{vendorId}/
+ * │   ├── documents/{nanoid}-{safeName}             ← verification. NEVER public.
+ * │   └── branding/{cover|logo}                     ← storefront artwork, CDN-able.
+ * │                                                   Stable: a replacement overwrites.
  * ├── attachments/{organizationId}/{requestId}/{nanoid}-{safeName}
  * ├── documents/quotes/{quoteId}/{nanoid}.pdf
  * ├── documents/invoices/{invoiceId}/{nanoid}.pdf
@@ -66,6 +70,20 @@ export type StorageScope =
   | "quote-document"
   | "invoice-document"
   | "vendor-document"
+  /**
+   * A vendor's cover image or logo — the storefront's own artwork.
+   *
+   * Its own scope rather than a reused `product-media`, and the difference is
+   * not the ceiling: these are the only objects we store whose key is
+   * **stable**, so a replacement overwrites in place and nothing is ever
+   * orphaned. A scope that also served products would have to mint a fresh key,
+   * which is the behaviour this one exists to avoid.
+   *
+   * No GIF, unlike `product-media`: a screenshot that animates is a
+   * demonstration, and a page-wide cover band that animates is a distraction
+   * nobody asked for.
+   */
+  | "vendor-branding"
   | "payout-evidence"
   | "healthcheck";
 
@@ -251,6 +269,48 @@ export function vendorDocumentKey(
   const key =
     `${ctx.root}/vendors/${segment(vendorId, "vendorId")}/documents` +
     `/${id()}-${safeFilename(filename)}`;
+  return assertKeyInPrefix(key, ctx.root);
+}
+
+/** Which piece of a vendor's storefront artwork a key addresses. */
+export type VendorBrandingKind = "cover" | "logo";
+
+/**
+ * A vendor's storefront artwork — the cover band and the logo.
+ *
+ * ## The key is stable, and that is the whole design
+ *
+ * Every other builder here mints a `nanoid()`, because every other thing they
+ * name is one of many. A vendor has exactly **one** cover and exactly **one**
+ * logo, so the key is derived entirely from the vendor and the kind — and a
+ * replacement therefore `PUT`s over the same object rather than abandoning it.
+ *
+ * That matters because `s3:DeleteObject` is denied for this IAM user and
+ * nothing cleans up after us: with a minted key, a vendor who tries four covers
+ * leaves three objects in the bucket for ever. Freshness is handled where it
+ * belongs, by `publicObjectUrl`'s `?v=` stamp.
+ *
+ * ## No extension
+ *
+ * There is nowhere to get one from — the key must be the same string before and
+ * after a JPEG is replaced by a WebP, or the old object survives and the point
+ * is lost. Nothing downstream needs it: S3 stores the content type from the
+ * signed `PUT` and `next/image` reads the header. The *user's* filename is still
+ * extension-checked, by `assertUploadAllowed`, which is a separate value.
+ *
+ * ## `branding/`, not `documents/`
+ *
+ * `vendors/{id}/documents/` holds passport scans and is the most sensitive
+ * prefix in the bucket. These objects are world-readable. Two prefixes so that
+ * an operator writing a bucket policy or a lifecycle rule can tell them apart
+ * without reading our code.
+ */
+export function vendorBrandingKey(
+  ctx: KeyBuilderContext,
+  vendorId: string,
+  kind: VendorBrandingKind,
+): string {
+  const key = `${ctx.root}/vendors/${segment(vendorId, "vendorId")}/branding/${kind}`;
   return assertKeyInPrefix(key, ctx.root);
 }
 

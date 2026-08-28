@@ -55,6 +55,14 @@ export default async function Page() {
           summary: vendor.profile.summary ?? "",
           supportEmail: vendor.profile.supportEmail ?? "",
           websiteUrl: vendor.profile.websiteUrl ?? "",
+          /*
+           * Straight off the record, **not** through `loadVendorProfile` — that one
+           * applies staff visibility, and a vendor whose cover has been hidden must
+           * still see it in the control that sets it. Hiding it on the storefront and
+           * blanking the field are different things; the second reads as data loss.
+           */
+          coverUrl: vendor.profile.coverUrl ?? "",
+          logoUrl: vendor.profile.logoUrl ?? "",
         }}
         slug={vendor.slug}
       />

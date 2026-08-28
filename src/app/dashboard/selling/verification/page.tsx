@@ -185,12 +185,6 @@ export default async function Page() {
             exactly that ground. We do not keep them for anything else, and we do not keep them
             indefinitely.
           </p>
-          <p>
-            Only staff holding the verification permission can open one, every time somebody
-            does it is recorded against their name, and the file itself is never served from a
-            guessable address. You can ask us what we hold about you, and ask us to erase it
-            once we are no longer required to keep it.
-          </p>
         </div>
       </div>
     </div>

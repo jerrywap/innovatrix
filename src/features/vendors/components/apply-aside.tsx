@@ -25,8 +25,8 @@ export function ApplyAside() {
     <aside className="flex flex-col gap-3 lg:sticky lg:top-24 lg:self-start">
       <Panel
         icon={Clock}
-        title="Somebody reads it"
-        body="Every application is read by a person, and you hear back either way. Being accepted is not automatic."
+        title="Submit your application"
+        body="We review your submissions, and you hear back either way. Being accepted is not automatic."
       />
       <Panel
         icon={FileCheck2}

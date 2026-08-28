@@ -93,3 +93,54 @@ export function toStorefrontCurrency(value: unknown): StorefrontCurrency {
 export function asCurrencyCode(value: StorefrontCurrency): CurrencyCode {
   return value;
 }
+
+/* ────────────────────────────────────────────── vendor storefront visibility */
+
+/**
+ * The parts of a vendor storefront staff may switch off.
+ *
+ * ## The line, and why it is drawn here
+ *
+ * Every entry is something the **vendor supplied**: their prose, their link,
+ * their artwork, the country they declared. A vendor's website URL is validated
+ * as a URL and never reviewed, so until now the only way to deal with one being
+ * abused was to suspend the vendor — unlisting their whole catalogue over a link.
+ * This list is the control between "fine" and "gone".
+ *
+ * Deliberately absent, and it is the more important half of the decision:
+ * `displayName`, `identityVerified`, `rating`, `sellingSince` and the product
+ * count. Those are the **platform's own** claims, or the page's structure. A
+ * rating staff can hide is a rating nobody should believe — which is the same
+ * argument `VendorDoc.ratingSum` already makes about being derived and
+ * uneditable by anyone, staff included.
+ *
+ * Adding an entry here is therefore not a small change: it moves a fact from
+ * "ours" to "theirs, and revocable".
+ */
+export const STOREFRONT_FIELDS = ["cover", "logo", "summary", "website", "location"] as const;
+
+export type StorefrontField = (typeof STOREFRONT_FIELDS)[number];
+
+/**
+ * How each is named to staff and to the vendor.
+ *
+ * One map, two audiences, on purpose: the staff toggle and the vendor's "we have
+ * hidden this" note must call the same thing the same thing, or a support
+ * conversation is two people describing different screens.
+ */
+export const STOREFRONT_FIELD_LABELS: Readonly<Record<StorefrontField, string>> = {
+  cover: "Cover image",
+  logo: "Logo",
+  summary: "Summary",
+  website: "Website link",
+  location: "Location",
+};
+
+/**
+ * What a storefront shows when nobody has decided otherwise.
+ *
+ * Everything, and that is what makes this change invisible on deploy: an empty
+ * `storefrontSettings` collection and a vendor with no overrides render exactly
+ * the page they rendered before any of this existed.
+ */
+export const STOREFRONT_FIELDS_SHOWN_BY_DEFAULT = true;

@@ -3,6 +3,7 @@ import {
   FILTER_KEYS,
   activeFilterCount,
   currencyMustBeInUrl,
+  currencySwitchHref,
   marketplaceHref,
   parseMarketplaceQuery,
   toggleTerm,
@@ -289,5 +290,45 @@ describe("activeFilterCount", () => {
         key,
       );
     }
+  });
+});
+
+/**
+ * The header currency switcher's href.
+ *
+ * The other control that changes this preference is the filter rail's chips, and
+ * the two must produce the same URL — see `currencySwitchHref`'s docblock.
+ */
+describe("currencySwitchHref", () => {
+  it("replaces the currency rather than appending a second one", () => {
+    expect(currencySwitchHref("/marketplace?currency=GBP", "USD")).toBe(
+      "/marketplace?currency=USD",
+    );
+  });
+
+  it("keeps the price bounds, so the two switchers agree", () => {
+    // They are re-denominated rather than cleared — 50,000 pence becomes 50,000
+    // cents — which is exactly what the rail's chips already do.
+    const href = currencySwitchHref("/marketplace?minPrice=5000&maxPrice=50000", "NGN");
+    expect(href).toContain("minPrice=5000");
+    expect(href).toContain("maxPrice=50000");
+    expect(href).toContain("currency=NGN");
+  });
+
+  it("drops the page, because the set it indexed into has changed", () => {
+    expect(currencySwitchHref("/marketplace?category=crm&page=7", "USD")).not.toContain("page");
+  });
+
+  it("refuses anything that is not a same-origin path", () => {
+    // The value arrives as a request header and becomes an `href`. The proxy
+    // overwrites it on every request; this is the second line of defence.
+    for (const hostile of ["//evil.example", "https://evil.example/", "evil", ""]) {
+      expect(currencySwitchHref(hostile, "USD")).toBe("/?currency=USD");
+    }
+    expect(currencySwitchHref(null, "USD")).toBe("/?currency=USD");
+  });
+
+  it("works on a path with no query at all", () => {
+    expect(currencySwitchHref("/sell", "USD")).toBe("/sell?currency=USD");
   });
 });

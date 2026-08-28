@@ -9,6 +9,7 @@ import {
   type StorefrontCurrency,
 } from "@/config/storefront";
 import { REQUEST_ID_HEADER } from "@/config/observability";
+import { CURRENT_PATH_HEADER, CURRENT_PATH_MAX_LENGTH } from "@/config/request-context";
 import {
   COOKIE_PREFIX,
   sessionCookieExpiry,
@@ -100,10 +101,29 @@ function requestId(request: NextRequest): string {
   return nanoid(16);
 }
 
-/** Attach the id to the forwarded request, so `headers()` can read it. */
-function withRequestId(request: NextRequest, id: string): Headers {
+/**
+ * Attach the id and the current URL to the forwarded request, so a Server
+ * Component can read both with `headers()`.
+ *
+ * The two are set with opposite trust rules and the difference is deliberate.
+ * `requestId()` above *honours* an inbound `x-request-id`, because a trace that
+ * began at a load balancer should keep its identity and the value is only ever a
+ * log field. The path is `set` unconditionally, because the header carries it
+ * into `href` attributes — see `CURRENT_PATH_HEADER`.
+ */
+function withRequestContext(request: NextRequest, id: string): Headers {
   const headers = new Headers(request.headers);
   headers.set(REQUEST_ID_HEADER, id);
+
+  // `pathname + search`, no origin — nothing about the deployment leaks, and
+  // nothing here can become a cross-origin link. Over the cap, the query is
+  // dropped rather than the request failing at the edge with a 431.
+  const here = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  headers.set(
+    CURRENT_PATH_HEADER,
+    here.length > CURRENT_PATH_MAX_LENGTH ? request.nextUrl.pathname : here,
+  );
+
   return headers;
 }
 
@@ -252,7 +272,7 @@ export function proxy(request: NextRequest): NextResponse {
   // Past the redirects, so everything below is decorating a response that will
   // actually render a page. A `Set-Cookie` on a 307 the browser follows is a
   // cookie set for a URL nobody looked at.
-  const headers = withRequestId(request, id);
+  const headers = withRequestContext(request, id);
   const secure = isSecureRequest(request);
   const pending: CookieToSet[] = [];
 

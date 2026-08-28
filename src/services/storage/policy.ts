@@ -107,6 +107,26 @@ export const STORAGE_POLICY: Record<StorageScope, ScopePolicy> = {
     extensions: ["pdf", "jpg", "jpeg", "png"],
   },
   /**
+   * A vendor's cover image or logo.
+   *
+   * **5MB, half of `product-media`.** A screenshot is evidence and wants to stay
+   * legible when a customer opens it full size; a cover band is scenery behind a
+   * heading, and there is no size at which 10MB of it buys anything. The lower
+   * ceiling is also the only thing standing between a phone photo straight off a
+   * camera roll and every storefront visitor paying for it.
+   *
+   * **No GIF**, unlike `product-media`. An animating cover band is a decision
+   * somebody should have to make deliberately, and the way to make it
+   * deliberate is to not allow it by accident. (`svg` never reaches a scope
+   * list — it is in `FORBIDDEN_EXTENSIONS`, because an SVG served back is a
+   * stored-XSS vector.)
+   */
+  "vendor-branding": {
+    maxBytes: 5 * MB,
+    contentTypes: ["image/jpeg", "image/png", "image/webp", "image/avif"],
+    extensions: ["jpg", "jpeg", "png", "webp", "avif"],
+  },
+  /**
    * A remittance advice — vendor ticket 09. The same set as a payment receipt, for the
    * same reason: it is a bank document, it arrives as a PDF or a photograph, and every
    * extra format allowed is another decoder somebody has to trust.

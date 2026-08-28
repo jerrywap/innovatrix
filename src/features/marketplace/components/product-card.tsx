@@ -10,6 +10,21 @@ import type { ProductCard as Card } from "@/services/marketplace";
 import { CATALOGUE_SURFACE } from "@/config/catalogue";
 
 /**
+ * The two catalogues, as colour.
+ *
+ * Kept beside the card rather than in `config/catalogue.ts`: that module has no
+ * `server-only` because client components read its labels, and it should not
+ * start carrying Tailwind class strings for one consumer. The signal orange is
+ * the platform's own; sky is the only other hue already in the palette that is
+ * not spoken for — emerald means "free" (`FreeBadge`) and red and amber mean
+ * something has gone wrong.
+ */
+const CATALOGUE_TONE: Record<Card["catalogue"], string> = {
+  script: "border-signal/25 bg-signal-soft text-signal-text",
+  template: "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+/**
  * One product in the grid.
  *
  * A **Server Component**. There is nothing interactive here — the whole card is
@@ -112,22 +127,47 @@ export function ProductCardTile({
           takes a click anywhere else, and without this the text would swallow it. */}
       <div className="pointer-events-none flex flex-1 flex-col gap-2.5 p-4">
         {/*
-          The type — "Full Script" or "Website Template".
+          The type — "Full Software Script" or "Website Template".
 
           Above the title rather than down with the category pills, because it is
           not another tag: the pills say what a thing is *about* and this says what
           it *is*, and a buyer needs the second one before the first means anything.
           A grid that mixes the two catalogues — search results, a saved list, a
-          vendor storefront — is where a card has to answer it on its own.
+          vendor storefront, the home page's free band — is where a card has to
+          answer it on its own.
 
-          Same mono/uppercase idiom as "Featured" and "Adaptable", so it reads as
-          metadata about the listing rather than as content of it.
+          ## Why it is a coloured pill now, and still in the same place
+
+          It was a grey micro-caps line, which is legible when every card on the
+          screen is the same type and nearly invisible when they are not. `/search`
+          makes mixed grids the normal case, so the label had to carry at a glance
+          rather than on inspection.
+
+          The position is unchanged on purpose — this is the one slot where the
+          answer is read *before* the name, and moving it onto the screenshot would
+          have put it where "Featured" already lives. What changed is only the
+          treatment: the same `px-2 py-0.5 rounded-full` micro-caps shape as
+          "Featured", plus a hue per catalogue.
+
+          ## About the colour
+
+          Both palettes are `StatusBadge`'s soft bordered treatment, borrowed as
+          *class strings* rather than by rendering that component — so both themes
+          come for free and no fifth accent is invented. Worth knowing that
+          `status-badge.tsx` reserves colour for one question ("what should I do
+          about this?"): a card is not a status surface and renders no
+          `StatusBadge`, so nothing collides on screen, but a card *can* now carry
+          this pill, "Featured" and the emerald `FreeBadge` at once. That is why
+          the type stays at 9.5px — three soft badges read as metadata; three loud
+          ones would read as decoration.
         */}
         {/* One block with the title, at `gap-1`: the body's own `gap-2.5` would
-            float the eyebrow midway between the image and the name and it would
+            float the badge midway between the image and the name and it would
             read as a caption on the screenshot instead of a label on the listing. */}
         <div className="flex flex-col gap-1">
-          <span className="text-subtle font-mono text-[9.5px] tracking-[0.14em] uppercase">
+          <span
+            className={`w-fit rounded-full border px-2 py-0.5 font-mono text-[9.5px] tracking-[0.14em] uppercase ${CATALOGUE_TONE[card.catalogue]}`}
+          >
             {CATALOGUE_SURFACE[card.catalogue].label}
           </span>
 

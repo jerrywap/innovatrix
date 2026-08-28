@@ -12,6 +12,15 @@ import { HeroSearch } from "./hero-search";
 import { HeroSurface } from "./hero-surface";
 
 /**
+ * One id, two consumers: the `<form>` that `SearchBox` renders, and the split
+ * button's Search half, which submits it from outside via `form="…"`.
+ *
+ * A constant rather than the same string typed twice — a silent mismatch would
+ * leave a submit button that does nothing at all, and nothing would fail.
+ */
+const HERO_SEARCH_FORM = "hero-search-form";
+
+/**
  * The hero — "what can I do here?" before "who is CoSetup?".
  *
  * ## The headline stays
@@ -217,6 +226,7 @@ export function Hero() {
                 second boundary for the same reason: it reads the taxonomy.
               */}
               <HeroSearch
+                searchFormId={HERO_SEARCH_FORM}
                 panel={
                   <Suspense fallback={<div className="h-40" />}>
                     <HeroFilters />
@@ -224,10 +234,23 @@ export function Hero() {
                 }
               >
                 <Suspense fallback={<div className="h-[52px]" />}>
+                  {/*
+                    `/search`, not `/marketplace`.
+
+                    The placeholder has always promised "apps, scripts,
+                    templates" and the destination has always been the scripts
+                    catalogue — so a home-page search for "landing page" returned
+                    nothing while a whole shelf of them sat one path away. The
+                    placeholder is now true.
+
+                    `mode="navigate"` stays: a search from here takes you
+                    somewhere else, and Back should return to the home page.
+                  */}
                   <SearchBox
-                    basePath="/marketplace"
+                    basePath="/search"
                     mode="navigate"
                     inputId="hero-search"
+                    formId={HERO_SEARCH_FORM}
                     placeholder="Search apps, scripts, templates…"
                   />
                 </Suspense>
@@ -237,7 +260,7 @@ export function Hero() {
                 {HERO_CHIPS.map((chip) => (
                   <Link
                     key={chip.label}
-                    href={`/marketplace?q=${encodeURIComponent(chip.q)}` as Route}
+                    href={`/search?q=${encodeURIComponent(chip.q)}` as Route}
                     className="border-border text-muted-foreground hover:border-border-strong hover:text-foreground rounded-full border px-3 py-1.5 text-[12.5px] transition"
                   >
                     {chip.label}

@@ -13,6 +13,7 @@ import {
   quoteDocumentKey,
   safeFilename,
   storageRoot,
+  vendorBrandingKey,
   vendorDocumentKey,
 } from "./keys";
 import {
@@ -254,6 +255,97 @@ describe("vendor documents (vendor ticket 02)", () => {
     expect(() => vendorDocumentKey(ctx, "../gracia-production", "id.pdf")).toThrow(
       StorageKeyError,
     );
+  });
+});
+
+/* ────────────────────────────────────────────── vendor branding */
+
+describe("vendor branding — the only stable keys in the bucket", () => {
+  const OTHER = "652f1a2b3c4d5e6f70819277";
+
+  /**
+   * The property the whole design rests on, so it is asserted directly rather
+   * than inferred from a shape: the same vendor and the same kind produce the
+   * same key **every time**, so a replacement `PUT`s over the previous object.
+   *
+   * Every other builder here mints a `nanoid()` and therefore orphans what it
+   * replaces. That is tolerable for a product with many screenshots and is not
+   * tolerable here, because `s3:DeleteObject` is denied and a vendor trying four
+   * covers would leave three objects behind for ever.
+   */
+  it("is derived entirely from the vendor and the kind, so a re-upload overwrites", () => {
+    expect(vendorBrandingKey(ctx, OID, "cover")).toBe(`${ROOT}/vendors/${OID}/branding/cover`);
+    expect(vendorBrandingKey(ctx, OID, "cover")).toBe(vendorBrandingKey(ctx, OID, "cover"));
+    expect(vendorBrandingKey(ctx, OID, "logo")).not.toBe(vendorBrandingKey(ctx, OID, "cover"));
+  });
+
+  /**
+   * No extension, and it has to stay that way: the key must be identical before
+   * and after a JPEG is replaced by a WebP, or the old object survives and the
+   * stability above buys nothing. Nothing downstream needs one — S3 stores the
+   * content type from the signed PUT and `next/image` reads the header.
+   */
+  it("carries no extension, so a format change still overwrites", () => {
+    expect(vendorBrandingKey(ctx, OID, "cover")).not.toMatch(/\.[a-z]+$/);
+  });
+
+  /**
+   * `branding/` is a sibling of `documents/`, not a child. One is world-readable
+   * artwork and the other is passport scans; an operator writing a bucket policy
+   * has to be able to tell them apart without reading our code.
+   */
+  it("does not sit inside the verification-document prefix", () => {
+    expect(
+      vendorBrandingKey(ctx, OID, "logo").startsWith(`${ROOT}/vendors/${OID}/documents/`),
+    ).toBe(false);
+  });
+
+  it("keeps one vendor's artwork outside another vendor's prefix", () => {
+    expect(vendorBrandingKey(ctx, OTHER, "cover").startsWith(`${ROOT}/vendors/${OID}/`)).toBe(
+      false,
+    );
+  });
+
+  it("refuses a vendor id that is not a plain identifier", () => {
+    expect(() => vendorBrandingKey(ctx, "../gracia-production", "cover")).toThrow(
+      StorageKeyError,
+    );
+  });
+
+  /**
+   * Narrower than `product-media`, which shares four of its five types. A
+   * screenshot that animates is a demonstration; a page-wide cover band that
+   * animates is a distraction, and the way to keep that a deliberate decision is
+   * to not allow it by accident.
+   */
+  it("allows still images only — no GIF, half the ceiling of a screenshot", () => {
+    const policy = STORAGE_POLICY["vendor-branding"];
+    expect(policy.contentTypes).not.toContain("image/gif");
+    expect(policy.extensions).not.toContain("gif");
+    expect(policy.maxBytes).toBe(5 * 1024 * 1024);
+    expect(policy.maxBytes).toBeLessThan(STORAGE_POLICY["product-media"].maxBytes);
+  });
+
+  it("refuses an SVG, whatever it claims to be", () => {
+    expect(() =>
+      assertUploadAllowed({
+        scope: "vendor-branding",
+        filename: "logo.svg",
+        contentType: "image/png",
+        sizeBytes: 1024,
+      }),
+    ).toThrow(StoragePolicyError);
+  });
+
+  it("refuses a cover over the ceiling", () => {
+    expect(() =>
+      assertUploadAllowed({
+        scope: "vendor-branding",
+        filename: "cover.jpg",
+        contentType: "image/jpeg",
+        sizeBytes: 6 * 1024 * 1024,
+      }),
+    ).toThrow(StoragePolicyError);
   });
 });
 

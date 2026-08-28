@@ -214,6 +214,70 @@ export function currencyMustBeInUrl(query: MarketplaceQueryInput): boolean {
   );
 }
 
+/**
+ * The URL you are on, with the currency swapped — for the header switcher.
+ *
+ * ## Why it lives here and not in `lib/`
+ *
+ * Because it has to respect the invariant declared a few lines above it.
+ * `currencyMustBeInUrl` says a price-bounded URL must name its currency, and
+ * this is the other control that can change one. The filter rail's chips already
+ * build their href through `hrefFor({ currency: code })`; two controls switching
+ * the same preference must not produce different URLs, so this keeps the same
+ * rules and sits where the next person will see both.
+ *
+ * ## What it carries, and what it drops
+ *
+ * Everything, **including the price bounds**. A currency change re-denominates
+ * them — 50,000 pence becomes 50,000 cents — which is exactly what the rail's
+ * chips do today. Consistency between the two controls beats either behaviour
+ * being cleverer alone.
+ *
+ * `page` goes, for `marketplaceHref`'s own reason: a currency change reorders
+ * under a price sort and changes membership under a price bound, so page 7 of
+ * the old set is an empty grid that reads as "no results".
+ *
+ * ## The input is untrusted twice over
+ *
+ * It arrives as a request header (`CURRENT_PATH_HEADER`), which the proxy
+ * overwrites on every request — so in practice it is server-derived. It is
+ * sanitised here anyway: only a single-slash-prefixed path is accepted, never
+ * `//evil.example` or a protocol-relative form, because this becomes an `href`
+ * and a future change to the proxy's matcher should not be able to turn it into
+ * an off-site link. Anything else falls back to `/`.
+ */
+export function currencySwitchHref(
+  rawPathAndSearch: string | null | undefined,
+  currency: StorefrontCurrency,
+): string {
+  const here = safePath(rawPathAndSearch);
+  const [pathname, search = ""] = splitOnce(here, "?");
+
+  const params = new URLSearchParams(search);
+  // `set`, not `append` — a URL that already names a currency must not end up
+  // naming two.
+  params.set("currency", currency);
+  params.delete("page");
+
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+/** A same-origin path, or `/`. */
+function safePath(value: string | null | undefined): string {
+  if (!value) return "/";
+  if (!value.startsWith("/")) return "/";
+  // `//host` is protocol-relative and `/\host` is treated as such by some
+  // parsers — both are off-site, and both start with a single slash.
+  if (value.startsWith("//") || value.startsWith("/\\")) return "/";
+  return value;
+}
+
+function splitOnce(value: string, separator: string): [string, string?] {
+  const at = value.indexOf(separator);
+  return at === -1 ? [value] : [value.slice(0, at), value.slice(at + 1)];
+}
+
 export function isStorefrontCurrencyParam(value: unknown): value is StorefrontCurrency {
   return (
     typeof value === "string" && (STOREFRONT_CURRENCIES as readonly string[]).includes(value)

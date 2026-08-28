@@ -3,6 +3,7 @@
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGroup, SectionForm } from "@/features/products/components/section-form";
+import { BrandImageUpload } from "./brand-image-upload";
 import { saveProfileAction } from "../actions";
 
 /**
@@ -24,6 +25,8 @@ export function ProfileForm({
     summary: string;
     supportEmail: string;
     websiteUrl: string;
+    coverUrl: string;
+    logoUrl: string;
   };
   slug: string;
 }) {
@@ -63,6 +66,36 @@ export function ProfileForm({
         title="Your storefront"
         description="What a customer reads when they wonder who made this."
       >
+        {/*
+          Artwork first, then words.
+
+          Not decoration-before-substance: the storefront draws them in this
+          order, and a settings screen that reorders the thing it configures is a
+          screen somebody has to translate. `Field`'s label is `htmlFor`-less here
+          because the control is a dropzone rather than one input — `FileDropzone`
+          labels its own trigger.
+        */}
+        <Field label="Cover image" hint="Sits behind your name at the top of your storefront.">
+          <BrandImageUpload
+            kind="cover"
+            name="coverUrl"
+            defaultValue={defaults.coverUrl}
+            alt="Your storefront cover image"
+          />
+        </Field>
+
+        <Field
+          label="Logo"
+          hint="Shown on your storefront and beside your name on every product."
+        >
+          <BrandImageUpload
+            kind="logo"
+            name="logoUrl"
+            defaultValue={defaults.logoUrl}
+            alt="Your logo"
+          />
+        </Field>
+
         <Field
           label="Summary"
           htmlFor="summary"

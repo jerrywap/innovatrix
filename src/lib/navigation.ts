@@ -177,7 +177,7 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
          * them to a page that argues the case is a step they have taken. The apply page
          * carries its own explanation of what happens next.
          */
-        label: "Sell Apps & Templates",
+        label: "Become a Vendor",
         href: "/dashboard/selling/apply",
         icon: "store",
         hiddenForVendor: true,

@@ -37,7 +37,7 @@ export default async function Page({ searchParams }: PageProps<"/admin/audit">) 
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Audit log"
-        description="Every recorded action, newest first. Append-only — nothing here can be changed."
+        description="Every recorded action, newest first. Append-only and nothing here can be changed."
       />
       <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
         <Entries searchParams={searchParams} />

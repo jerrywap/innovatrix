@@ -28,21 +28,24 @@ export interface CatalogueSurface {
    */
   productPath: string;
   /**
-   * What one of these **is**, in a customer's words, for a listing card's type
-   * line.
+   * What one of these **is**, in a customer's words, for a listing card's badge.
    *
-   * "Full Script" rather than "Script" because the distinction being drawn is not
-   * script-versus-something-smaller, it is *a whole application* versus *a
-   * front-end you style*. A visitor scanning a mixed grid — search results, a
-   * saved list, a vendor storefront — is deciding which of those two they are
-   * looking at, and "Script" alone does not answer it.
+   * "Full Software Script" rather than "Script" because the distinction being
+   * drawn is not script-versus-something-smaller, it is *a whole application*
+   * versus *a front-end you style*. A visitor scanning a mixed grid — search
+   * results, a saved list, a vendor storefront — is deciding which of those two
+   * they are looking at, and "Script" alone does not answer it. "Software" earns
+   * its place for the same reason: it is the word that separates the two.
+   *
+   * Read in exactly one place, `product-card.tsx`, which is why the wording can
+   * be reconsidered without a hunt.
    */
   label: string;
   /**
    * The catalogue as a **destination**.
    *
    * The distinction from `label` is real and worth keeping: `label` is a fact
-   * about *one item* in a mixed grid ("Full Script"), while this names the shelf
+   * about *one item* in a mixed grid ("Full Software Script"), while this names the shelf
    * you are standing in front of. They are different jobs and one string cannot
    * do both.
    *
@@ -63,7 +66,7 @@ export const CATALOGUE_SURFACE: Record<ProductCatalogue, CatalogueSurface> = {
     listingPath: "/marketplace",
     categoryPath: "/marketplace/category",
     productPath: "/marketplace",
-    label: "Full Script",
+    label: "Full Software Script",
     plural: "Software & Scripts",
   },
   template: {

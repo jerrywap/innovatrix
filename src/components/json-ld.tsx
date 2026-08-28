@@ -56,11 +56,21 @@ export function SiteJsonLd({ origin }: { origin: string }) {
             url: origin,
             name,
             publisher: { "@id": `${origin}/#organization` },
+            /*
+              The sitelinks search box, pointed at `/search`.
+
+              A template string, so **no compiler is watching this one** — the
+              same shape of edit that once left `/about` and `/contact` in the
+              sitemap. It moves with the route rather than after it for that
+              reason. The target being `noindex` is fine and normal for a
+              `SearchAction`: Google submits the query, it does not index the
+              result page.
+            */
             potentialAction: {
               "@type": "SearchAction",
               target: {
                 "@type": "EntryPoint",
-                urlTemplate: `${origin}/marketplace?q={search_term_string}`,
+                urlTemplate: `${origin}/search?q={search_term_string}`,
               },
               "query-input": "required name=search_term_string",
             },

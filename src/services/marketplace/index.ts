@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cacheLife, cacheTag } from "next/cache";
 import type { PipelineStage } from "mongoose";
 import { connectToDatabase } from "@/lib/db/client";
@@ -125,7 +126,33 @@ export type TaxonomyIndex = Record<TaxonomyKind, TaxonomyTerm[]>;
  * a large regression — the whole point of denormalising `facets` was to make
  * the grid one indexed read.
  */
-export async function getTaxonomyIndex(
+/**
+ * Deduped per request, *around* the `"use cache"` entry — and that outer layer
+ * is a deadlock fix, not an optimisation.
+ *
+ * `runSearch` calls `getTaxonomyIndex()` to map rows onto cards, and that call
+ * happens **inside** `cachedSearch`, which is itself `"use cache"`. Any surface
+ * that also reads the index at the *same scope* therefore has two calls to one
+ * cache key in flight on one request — one inside a cache scope, one outside —
+ * and Next's cache re-enters itself and never resolves. The request streams its
+ * shell and then hangs forever.
+ *
+ * It went unnoticed because the default here is `"all"` while every listing
+ * passed `"script"` or `"template"`: different keys, no contention.
+ * `/search` is the first surface to pass `"all"` *and* render the rail, and it
+ * hung on every request without a `q` (with a `q`, `searchMarketplace` bypasses
+ * the cache entirely, which is why searching worked and browsing did not).
+ *
+ * React's `cache` resolves it at the right layer: the second caller gets the
+ * first one's promise instead of re-entering `"use cache"` at all. The default
+ * is applied outside it so `getTaxonomyIndex()` and `getTaxonomyIndex("all")`
+ * share one entry rather than two.
+ */
+export async function getTaxonomyIndex(scope: CatalogueScope = "all"): Promise<TaxonomyIndex> {
+  return taxonomyIndexFor(scope);
+}
+
+const taxonomyIndexFor = cache(async function taxonomyIndexFor(
   /*
    * Scoped by catalogue, and this argument is what closes the rail leak.
    *
@@ -139,7 +166,7 @@ export async function getTaxonomyIndex(
    * cannot share a cached index. That is the requirement satisfied structurally
    * rather than remembered.
    */
-  scope: CatalogueScope = "all",
+  scope: CatalogueScope,
 ): Promise<TaxonomyIndex> {
   "use cache";
   cacheTag(TAXONOMY_TAG);
@@ -179,7 +206,7 @@ export async function getTaxonomyIndex(
   }
 
   return index;
-}
+});
 
 /** One term, for a category or industry landing page's metadata and copy. */
 export async function getTaxonomyTerm(

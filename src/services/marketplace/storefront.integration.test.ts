@@ -54,6 +54,7 @@ afterEach(async () => {
   await catalog.Product.deleteMany({});
   await vendors.Vendor.deleteMany({});
   await taxonomy.Taxonomy.deleteMany({});
+  await vendors.StorefrontSettings.deleteMany({});
 });
 
 async function vendor(
@@ -183,6 +184,105 @@ describe("what it shows", () => {
     expect(serialised).not.toContain("2500");
     // And nothing about the level that gates money.
     expect(serialised).not.toContain("business");
+  });
+});
+
+/**
+ * The two-level visibility rule, against the real collections.
+ *
+ * The resolution itself is pure and covered in
+ * `services/vendors/storefront-visibility.test.ts` in milliseconds. What earns a
+ * place here is the part that unit test cannot reach: the profile is assembled
+ * from **two collections**, and the question is whether the setting in one
+ * actually reaches the projection of the other. A resolver that is right and a
+ * loader that never consults it look identical from the unit project.
+ */
+describe("what staff allow a storefront to show", () => {
+  async function platform(fields: Record<string, boolean>) {
+    await vendors.StorefrontSettings.create({ singleton: "global", fields });
+  }
+
+  /**
+   * The property that makes this change invisible on deploy — no settings row,
+   * no vendor override, and the storefront is the one that existed before.
+   */
+  it("shows everything when nothing has been configured", async () => {
+    await vendor();
+    await published();
+
+    const page = await storefront.loadVendorProfile("northwind");
+
+    expect(page!.websiteUrl).toBe("https://northwind.test");
+    expect(page!.summary).toBe("We build dispatch tooling.");
+    expect(page!.country).toBe("GB");
+  });
+
+  it("drops a field the platform setting switches off", async () => {
+    await platform({ website: false });
+    await vendor();
+    await published();
+
+    const page = await storefront.loadVendorProfile("northwind");
+
+    // **Absent, not blanked.** `VendorJsonLd` spreads `sameAs` off this object, so
+    // omitting the key is what stops the structured data advertising a link the
+    // page does not show — a mismatch rather than an untidiness.
+    expect(page).not.toHaveProperty("websiteUrl");
+    expect(JSON.stringify(page)).not.toContain("northwind.test");
+    // Only that one. A switch is not a blanket.
+    expect(page!.summary).toBe("We build dispatch tooling.");
+  });
+
+  /**
+   * The case both levels exist for, and the one a single-level design gets
+   * wrong: a platform-wide switch-off with one vendor exempted.
+   */
+  it("lets one vendor's override beat the platform setting", async () => {
+    await platform({ website: false });
+    await vendor({ storefrontVisibility: { website: true } });
+    await published();
+
+    expect((await storefront.loadVendorProfile("northwind"))!.websiteUrl).toBe(
+      "https://northwind.test",
+    );
+  });
+
+  it("lets a vendor be hidden while the platform shows everyone else", async () => {
+    await platform({ website: true });
+    await vendor({ storefrontVisibility: { website: false } });
+    await published();
+
+    expect(await storefront.loadVendorProfile("northwind")).not.toHaveProperty("websiteUrl");
+  });
+
+  /**
+   * `country` was required on `VendorProfile` until staff could switch `location`
+   * off. This is the assertion that it really is optional now — and the reason
+   * the `Organization` node's `address` had to become conditional, since a
+   * `PostalAddress` naming no country is a claim to have an address that has none.
+   */
+  it("omits the country entirely when location is hidden", async () => {
+    await platform({ location: false });
+    await vendor();
+    await published();
+
+    expect(await storefront.loadVendorProfile("northwind")).not.toHaveProperty("country");
+  });
+
+  it("never lets a hidden field reach the storefront through the profile", async () => {
+    await platform({ cover: false, logo: false });
+    await vendor({
+      profile: {
+        summary: "We build dispatch tooling.",
+        logoUrl: "https://cdn.test/logo.png",
+        coverUrl: "https://cdn.test/cover.jpg",
+      },
+    });
+    await published();
+
+    const serialised = JSON.stringify(await storefront.loadVendorProfile("northwind"));
+
+    expect(serialised).not.toContain("cdn.test");
   });
 });
 

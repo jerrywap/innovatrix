@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { Search } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Brand } from "./brand";
 import { MobileNav } from "./mobile-nav";
 import { PUBLIC_NAV } from "@/lib/navigation";
 import { getSession } from "@/lib/auth/dal";
 import { CartBadge } from "@/features/cart/components/cart-badge";
+import { HeaderCurrency } from "./header-currency";
 
 /**
  * Marketing header.
@@ -52,11 +54,7 @@ export function PublicHeader({ account }: { account: React.ReactNode }) {
     <header className="border-border bg-background/80 sticky top-0 z-50 border-b backdrop-blur-xl">
       <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-6 px-5 py-3.5 lg:px-10">
         <div className="flex items-center gap-2.5">
-          <MobileNav
-            sections={[{ items: PUBLIC_NAV }]}
-            homeHref="/"
-            triggerClassName="xl:hidden"
-          />
+          <MobileNav sections={[{ items: PUBLIC_NAV }]} triggerClassName="xl:hidden" />
           <Brand />
         </div>
 
@@ -73,6 +71,27 @@ export function PublicHeader({ account }: { account: React.ReactNode }) {
         </nav>
 
         <div className="flex items-center gap-2">
+          {/*
+            Search, before the theme switch.
+
+            Static markup, so it costs the header nothing — it reads no cookie
+            and no session, unlike the two controls after it, and stays outside
+            the one dynamic hole.
+
+            Icon-only with an `sr-only` name: the nav beside it already carries
+            four text labels and a fifth is what pushed this row to `xl` in the
+            first place. Visible at every width, because a phone's nav is behind
+            a burger and search is the one thing nobody should have to open a
+            drawer to reach.
+          */}
+          <Link
+            href="/search"
+            aria-label="Search"
+            className="border-border hover:bg-surface-muted focus-visible:ring-ring grid size-9 shrink-0 place-items-center rounded-full border transition focus-visible:ring-2 focus-visible:outline-none"
+          >
+            <Search className="size-4" aria-hidden />
+          </Link>
+
           <ThemeToggle className="hidden sm:flex" />
           {account}
         </div>
@@ -98,6 +117,18 @@ export async function HeaderAccount() {
           a second Suspense here would mean two skeletons popping in a row. */}
       <CartBadge />
 
+      {/*
+        Just after the basket — which for most visitors means *first*, because
+        `CartBadge` renders nothing when the basket is empty. That is correct
+        rather than a gap to paper over: the order is
+        `[theme] · [cart?] · currency · [staff] · CTA` either way.
+
+        Here rather than in the static markup for the same reason as the badge:
+        it reads the cookie and the forwarded URL, and a dynamic read outside
+        this boundary would make the whole layout dynamic. See `HeaderCurrency`.
+      */}
+      <HeaderCurrency />
+
       {isStaff && (
         <Link
           href="/staff"
@@ -116,17 +147,25 @@ export async function HeaderAccount() {
         </Link>
       ) : (
         <>
+          {/*
+          One control, not two.
+
+          "Get started" pointed at `/custom-software`, which is a *destination*
+          rather than an account action — so the signed-out corner offered a
+          quiet "Sign in" beside a loud button that did not sign anyone in. The
+          nav already carries "Request Custom Build", and the hero offers it
+          three more times.
+
+          `Sign in` loses its `sm:` gate along with it. It was hidden on phones
+          because the filled button was there to catch the tap; with that gone,
+          hiding it would leave a signed-out phone visitor no way into an
+          account from the header at all.
+        */}
           <Link
             href="/login"
-            className="text-muted-foreground hover:text-foreground hidden rounded-full px-3.5 py-2 text-[13.5px] font-medium transition sm:block"
+            className="text-muted-foreground hover:text-foreground rounded-full px-3.5 py-2 text-[13.5px] font-medium transition"
           >
             Sign in
-          </Link>
-          <Link
-            href="/custom-software"
-            className="bg-foreground text-background rounded-full px-5 py-2.5 text-[13.5px] font-medium transition hover:opacity-90"
-          >
-            Get started
           </Link>
         </>
       )}
@@ -143,9 +182,12 @@ export async function HeaderAccount() {
  */
 export function HeaderAccountFallback() {
   return (
-    <div
-      className="bg-surface-muted h-[38px] w-[104px] animate-pulse rounded-full"
-      aria-hidden
-    />
+    <div className="flex items-center gap-2" aria-hidden>
+      {/* The currency pill and the account CTA. The basket is deliberately
+          unreserved: it is conditional, and reserving for it would shift the
+          header the *other* way for the majority who have no basket. */}
+      <div className="bg-surface-muted h-9 w-[62px] animate-pulse rounded-full" />
+      <div className="bg-surface-muted h-[38px] w-[104px] animate-pulse rounded-full" />
+    </div>
   );
 }
