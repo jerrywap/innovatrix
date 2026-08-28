@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AccountMenu } from "@/components/shell/account-menu";
 import { NotificationBell } from "@/components/shell/notification-bell";
 import { AppShell } from "@/components/shell/app-shell";
+import { CompleteSetup } from "@/features/auth/components/complete-setup";
 import { OrgSwitcher } from "@/components/shell/org-switcher";
 import { redirect } from "next/navigation";
 import {
@@ -65,14 +66,35 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (!session) redirect(await loginDestination());
     if (session.user.isStaff) redirect("/staff");
 
+    /*
+     * Recoverable, rather than a dead end with an apology.
+     *
+     * Every account here reached this state the same way: §76's organization was
+     * created in exactly one place, `registerAction`, and Google never reached
+     * it. The hook in `auth.ts` fixes that at session creation — but somebody
+     * *already holding a session* keeps a session row stamped
+     * `activeOrganizationId: null` until they sign out or it expires, and this
+     * screen is what they see in the meantime.
+     *
+     * The button is a POST. Doing the repair here, during render, would be a GET
+     * that creates an organization — and Next prefetches links on hover and in
+     * the viewport, so merely having a link to `/dashboard` on screen would fire
+     * it. See `completeAccountSetupAction`.
+     */
     return (
       <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-3 px-6">
         <h1 className="font-display text-[20px] tracking-[-0.02em]">
           Your account isn&rsquo;t set up yet
         </h1>
         <p className="text-muted-foreground text-[14px]">
-          It has no organisation attached, which shouldn&rsquo;t happen. Get in touch and
-          we&rsquo;ll sort it out.
+          It has no organisation attached, which shouldn&rsquo;t happen. We can finish that now
+          &mdash; it takes a moment and nothing you&rsquo;ve done is lost.
+        </p>
+        <div className="mt-2">
+          <CompleteSetup />
+        </div>
+        <p className="text-subtle text-[12.5px]">
+          If that doesn&rsquo;t work, get in touch and we&rsquo;ll sort it out.
         </p>
       </div>
     );
