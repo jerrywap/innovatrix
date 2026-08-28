@@ -133,3 +133,71 @@ describe("the request id survives all of it", () => {
     expect(response.headers.get("x-request-id")).toBe("a".repeat(64));
   });
 });
+
+/**
+ * The stale-session handshake — the half of `loginDestination()` that lives here.
+ *
+ * A cookie that exists and no longer validates puts the proxy and the DAL in
+ * permanent disagreement: the proxy passes `/dashboard` through on presence, the
+ * DAL refuses on validity, and the proxy bounces the resulting `/login` back to
+ * `/dashboard`. The escape used to be a Route Handler, and Cache Components took
+ * it away — once the static shell is flushed the DAL's `redirect()` is carried
+ * out by the client router, which cannot render a Route Handler and stops on a
+ * blank page. So the clearing happens here, before anything is written.
+ *
+ * Behaviour, not convention: nothing below walks the filesystem.
+ */
+describe("clearing a stale session", () => {
+  const withSession = (path: string, cookie = "cosetup.session_token=stale.garbage") =>
+    visit(path, { "sec-fetch-dest": "document", cookie });
+
+  it("bounces a bare /login, because a cookie is normally a real session", () => {
+    expect(withSession("/login").headers.get("location")).toContain("/dashboard");
+  });
+
+  it("does not bounce /login?expired=1 — that URL is the way out", () => {
+    const response = withSession("/login?expired=1");
+    // No redirect: the sign-in form has to be allowed to render.
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("expires the session cookie so the next click isn't the same dead end", () => {
+    const response = withSession("/login?expired=1");
+    expect(response.cookies.get("cosetup.session_token")?.value).toBe("");
+  });
+
+  it("expires the __Secure- spelling WITH Secure, or the browser discards it", () => {
+    // The defect that made the loop permanent on HTTPS. `cookies().delete()`
+    // omits `Secure`, and a `__Secure-` cookie cannot be expired without it —
+    // so the live session cookie on any real deployment survived every attempt
+    // to clear it. Invisible locally, where APP_URL is http.
+    const secure = withSession(
+      "/login?expired=1",
+      "__Secure-cosetup.session_token=stale.garbage",
+    ).cookies.get("__Secure-cosetup.session_token");
+
+    expect(secure?.value).toBe("");
+    expect(secure?.secure, "a __Secure- cookie cannot be expired without it").toBe(true);
+  });
+
+  it("expires the pre-rebrand prefix too", () => {
+    expect(
+      withSession("/login?expired=1", "innovatrix.session_token=stale.garbage").cookies.get(
+        "innovatrix.session_token",
+      )?.value,
+    ).toBe("");
+  });
+
+  it("expires only what the request carries, not all twelve spellings", () => {
+    const written = withSession("/login?expired=1").cookies.getAll();
+    expect(written.map((c) => c.name)).toEqual(["cosetup.session_token"]);
+  });
+
+  it("leaves a signed-out visitor's /login alone", () => {
+    const response = visit("/login?expired=1");
+    expect(response.headers.get("location")).toBeNull();
+    // Nothing to clear, so nothing is written — a signed-out visitor should not
+    // collect a handful of expiry cookies for visiting the sign-in page.
+    expect(response.cookies.get("cosetup.session_token")).toBeUndefined();
+  });
+});

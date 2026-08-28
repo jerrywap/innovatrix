@@ -29,12 +29,21 @@ import { clearSessionCookies } from "@/lib/auth/session-cookies";
  * "try deleting your cookies" — is exactly right, which is the tell that the
  * server should have done it.
  *
- * ## Why a Route Handler
+ * ## Nothing redirects here any more
  *
- * Because the stale cookie has to be **deleted**, and a layout or page cannot do
- * that: Next allows `cookies().set` only in a Server Action or a Route Handler.
- * The DAL discovers the problem in a layout, so it redirects here, and here the
- * cookie can actually go.
+ * It used to be where `loginDestination()` sent a stale session, because a
+ * layout cannot delete a cookie and a Route Handler can. That stopped working
+ * when Cache Components began flushing the static shell before the guard ran:
+ * the DAL's `redirect()` then arrives as a client-side `NEXT_REDIRECT` under
+ * `200 OK`, and the client router cannot render a Route Handler — it fetches
+ * one as RSC, gets a bodyless redirect, and stops on a blank page, with the
+ * cookie still in place. The clearing moved to `proxy.ts`, which runs before
+ * anything is flushed. See `loginDestination()` for the full account.
+ *
+ * This route stays because a **document** navigation to it still works, which
+ * makes it the escape hatch when JavaScript is off or the client router is
+ * wedged: it is the URL to give somebody in a support conversation instead of
+ * "clear your cookies".
  *
  * ## Not a sign-out
  *

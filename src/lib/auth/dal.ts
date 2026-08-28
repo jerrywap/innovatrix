@@ -108,16 +108,40 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
 /**
  * Where to send somebody who has no valid session.
  *
- * ## Not always `/login`
+ * ## Not quite `/login`
  *
  * If a session **cookie is present** and the session behind it is not valid,
- * sending them to `/login` produces an infinite redirect: `proxy.ts` guards the
- * protected areas by cookie *presence* — deliberately, so it never touches the
- * database — and so it bounces `/login` straight back to `/dashboard`, where
- * this function runs again. The browser stops with `ERR_TOO_MANY_REDIRECTS`.
+ * sending them to a bare `/login` produces an infinite redirect: `proxy.ts`
+ * guards the protected areas by cookie *presence* — deliberately, so it never
+ * touches the database — and so it bounces `/login` straight back to
+ * `/dashboard`, where this function runs again. The browser stops with
+ * `ERR_TOO_MANY_REDIRECTS`.
  *
- * So a stale cookie goes to the route that can actually delete it. A visitor
- * with no cookie at all has nothing to clear and goes to `/login` directly.
+ * So the stale case says so in the URL. `?expired=1` is the signal the proxy
+ * acts on: it expires the cookies and lets `/login` render instead of bouncing
+ * it. See `proxy.ts`, which is where the clearing now happens.
+ *
+ * ## Why not the route handler any more
+ *
+ * This used to return `/api/auth/stale-session`, on the reasoning that only a
+ * Route Handler can delete a cookie. It is a **page** now, and that difference
+ * is the whole bug:
+ *
+ * With Cache Components the static shell is flushed *before* this guard
+ * resolves, so `redirect()` cannot set a status line — Next delivers it inside
+ * the RSC payload as `NEXT_REDIRECT` under `200 OK`, for the client router to
+ * carry out. The client router can navigate to a **page**. It cannot render a
+ * **Route Handler**: it fetches one as RSC, gets a bodyless redirect, has
+ * nothing to render, and stops — leaving the flushed shell painted and the
+ * cookie uncleared. That is a permanent white screen on `/dashboard`, and it
+ * only appears in a production build, because a dev server has no prerendered
+ * shell to flush and so still emits a real 307.
+ *
+ * `instant = false` does not help: it is dev-only validation and changes no
+ * runtime behaviour. Measured against UAT, not assumed.
+ *
+ * `/api/auth/stale-session` still exists and still works as a direct hit — it
+ * is the no-JavaScript escape hatch — but nothing redirects to it.
  *
  * Returns the path rather than redirecting, so the call site keeps
  * `redirect(...)` as its last statement — TypeScript narrows on `never` from a
@@ -125,10 +149,10 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
  * every caller below needs a null check for a branch that cannot be reached.
  */
 export async function loginDestination(): Promise<Route> {
-  // A cookie is here but `getSession()` found nothing behind it ⇒ stale, and
-  // it has to be deleted or the proxy will keep asserting the user is signed in.
+  // A cookie is here but `getSession()` found nothing behind it ⇒ stale, and it
+  // has to be expired or the proxy will keep asserting the user is signed in.
   const stale = hasSessionCookie(await cookies());
-  return (stale ? "/api/auth/stale-session" : "/login") as Route;
+  return (stale ? "/login?expired=1" : "/login") as Route;
 }
 
 /** Signed in, or redirected to login with a return path. */
