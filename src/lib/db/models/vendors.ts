@@ -1,6 +1,7 @@
 import { Schema, type Types } from "mongoose";
 import { schemaOptions } from "@/lib/db/base";
 import { defineModel } from "@/lib/db/client";
+import { STOREFRONT_FIELDS, type StorefrontField } from "@/config/storefront";
 import {
   MEMBER_STATUSES,
   VENDOR_DOCUMENT_KINDS,
@@ -91,7 +92,37 @@ export interface VendorDoc {
   pitch: string;
   /** Which version of the vendor agreement was accepted, and by whom. */
   agreement?: { version: string; acceptedAt: Date; acceptedByUserId: Types.ObjectId };
-  profile: { summary?: string; websiteUrl?: string; supportEmail?: string; logoUrl?: string };
+  profile: {
+    summary?: string;
+    websiteUrl?: string;
+    supportEmail?: string;
+    logoUrl?: string;
+    /**
+     * The storefront's cover band.
+     *
+     * Carries the `?v=` stamp `publicObjectUrl` adds, because the underlying key
+     * is **stable** — `vendors/{id}/branding/cover`, so a replacement overwrites
+     * in place rather than orphaning an object in a bucket we may not delete
+     * from. Without the stamp every cache in the path would keep serving the old
+     * bytes from an unchanged URL.
+     */
+    coverUrl?: string;
+  };
+  /**
+   * What staff have decided this storefront may show — the per-vendor half of
+   * the two-level rule in `services/vendors/storefront-visibility.ts`.
+   *
+   * **Tri-state, expressed as a missing key.** Absent ⇒ follow the platform
+   * default; `true` ⇒ always show; `false` ⇒ always hide. A plain boolean could
+   * not distinguish "staff decided to show this" from "staff never looked",
+   * which is the difference between an override and a default and therefore the
+   * whole point of having two levels.
+   *
+   * Set by **staff**, never by the vendor — the same exception
+   * `commissionBasisPoints` is, and worth stating for the same reason: every
+   * other field under `profile` is theirs.
+   */
+  storefrontVisibility?: Partial<Record<StorefrontField, boolean>>;
   /**
    * Identity unlocks listing (vendor ticket 04); business unlocks a payout
    * (vendor ticket 09). Ordered deliberately: it removes the slowest step from
@@ -219,7 +250,17 @@ const vendorSchema = new Schema<VendorDoc>(
       websiteUrl: { type: String, trim: true },
       supportEmail: { type: String, lowercase: true, trim: true },
       logoUrl: { type: String, trim: true },
+      coverUrl: { type: String, trim: true },
     },
+    /*
+     * Declared from `STOREFRONT_FIELDS` rather than written out, so the schema
+     * cannot fall behind the list the resolver and both screens iterate. No
+     * `default` on any of them: absence is a meaningful third state here, and a
+     * default would erase it on the first save.
+     */
+    storefrontVisibility: Object.fromEntries(
+      STOREFRONT_FIELDS.map((field) => [field, { type: Boolean }]),
+    ),
     verification: {
       identity: {
         status: { type: String, enum: VENDOR_VERIFICATION_STATUSES, default: "unstarted" },
@@ -264,6 +305,57 @@ vendorSchema.index({ slug: 1 }, { unique: true });
 vendorSchema.index({ status: 1, appliedAt: 1 });
 
 export const Vendor = defineModel<VendorDoc>("Vendor", vendorSchema);
+
+/* ────────────────────────────────────────────── StorefrontSettings */
+
+/**
+ * What vendor storefronts show, platform-wide — the default half of the rule.
+ *
+ * ## Why a singleton rather than a constant
+ *
+ * Because the question it answers changes without a deploy. "Should vendor
+ * website links be live at all this week" is an incident-response decision, and
+ * a constant makes it a release. Same reasoning as `AiSettings` — an
+ * administrator changing model mid-incident — and the same shape: one row, a
+ * unique index on `singleton`, created on first save rather than seeded.
+ *
+ * ## Every field is optional, and an absent row means "show everything"
+ *
+ * That is what makes this change invisible: an empty collection renders exactly
+ * the storefront that existed before any of this. `resolveStorefrontVisibility`
+ * falls back to `STOREFRONT_FIELDS_SHOWN_BY_DEFAULT`, so there is no migration,
+ * no seed, and no window where a deploy blanks every vendor's website link.
+ *
+ * ## It is a *default*, not a switch
+ *
+ * A vendor's own `storefrontVisibility` beats it in both directions — that is
+ * the point of the two levels. Turning `website` off here and leaving one
+ * trusted vendor's override on `true` is the case the whole design exists for.
+ */
+export interface StorefrontSettingsDoc {
+  _id: Types.ObjectId;
+  singleton: "global";
+  fields: Partial<Record<StorefrontField, boolean>>;
+  updatedByUserId?: Types.ObjectId;
+}
+
+const storefrontSettingsSchema = new Schema<StorefrontSettingsDoc>(
+  {
+    singleton: { type: String, default: "global", enum: ["global"] },
+    // Same derivation as `Vendor.storefrontVisibility`, and no defaults, for the
+    // same reason: absent must keep meaning "nobody has decided".
+    fields: Object.fromEntries(STOREFRONT_FIELDS.map((field) => [field, { type: Boolean }])),
+    updatedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
+  },
+  schemaOptions({ collection: "storefrontSettings" }),
+);
+
+storefrontSettingsSchema.index({ singleton: 1 }, { unique: true });
+
+export const StorefrontSettings = defineModel<StorefrontSettingsDoc>(
+  "StorefrontSettings",
+  storefrontSettingsSchema,
+);
 
 /* ────────────────────────────────────────────── VendorMember */
 

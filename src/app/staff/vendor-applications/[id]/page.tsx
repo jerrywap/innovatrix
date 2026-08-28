@@ -18,6 +18,11 @@ import {
 } from "@/features/vendors/components/review-panel";
 import { VendorMoney } from "@/features/vendors/components/vendor-money";
 import { LifecyclePanel } from "@/features/vendors/components/lifecycle-panel";
+import { StorefrontVisibilityPanel } from "@/features/vendors/components/storefront-visibility-panel";
+import {
+  platformStorefrontDefaults,
+  resolveStorefrontVisibility,
+} from "@/services/vendors/storefront-visibility";
 
 export const metadata: Metadata = { title: "Vendor" };
 
@@ -59,6 +64,7 @@ export default async function Page({ params }: PageProps<"/staff/vendor-applicat
     mayAdjust,
     maySuspend,
     mayOffboard,
+    storefrontDefaults,
   ] = await Promise.all([
     listDocuments(vendorId),
     listMembers(vendorId),
@@ -76,6 +82,10 @@ export default async function Page({ params }: PageProps<"/staff/vendor-applicat
     // not, happens with money owed, and is `super_admin` only.
     can("vendor.suspend"),
     can("vendor.offboard"),
+    // In the same fan-out as the permission reads rather than behind the panel:
+    // it is one indexed `findOne` and the panel is rendered inline, so a second
+    // await here would be a second round trip for no streaming benefit.
+    platformStorefrontDefaults(),
   ]);
 
   return (
@@ -228,6 +238,33 @@ export default async function Page({ params }: PageProps<"/staff/vendor-applicat
             canAdjust={mayAdjust}
           />
         </Suspense>
+      )}
+
+      {/*
+        `vendor.review`, not a new permission.
+
+        The three vendor permissions are split by blast radius, and deciding what a
+        live storefront may show sits with `vendor.suspend` and `review.moderate` —
+        `marketplace_manager`'s commercial and editorial call. `finance` holds
+        `vendor.verify` and not `vendor.review`, so this keeps finance out, which is
+        the right answer and one a ninth permission would have had to reproduce by
+        hand in every role or fail `assertMatrixIsComplete()`.
+      */}
+      {mayReview && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-display text-[15.5px] tracking-[-0.02em]">
+            What their storefront shows
+          </h2>
+          <StorefrontVisibilityPanel
+            vendorId={vendorId}
+            current={vendor.storefrontVisibility ?? {}}
+            // What "Use default" resolves to right now, so the option can say which it
+            // is. Resolved against *no* vendor deliberately — the platform answer is
+            // what the option describes, and passing this vendor would make every row
+            // read back its own override.
+            platform={resolveStorefrontVisibility(null, storefrontDefaults)}
+          />
+        </section>
       )}
 
       <LifecyclePanel

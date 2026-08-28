@@ -16,6 +16,7 @@ import {
   contentDisposition,
   healthcheckKey,
   paymentProofKey,
+  vendorBrandingKey,
   vendorDocumentKey,
   payoutEvidenceKey,
   productFileKey,
@@ -23,6 +24,7 @@ import {
   productVideoKey,
   StorageKeyError,
   type StorageScope,
+  type VendorBrandingKind,
 } from "./keys";
 import { assertBytesMatchDeclared, assertUploadAllowed, STORAGE_POLICY } from "./policy";
 
@@ -80,6 +82,8 @@ const UPLOAD_TTL_SECONDS: Record<StorageScope, number> = {
   // Same reasoning as a receipt, more so: a KYC document is small, and the
   // shorter the window the less time a leaked ticket is worth anything.
   "vendor-document": 300,
+  // Half the size of a screenshot and the same shape of upload.
+  "vendor-branding": 300,
   // A bank document, like a receipt.
   "payout-evidence": 300,
   healthcheck: 60,
@@ -485,6 +489,38 @@ export function assertVendorDocumentKey(key: string, vendorId: string): string {
   assertKeyInPrefix(key, root);
 
   if (!key.startsWith(`${root}/vendors/${vendorId}/documents/`)) {
+    throw new StorageKeyError("That file does not belong to this vendor.");
+  }
+  return key;
+}
+
+/**
+ * A vendor's cover image or logo. The key is derived, never supplied.
+ *
+ * There is no `filename` parameter, and that is the signature saying what
+ * `vendorBrandingKey`'s docblock explains: the key is `{vendorId}/{kind}` and
+ * nothing else, so uploading a second cover replaces the first rather than
+ * leaving it behind in a bucket we may not delete from.
+ */
+export function vendorBrandingPath(vendorId: string, kind: VendorBrandingKind): string {
+  return vendorBrandingKey(storageContext(), vendorId, kind);
+}
+
+/**
+ * Prove a client-supplied vendor-branding key belongs to *this* vendor.
+ *
+ * Provided for symmetry with `assertVendorDocumentKey`, and currently unused by
+ * design: because the key is fully derived from the vendor and the kind, the
+ * upload action never accepts one from a client and so has nothing to check.
+ * The moment any caller *does* take a key from a request, this is the function
+ * it owes — in-prefix alone would only prove the key is one of ours, not that it
+ * is this vendor's.
+ */
+export function assertVendorBrandingKey(key: string, vendorId: string): string {
+  const root = storageContext().root;
+  assertKeyInPrefix(key, root);
+
+  if (!key.startsWith(`${root}/vendors/${vendorId}/branding/`)) {
     throw new StorageKeyError("That file does not belong to this vendor.");
   }
   return key;

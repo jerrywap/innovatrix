@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { formDataToObject } from "@/lib/action-result";
+import { parseNestedFormData } from "@/lib/form-data";
 import {
   requirePermission,
   requireVendorOrForbid,
@@ -16,7 +17,7 @@ import { serverEnv } from "@/config/env";
 import { ForbiddenError } from "@/lib/errors";
 import { LIMITS, consume } from "@/lib/rate-limit";
 import { staffActor, vendorActor } from "@/services/audit";
-import { vendorChanged } from "@/services/catalog/cache";
+import { catalogChanged, vendorChanged } from "@/services/catalog/cache";
 import { sendAuthEmail, vendorInvitationMessage } from "@/services/email";
 import * as documentService from "@/services/vendors/document-service";
 import * as memberService from "@/services/vendors/member-service";
@@ -36,6 +37,9 @@ import {
   vendorApplicationSchema,
   vendorProfileSchema,
   verificationDecisionSchema,
+  brandingUploadSchema,
+  storefrontDefaultsSchema,
+  storefrontVisibilitySchema,
 } from "./schemas";
 
 /**
@@ -586,5 +590,144 @@ export async function decideVerificationAction(
     refreshSelling();
 
     return ok({ decided: true as const });
+  });
+}
+
+/* ────────────────────────────────────────────── storefront artwork */
+
+/**
+ * A presigned PUT for a vendor's cover image or logo.
+ *
+ * ## Nothing about the destination comes from the client
+ *
+ * The key is `vendors/{vendorId}/branding/{kind}`, built here from
+ * `context.vendorId` — the session's, never a form field. So unlike
+ * `createVendorMediaUploadAction`, which has to check a client-supplied
+ * `replaceKey` against the product it claims to belong to, there is no claim to
+ * check: `kind` is a two-value enum and the vendor is whoever is signed in.
+ *
+ * That is also why the key is *stable* rather than minted. A second cover
+ * overwrites the first, so a vendor trying four of them leaves one object rather
+ * than four — which matters while `s3:DeleteObject` is denied and nothing ever
+ * cleans up. `publicObjectUrl`'s `?v=` stamp is what stops every cache in the
+ * path from serving the previous bytes from an unchanged URL.
+ *
+ * ## `requireVendorOwner`, not `requireVendorOrForbid`
+ *
+ * The profile form this feeds is owner-only — `saveProfileAction` and the
+ * settings page both are — so a member who could mint a ticket here could write
+ * bytes they would then be unable to save a reference to. Matching the guard to
+ * the form keeps "who may change how we look" one answer instead of two.
+ */
+export async function createBrandingUploadAction(input: unknown): Promise<
+  ActionResult<{
+    uploadUrl: string;
+    key: string;
+    headers: Record<string, string>;
+    publicUrl: string;
+  }>
+> {
+  return withAction(async () => {
+    const context = await requireVendorOwner();
+    const parsed = parseInput(brandingUploadSchema, input);
+
+    const storage = await import("@/services/storage");
+    const key = storage.vendorBrandingPath(context.vendorId, parsed.kind);
+
+    const ticket = await storage.createUploadUrl({
+      scope: "vendor-branding",
+      key,
+      filename: parsed.filename,
+      contentType: parsed.contentType,
+      sizeBytes: parsed.sizeBytes,
+    });
+
+    return ok({
+      uploadUrl: ticket.url,
+      key: ticket.key,
+      publicUrl: storage.publicObjectUrl(ticket.key, { version: Date.now() }),
+      headers: ticket.headers,
+    });
+  });
+}
+
+/* ────────────────────────────────────────────── storefront visibility (staff) */
+
+/**
+ * Decide what one vendor's storefront shows — vendor ticket 11, revisited.
+ *
+ * ## Why `vendor.review` rather than a new permission
+ *
+ * The three vendor permissions are split by blast radius, and this one lands
+ * squarely in the same place as `vendor.suspend` and `review.moderate`: it is a
+ * commercial and editorial call about a live storefront, which is
+ * `marketplace_manager`'s job. `finance` holds `vendor.verify` and *not*
+ * `vendor.review`, so gating here keeps finance out — which is the correct
+ * answer and one a fresh permission would have had to reproduce by hand in every
+ * role, or fail `assertMatrixIsComplete()`.
+ *
+ * ## Both caches, because there are two readers
+ *
+ * `vendorChanged` clears the public storefront's `"use cache"` entry. The
+ * vendor's own preview reads uncached, but sits inside the dashboard's router
+ * cache, so it needs its path revalidated or the vendor is told nothing until
+ * they hard-reload.
+ */
+export async function setStorefrontVisibilityAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ saved: true }>> {
+  return withAction(async () => {
+    const staff = await requirePermission("vendor.review");
+    // `parseNestedFormData`, because the radios are named `fields.website` and
+    // `formDataToObject` would hand Zod a flat key with a dot in it rather than a
+    // record. Same reason `toggleProviderAction` reaches for it.
+    const input = parseInput(storefrontVisibilitySchema, parseNestedFormData(formData));
+
+    const vendor = await vendorService.setStorefrontVisibility(
+      input.vendorId,
+      input.fields,
+      staffActor(staff.user),
+    );
+
+    refreshStaffVendors(input.vendorId);
+    refreshStorefront(vendor.slug);
+    revalidatePath("/dashboard/selling/storefront");
+
+    return ok({ saved: true as const });
+  });
+}
+
+/**
+ * The platform-wide defaults.
+ *
+ * `settings.manage`, because this is platform configuration rather than a
+ * judgement about one vendor — the same permission `/admin/settings` already
+ * required when it was a placeholder.
+ *
+ * **`catalogChanged()`, not `vendorChanged()`.** This changes every storefront at
+ * once, and `getVendorProfile` is tagged with `CATALOG_TAG` as well as its own
+ * `vendor:{slug}` — which is exactly what makes one call enough instead of a
+ * scan of every vendor.
+ */
+export async function saveStorefrontDefaultsAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ saved: true }>> {
+  return withAction(async () => {
+    const staff = await requirePermission("settings.manage");
+    const input = parseInput(storefrontDefaultsSchema, parseNestedFormData(formData));
+
+    await vendorService.saveStorefrontDefaults(
+      input.fields,
+      staffActor(staff.user),
+      staff.user.id,
+    );
+
+    catalogChanged();
+    revalidatePath("/admin/settings");
+    revalidatePath("/dashboard/selling/storefront");
+
+    return ok({ saved: true as const });
   });
 }

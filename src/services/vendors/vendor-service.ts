@@ -3,7 +3,14 @@ import type { ClientSession } from "mongoose";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase, supportsTransactions } from "@/lib/db/client";
 import { withTransaction } from "@/lib/db/transaction";
-import { Vendor, VendorMember, type VendorDoc } from "@/lib/db/models/vendors";
+import {
+  StorefrontSettings,
+  Vendor,
+  VendorMember,
+  type StorefrontSettingsDoc,
+  type VendorDoc,
+} from "@/lib/db/models/vendors";
+import { STOREFRONT_FIELDS, type StorefrontField } from "@/config/storefront";
 import type { VendorAccountType, VendorStatus, VendorVerificationLevel } from "@/lib/db/enums";
 import { VENDOR_TRANSITIONS, assertTransition } from "@/lib/db/states";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -508,6 +515,8 @@ export interface SaveProfileInput {
   summary?: string;
   supportEmail?: string;
   websiteUrl?: string;
+  coverUrl?: string;
+  logoUrl?: string;
 }
 
 /**
@@ -543,6 +552,12 @@ export async function saveProfile(
     ["profile.summary", input.summary],
     ["profile.supportEmail", input.supportEmail],
     ["profile.websiteUrl", input.websiteUrl],
+    // The artwork travels the same path as the text, so "clear it" works the
+    // same way: an empty string from a cleared control becomes an `$unset`.
+    // The bytes stay in the bucket — `s3:DeleteObject` is denied — but the
+    // storefront stops pointing at them, which is what "remove" means here.
+    ["profile.coverUrl", input.coverUrl],
+    ["profile.logoUrl", input.logoUrl],
   ] as const) {
     if (value === undefined || value === "") unset[field] = "";
     else set[field] = value;
@@ -566,6 +581,142 @@ export async function saveProfile(
   });
 
   return updated;
+}
+
+/* ────────────────────────────────────────────── storefront visibility */
+
+/** What staff chose for one field. `"default"` clears the override rather than storing one. */
+export type VisibilityChoice = "default" | "show" | "hide";
+
+/**
+ * Decide what one vendor's storefront may show — the staff half of the two-level
+ * rule in `storefront-visibility.ts`.
+ *
+ * ## Why this is not `saveProfile`
+ *
+ * Everything `saveProfile` writes belongs to the vendor and is written by them.
+ * This is written by **staff, about a vendor**, over their heads, and it is the
+ * second such field on the record — `commissionBasisPoints` is the first, and
+ * says the same thing about itself for the same reason. Two guards, two audit
+ * actions, two `source` values.
+ *
+ * ## `"default"` is an `$unset`, and that is the whole tri-state
+ *
+ * Storing `true` for "use the platform default, which is currently true" would
+ * pin the field: a later platform-wide switch-off would skip this vendor,
+ * silently, and nobody would be able to see why. Clearing the key is what hands
+ * the decision back.
+ */
+export async function setStorefrontVisibility(
+  vendorId: string,
+  fields: Partial<Record<StorefrontField, VisibilityChoice>>,
+  actor: AuditActor,
+): Promise<VendorDoc> {
+  await connectToDatabase();
+
+  const before = await Vendor.findOne({ _id: toObjectId(vendorId), deletedAt: null })
+    .select({ storefrontVisibility: 1 })
+    .lean<Pick<VendorDoc, "storefrontVisibility">>();
+
+  if (!before) throw new NotFoundError("vendor", { id: vendorId });
+
+  const set: Record<string, boolean> = {};
+  const unset: Record<string, ""> = {};
+
+  for (const field of STOREFRONT_FIELDS) {
+    const choice = fields[field];
+    if (choice === undefined) continue;
+    if (choice === "default") unset[`storefrontVisibility.${field}`] = "";
+    else set[`storefrontVisibility.${field}`] = choice === "show";
+  }
+
+  const updated = await Vendor.findOneAndUpdate(
+    { _id: toObjectId(vendorId), deletedAt: null },
+    {
+      ...(Object.keys(set).length > 0 ? { $set: set } : {}),
+      ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
+    },
+    { returnDocument: "after" },
+  ).lean<VendorDoc>();
+
+  if (!updated) throw new NotFoundError("vendor", { id: vendorId });
+
+  await writeAuditLog({
+    action: "vendor.storefront_visibility_changed",
+    actor,
+    subject: { type: "vendor", id: vendorId },
+    /*
+     * Values, not just field names — the opposite of `saveProfile`'s rule, and
+     * deliberately. There the values are the vendor's own content and the log has
+     * no business holding a copy. Here the value *is* the decision, and "staff
+     * changed the website setting" without saying which way is a log entry that
+     * cannot answer the question it exists for.
+     */
+    before: { visibility: before.storefrontVisibility ?? {} },
+    after: { visibility: updated.storefrontVisibility ?? {} },
+    source: "staff",
+  });
+
+  return updated;
+}
+
+/**
+ * The platform-wide defaults, upserted on first save.
+ *
+ * Not seeded, for the reason `AiSettings` is not: an absent row is a meaningful
+ * state — "nobody has ever configured this" — and seeding one would replace it
+ * with a set of decisions nobody made. `platformStorefrontDefaults()` reads it
+ * back and returns `{}` when it is missing.
+ *
+ * `$unset` on `"default"` for the same reason as the per-vendor version: it is
+ * the only way to get back to "no platform opinion" once one has been recorded.
+ */
+export async function saveStorefrontDefaults(
+  fields: Partial<Record<StorefrontField, VisibilityChoice>>,
+  actor: AuditActor,
+  updatedByUserId?: string,
+): Promise<void> {
+  await connectToDatabase();
+
+  const before = await StorefrontSettings.findOne({ singleton: "global" })
+    .select({ fields: 1 })
+    .lean<Pick<StorefrontSettingsDoc, "fields">>();
+
+  const set: Record<string, unknown> = {};
+  const unset: Record<string, ""> = {};
+
+  if (updatedByUserId) set.updatedByUserId = toObjectId(updatedByUserId);
+
+  for (const field of STOREFRONT_FIELDS) {
+    const choice = fields[field];
+    if (choice === undefined) continue;
+    if (choice === "default") unset[`fields.${field}`] = "";
+    else set[`fields.${field}`] = choice === "show";
+  }
+
+  await StorefrontSettings.updateOne(
+    { singleton: "global" },
+    {
+      $set: set,
+      ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
+      $setOnInsert: { singleton: "global" },
+    },
+    { upsert: true },
+  );
+
+  const after = await StorefrontSettings.findOne({ singleton: "global" })
+    .select({ fields: 1 })
+    .lean<Pick<StorefrontSettingsDoc, "fields">>();
+
+  await writeAuditLog({
+    action: "settings.storefront_updated",
+    actor,
+    // No `subject`: this is about every storefront rather than one of them, and
+    // naming an arbitrary vendor would make it findable under the wrong record.
+    before: { fields: before?.fields ?? {} },
+    after: { fields: after?.fields ?? {} },
+    source: "staff",
+  });
 }
 
 export interface PayoutAccountInput {

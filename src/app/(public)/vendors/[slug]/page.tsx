@@ -168,7 +168,19 @@ function VendorJsonLd({ storefront, origin }: { storefront: VendorProfile; origi
     ...(storefront.summary ? { description: storefront.summary } : {}),
     ...(storefront.logoUrl ? { logo: storefront.logoUrl } : {}),
     ...(storefront.websiteUrl ? { sameAs: [storefront.websiteUrl] } : {}),
-    address: { "@type": "PostalAddress", addressCountry: storefront.country },
+    /*
+     * Conditional, because `country` became optional when staff gained the
+     * ability to switch `location` off. Emitting the node unconditionally would
+     * leave `{"@type": "PostalAddress"}` with no address in it — a claim to have
+     * an address that names none, which is worse than saying nothing.
+     *
+     * Every optional above is conditional for the same reason and gets it for
+     * free: `loadVendorProfile` *omits* a hidden field rather than blanking it,
+     * so a link staff have pulled leaves `sameAs` here without a line of code.
+     */
+    ...(storefront.country
+      ? { address: { "@type": "PostalAddress", addressCountry: storefront.country } }
+      : {}),
     // Only where reviews exist. Emitting a rating for a vendor nobody has reviewed is the
     // fabrication ticket 27 refused to ship, and it carries a manual action.
     ...(storefront.rating

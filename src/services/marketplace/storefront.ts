@@ -5,6 +5,10 @@ import { Product } from "@/lib/db/models/catalog";
 import { Vendor, type VendorDoc } from "@/lib/db/models/vendors";
 import { CACHE_PROFILE, CATALOG_TAG, vendorTag } from "@/services/catalog/cache";
 import { averageRating } from "@/services/reviews/review-service";
+import {
+  platformStorefrontDefaults,
+  resolveStorefrontVisibility,
+} from "@/services/vendors/storefront-visibility";
 
 /**
  * The public vendor storefront — vendor ticket 11.
@@ -39,7 +43,17 @@ export interface VendorProfile {
   summary?: string;
   websiteUrl?: string;
   logoUrl?: string;
-  country: string;
+  /** The storefront's cover band. Absent ⇒ the page draws its own. */
+  coverUrl?: string;
+  /**
+   * Optional, because staff can switch `location` off.
+   *
+   * It was required, and making it optional is the honest consequence of that:
+   * a country that may be withheld cannot be typed as always present, and the
+   * `Organization` JSON-LD's `address` has to follow it rather than emit a
+   * `PostalAddress` with nothing in it.
+   */
+  country?: string;
   /** Identity verification, and nothing more — vendor ticket 02's wording. */
   identityVerified: boolean;
   /** When they were verified, so "selling since" is a fact rather than an approximation. */
@@ -80,30 +94,49 @@ export async function getVendorProfile(slug: string): Promise<VendorProfile | nu
 export async function loadVendorProfile(slug: string): Promise<VendorProfile | null> {
   await connectToDatabase();
 
-  const vendor = await Vendor.findOne({ slug, status: "verified", deletedAt: null })
-    .select({
-      slug: 1,
-      displayName: 1,
-      country: 1,
-      profile: 1,
-      verification: 1,
-      verifiedAt: 1,
-      ratingSum: 1,
-      ratingCount: 1,
-    })
-    .lean<VendorDoc>();
+  /*
+   * Two reads, in parallel, and the second is the one worth explaining.
+   *
+   * Storefront visibility is resolved **here** rather than in the component, so
+   * the public page and the vendor's own preview cannot disagree — they call
+   * different wrappers around this function, and a rule applied in the view
+   * would have to be applied twice. Doing it here also means a hidden field is
+   * *absent* rather than flagged, so `VendorJsonLd` stops emitting it without a
+   * line of its own: a structured-data node advertising a link the page does not
+   * show is a mismatch, not an untidiness.
+   */
+  const [vendor, platform] = await Promise.all([
+    Vendor.findOne({ slug, status: "verified", deletedAt: null })
+      .select({
+        slug: 1,
+        displayName: 1,
+        country: 1,
+        profile: 1,
+        storefrontVisibility: 1,
+        verification: 1,
+        verifiedAt: 1,
+        ratingSum: 1,
+        ratingCount: 1,
+      })
+      .lean<VendorDoc>(),
+    platformStorefrontDefaults(),
+  ]);
 
   if (!vendor) return null;
 
   const rating = averageRating(vendor.ratingSum, vendor.ratingCount);
+  const shows = resolveStorefrontVisibility(vendor, platform);
 
   return {
     slug: vendor.slug,
     displayName: vendor.displayName,
-    ...(vendor.profile?.summary ? { summary: vendor.profile.summary } : {}),
-    ...(vendor.profile?.websiteUrl ? { websiteUrl: vendor.profile.websiteUrl } : {}),
-    ...(vendor.profile?.logoUrl ? { logoUrl: vendor.profile.logoUrl } : {}),
-    country: vendor.country,
+    ...(shows.summary && vendor.profile?.summary ? { summary: vendor.profile.summary } : {}),
+    ...(shows.website && vendor.profile?.websiteUrl
+      ? { websiteUrl: vendor.profile.websiteUrl }
+      : {}),
+    ...(shows.logo && vendor.profile?.logoUrl ? { logoUrl: vendor.profile.logoUrl } : {}),
+    ...(shows.cover && vendor.profile?.coverUrl ? { coverUrl: vendor.profile.coverUrl } : {}),
+    ...(shows.location ? { country: vendor.country } : {}),
     // The identity level only. "Business verified" is about whether we may send them money,
     // which is none of a buyer's business and would read as a stronger claim than it is.
     identityVerified: vendor.verification.identity.status === "approved",

@@ -5,6 +5,7 @@ import {
   VENDOR_VERIFICATION_LEVELS,
   VENDOR_ACCOUNT_TYPES,
 } from "@/lib/db/enums";
+import { STOREFRONT_FIELDS } from "@/config/storefront";
 import { CURRENCY_CODES } from "@/lib/money";
 import { emailSchema, objectIdSchema, optionalText } from "@/validators/common";
 
@@ -53,6 +54,53 @@ export const vendorProfileSchema = z.object({
   summary: optionalText(600),
   supportEmail: z.union([emailSchema, z.literal("")]).optional(),
   websiteUrl: z.union([z.url("Include https://"), z.literal("")]).optional(),
+  /*
+   * The addresses the browser already uploaded to, in the same shape as
+   * `websiteUrl` — and the `z.literal("")` half is what makes *removing* a cover
+   * work. An empty text input submits `""`, and a bare `z.url().optional()`
+   * would reject the field somebody deliberately cleared; the empty string is
+   * what `saveProfile` turns into an `$unset`.
+   *
+   * They are URLs rather than storage keys because that is what the storefront
+   * renders and what `Organization.logo` emits. The key never reaches the client:
+   * it is derived server-side from the vendor id, so there is nothing here for a
+   * caller to claim.
+   */
+  coverUrl: z.union([z.url(), z.literal("")]).optional(),
+  logoUrl: z.union([z.url(), z.literal("")]).optional(),
+});
+
+/**
+ * Asking for a presigned PUT for a vendor's storefront artwork.
+ *
+ * **No key and no vendor id.** Both are derived server-side from the session —
+ * the key is `vendors/{vendorId}/branding/{kind}` and nothing else — so unlike
+ * the product media request there is no client-supplied key to check against an
+ * owner. `kind` is an enum rather than a filename because it is the only part of
+ * the key the caller gets to influence at all.
+ */
+export const brandingUploadSchema = z.object({
+  kind: z.enum(["cover", "logo"]),
+  filename: z.string().trim().min(1).max(255),
+  contentType: z.string().trim().min(1).max(120),
+  sizeBytes: z.coerce.number().int().positive(),
+});
+
+/**
+ * A staff decision about one storefront field — the per-vendor override.
+ *
+ * `"default"` is a real option, not the absence of one: it is how staff *undo* a
+ * decision and hand the field back to the platform setting. It becomes an
+ * `$unset`, which is why the tri-state survives a round trip through a form.
+ */
+export const storefrontVisibilitySchema = z.object({
+  vendorId: objectIdSchema,
+  fields: z.record(z.enum(STOREFRONT_FIELDS), z.enum(["default", "show", "hide"])),
+});
+
+/** The platform-wide defaults — the same three states, with no vendor attached. */
+export const storefrontDefaultsSchema = z.object({
+  fields: z.record(z.enum(STOREFRONT_FIELDS), z.enum(["default", "show", "hide"])),
 });
 
 /* ────────────────────────────────────────────── team */
