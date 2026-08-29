@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { aiUnavailableReason } from "@/features/products/ai-availability";
 import { PageHeader } from "@/components/page-header";
 import { requirePermissionOrForbid } from "@/lib/auth/dal";
 import { NewProductForm } from "@/features/products/components/new-product-form";
@@ -21,6 +22,8 @@ export const metadata: Metadata = { title: "New product" };
 export default async function NewProductPage() {
   await requirePermissionOrForbid("product.create");
 
+  const aiUnavailable = await aiUnavailableReason();
+
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6">
       <PageHeader
@@ -29,7 +32,7 @@ export default async function NewProductPage() {
         breadcrumbs={[{ label: "Products", href: "/admin/products" }, { label: "New" }]}
       />
 
-      <NewProductForm />
+      <NewProductForm {...(aiUnavailable ? { aiUnavailable } : {})} />
     </div>
   );
 }

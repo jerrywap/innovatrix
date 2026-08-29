@@ -107,6 +107,17 @@ export const LIMITS = {
    * script, and either way we are paying for it.
    */
   aiExtract: { name: "ai-extract", limit: 10, windowSeconds: 3600 },
+  /**
+   * Authoring help in the product wizard — "Enhance summary", "Enhance
+   * description", "Generate features".
+   *
+   * Higher than `aiExtract` because it is pressed *while writing*, and a vendor
+   * working through a listing will legitimately use it on three fields across
+   * several products in a sitting. Lower than `aiTurn` because each press is a
+   * whole rewrite rather than one conversational reply, and because — unlike a
+   * turn — nothing is lost by refusing: the author types it themselves.
+   */
+  aiAuthor: { name: "ai-author", limit: 30, windowSeconds: 3600 },
   download: { name: "download", limit: 100, windowSeconds: 86_400 },
   /** §46: revealing a demo credential is exactly the thing to scrape. */
   demoReveal: { name: "demo-reveal", limit: 20, windowSeconds: 3600 },

@@ -106,6 +106,16 @@ export interface SectionFormProps {
   productId?: string;
   disabled?: boolean;
   disabledReason?: string;
+  /**
+   * The `<form>` element, for a caller that needs to read a field it does not
+   * own in React state.
+   *
+   * The basics step uses it so the rewrite button can pick up the product name —
+   * an uncontrolled input with a `defaultValue`, like most of this wizard.
+   * Lifting every such field into state to hand two strings to a model would
+   * turn a step with no re-renders into one with a render per keystroke.
+   */
+  formRef?: React.Ref<HTMLFormElement>;
 }
 
 export function SectionForm({
@@ -116,6 +126,7 @@ export function SectionForm({
   productId,
   disabled,
   disabledReason,
+  formRef,
 }: SectionFormProps) {
   const { state, pending, onSubmit } = useManualSubmit(action);
   const failed = state && !state.ok ? state : null;
@@ -157,7 +168,7 @@ export function SectionForm({
   }, [state]);
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-6">
+    <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-6">
       {productId && <input type="hidden" name="productId" value={productId} />}
       {nextHref && <input type="hidden" name="next" value={nextHref} />}
 
@@ -358,6 +369,7 @@ export function Field({
   children,
   required,
   className,
+  action,
 }: {
   label: string;
   hint?: string;
@@ -365,13 +377,25 @@ export function Field({
   children: React.ReactNode;
   required?: boolean;
   className?: string;
+  /**
+   * A control that belongs to this field rather than to the form — the AI
+   * rewrite button is the only one so far.
+   *
+   * Beside the label rather than under the control, because it acts *on* the
+   * field: below it, it reads as another thing to fill in, and on a long step it
+   * ends up nearer the next field's label than its own.
+   */
+  action?: React.ReactNode;
 }) {
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <label htmlFor={htmlFor} className="text-[13px] font-medium">
-        {label}
-        {!required && <span className="text-subtle font-normal"> (optional)</span>}
-      </label>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <label htmlFor={htmlFor} className="text-[13px] font-medium">
+          {label}
+          {!required && <span className="text-subtle font-normal"> (optional)</span>}
+        </label>
+        {action}
+      </div>
       {children}
       {hint && <p className="text-subtle text-[12.5px]">{hint}</p>}
     </div>

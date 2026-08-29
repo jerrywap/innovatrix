@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Route } from "next";
 import { z } from "zod";
-import { ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
+import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { parseNestedFormData } from "@/lib/form-data";
 import { requireVendorOrForbid } from "@/lib/auth/dal";
 import { ForbiddenError } from "@/lib/errors";
@@ -26,6 +26,13 @@ import {
 } from "@/services/catalog/template-sibling";
 import * as reviewService from "@/services/catalog/review-service";
 import { requireOwnedProduct } from "@/services/catalog/ownership";
+import {
+  aiPreflight,
+  enhanceProseInputSchema,
+  productAuthoringContext,
+  proposeFeaturesInputSchema,
+} from "@/features/products/ai-authoring";
+import { ExtractionFailedError, enhanceProse, proposeFeatures } from "@/services/ai/authoring";
 import {
   BASICS_SECTION,
   CONTENT_SECTION,
@@ -614,5 +621,100 @@ export async function createVendorMediaUploadAction(input: unknown): Promise<
       publicUrl: storage.publicObjectUrl(ticket.key, { version: Date.now() }),
       headers: ticket.headers,
     });
+  });
+}
+
+/* ────────────────────────────────────────────── AI authoring help */
+
+/**
+ * Rewrite a summary or a description — the vendor half.
+ *
+ * The staff twin's docblock explains why there is no product id: the text comes
+ * from the form, so the same action serves `/dashboard/selling/products/new`,
+ * where no product exists yet.
+ *
+ * The guard is written out here rather than shared, for the reason at the top of
+ * this file: a factory closing over it in another module would pass this file's
+ * actions off as guarded without `action-guards.test.ts` being able to see it.
+ *
+ * The verified check is the same one every authoring action in this file makes.
+ * A vendor whose account is not active may not author, and that includes
+ * spending our money on a model to author faster.
+ */
+export async function enhanceVendorProseAction(
+  input: unknown,
+): Promise<ActionResult<{ text: string }>> {
+  return withAction(async () => {
+    const context = await requireVendorOrForbid();
+    if (context.vendor.status !== "verified") {
+      throw new ForbiddenError("Your vendor account is not active.");
+    }
+
+    const parsed = parseInput(enhanceProseInputSchema, input);
+
+    const preflight = await aiPreflight(context.user.id);
+    if (!preflight.ok) return fail(preflight.message);
+
+    try {
+      const { text } = await enhanceProse({
+        config: preflight.config,
+        field: parsed.field,
+        text: parsed.text,
+        context: {
+          ...(parsed.name ? { name: parsed.name } : {}),
+          ...(parsed.summary ? { summary: parsed.summary } : {}),
+          ...(parsed.description ? { description: parsed.description } : {}),
+        },
+      });
+
+      return ok({ text });
+    } catch (error) {
+      if (error instanceof ExtractionFailedError) {
+        return fail("The rewrite came back unreadable. Try again, or write it yourself.");
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * Propose a feature list — the vendor half.
+ *
+ * `requireOwnedProduct` rather than a plain read: this one *does* take a product
+ * id, so it has to answer **404** for somebody else's product rather than
+ * describing it back to them. That matters more than it looks — a draft listing
+ * is commercially sensitive, and an unscoped read here would turn this endpoint
+ * into a way to have a competitor's unpublished product summarised for you.
+ */
+export async function proposeVendorFeaturesAction(
+  input: unknown,
+): Promise<ActionResult<{ features: Array<{ title: string; detail?: string }> }>> {
+  return withAction(async () => {
+    const context = await requireVendorOrForbid();
+    if (context.vendor.status !== "verified") {
+      throw new ForbiddenError("Your vendor account is not active.");
+    }
+
+    const parsed = parseInput(proposeFeaturesInputSchema, input);
+
+    const preflight = await aiPreflight(context.user.id);
+    if (!preflight.ok) return fail(preflight.message);
+
+    const product = await requireOwnedProduct(parsed.productId, { vendorId: context.vendorId });
+
+    try {
+      const { features } = await proposeFeatures({
+        config: preflight.config,
+        product: await productAuthoringContext(product),
+        existing: parsed.existing,
+      });
+
+      return ok({ features });
+    } catch (error) {
+      if (error instanceof ExtractionFailedError) {
+        return fail("The suggestions came back unreadable. Try again, or add them yourself.");
+      }
+      throw error;
+    }
   });
 }

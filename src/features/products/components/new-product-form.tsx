@@ -1,14 +1,16 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createProductAction } from "../actions";
+import { createProductAction, enhanceProseAction } from "../actions";
 import type { ActionResult } from "@/lib/action-result";
 import { FormErrors } from "./section-form";
-import { RichTextEditor } from "./rich-text-editor";
+import { RichTextEditor, type RichTextHandle } from "./rich-text-editor";
+import { EnhanceButton } from "./enhance-button";
+import { CompareProseDialog } from "./compare-dialog";
 
 /**
  * The create form — name, summary, and optionally the description.
@@ -32,17 +34,41 @@ import { RichTextEditor } from "./rich-text-editor";
  */
 export function NewProductForm({
   action = createProductAction,
+  enhance = enhanceProseAction,
+  aiUnavailable,
 }: {
   action?: (
     previous: ActionResult<never> | null,
     formData: FormData,
   ) => Promise<ActionResult<never>>;
+  /** The surface's own rewrite action — the staff one refuses a vendor. */
+  enhance?: typeof enhanceProseAction;
+  aiUnavailable?: string;
 } = {}) {
   const [state, formAction] = useActionState(action, null);
   const failed = state && !state.ok ? state : null;
 
+  /*
+   * There is no product yet, so the rewrite works entirely on what has been
+   * typed. That is the reason `enhanceProseAction` takes no product id: one
+   * action serves this screen and the basics step of a saved draft.
+   */
+  const formRef = useRef<HTMLFormElement>(null);
+  const descriptionRef = useRef<RichTextHandle>(null);
+  const [summary, setSummary] = useState("");
+  const [compare, setCompare] = useState<null | {
+    field: "summary" | "description";
+    mine: string;
+    suggested: string;
+  }>(null);
+
+  const nameValue = () => {
+    const element = formRef.current?.elements.namedItem("name");
+    return element instanceof HTMLInputElement ? element.value : "";
+  };
+
   return (
-    <form action={formAction} className="flex flex-col gap-6">
+    <form ref={formRef} action={formAction} className="flex flex-col gap-6">
       {failed && <FormErrors error={failed.error} fieldErrors={failed.fieldErrors} />}
 
       <label className="flex flex-col gap-1.5">
@@ -61,9 +87,29 @@ export function NewProductForm({
       </label>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-medium">Summary</span>
+        <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <span className="text-[13px] font-medium">Summary</span>
+          <EnhanceButton
+            label="Enhance summary"
+            {...(aiUnavailable ? { disabledReason: aiUnavailable } : {})}
+            run={() =>
+              enhance({
+                field: "summary",
+                text: summary,
+                name: nameValue(),
+                description: descriptionRef.current?.getHTML() ?? "",
+              })
+            }
+            onResult={({ text }) =>
+              setCompare({ field: "summary", mine: summary, suggested: text })
+            }
+          />
+        </span>
+        {/* Controlled, so the rewrite can replace it — see `BasicsForm`. */}
         <Textarea
           name="summary"
+          value={summary}
+          onChange={(event) => setSummary(event.target.value)}
           required
           minLength={10}
           maxLength={300}
@@ -76,10 +122,31 @@ export function NewProductForm({
       </label>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-medium">
-          Description <span className="text-subtle font-normal">(optional)</span>
-        </span>
-        <RichTextEditor name="description" />
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <span className="text-[13px] font-medium">
+            Description <span className="text-subtle font-normal">(optional)</span>
+          </span>
+          <EnhanceButton
+            label="Enhance description"
+            {...(aiUnavailable ? { disabledReason: aiUnavailable } : {})}
+            run={() =>
+              enhance({
+                field: "description",
+                text: descriptionRef.current?.getHTML() ?? "",
+                name: nameValue(),
+                summary,
+              })
+            }
+            onResult={({ text }) =>
+              setCompare({
+                field: "description",
+                mine: descriptionRef.current?.getHTML() ?? "",
+                suggested: text,
+              })
+            }
+          />
+        </div>
+        <RichTextEditor name="description" handleRef={descriptionRef} />
         <span className="text-subtle text-[12.5px]">
           Needed before publishing, but not to save a draft.
         </span>
@@ -88,6 +155,31 @@ export function NewProductForm({
       <div className="border-border flex items-center gap-2 border-t pt-5">
         <CreateButton />
       </div>
+
+      {/*
+        Inside the `<form>` in the React tree and outside it in the DOM —
+        `DialogContent` portals to `document.body`. Harmless here, and the reason
+        accepting writes through `setSummary` / `setHTML` rather than through an
+        input rendered in the dialog.
+      */}
+      {compare && (
+        <CompareProseDialog
+          open
+          onOpenChange={(next) => !next && setCompare(null)}
+          title={compare.field === "summary" ? "Suggested summary" : "Suggested description"}
+          mine={compare.mine}
+          suggested={compare.suggested}
+          // The description is HTML both ways; the summary is a plain sentence.
+          rich={compare.field === "description"}
+          onMineChange={(mine) => setCompare({ ...compare, mine })}
+          onSuggestedChange={(suggested) => setCompare({ ...compare, suggested })}
+          onAccept={(value) => {
+            if (compare.field === "summary") setSummary(value);
+            else descriptionRef.current?.setHTML(value);
+            setCompare(null);
+          }}
+        />
+      )}
     </form>
   );
 }

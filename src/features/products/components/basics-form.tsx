@@ -1,11 +1,11 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { changeSlugAction, saveBasicsAction } from "../actions";
+import { changeSlugAction, enhanceProseAction, saveBasicsAction } from "../actions";
 import {
   Field,
   FieldGroup,
@@ -13,7 +13,9 @@ import {
   SectionForm,
   type SectionFormProps,
 } from "./section-form";
-import { RichTextEditor } from "./rich-text-editor";
+import { RichTextEditor, type RichTextHandle } from "./rich-text-editor";
+import { EnhanceButton } from "./enhance-button";
+import { CompareProseDialog } from "./compare-dialog";
 import type { AdminProductView } from "@/services/catalog/product-view";
 import { SLUG_INPUT_ATTRS } from "@/validators/common";
 
@@ -34,15 +36,51 @@ export function BasicsForm({
   nextHref,
   action = saveBasicsAction,
   canChangeSlug = true,
+  enhance = enhanceProseAction,
+  aiUnavailable,
 }: {
   product: AdminProductView;
   nextHref: string;
   action?: SectionFormProps["action"];
   canChangeSlug?: boolean;
+  /**
+   * The surface's own rewrite action. Staff by default; the vendor wizard passes
+   * its own, for the reason every other prop here is a prop — the staff action
+   * begins `requirePermission("product.update")` and refuses a vendor outright.
+   */
+  enhance?: typeof enhanceProseAction;
+  /** Set when AI is off, so the control explains itself rather than vanishing. */
+  aiUnavailable?: string;
 }) {
+  /*
+   * The name and the summary are read out of the DOM when the rewrite runs
+   * rather than mirrored into state.
+   *
+   * They are uncontrolled inputs with a `defaultValue`, which is what the rest of
+   * this wizard does and what survives the form's own re-renders. Lifting them
+   * into state purely to hand two strings to a model would make every keystroke a
+   * React render on a step that has none today.
+   */
+  const formRef = useRef<HTMLFormElement>(null);
+  const descriptionRef = useRef<RichTextHandle>(null);
+
+  const fieldValue = (name: string) => {
+    const element = formRef.current?.elements.namedItem(name);
+    return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+      ? element.value
+      : "";
+  };
+
+  const [summary, setSummary] = useState(product.summary);
+  const [compare, setCompare] = useState<null | {
+    field: "summary" | "description";
+    mine: string;
+    suggested: string;
+  }>(null);
+
   return (
     <div className="flex flex-col gap-8">
-      <SectionForm action={action} productId={product.id} nextHref={nextHref}>
+      <SectionForm formRef={formRef} action={action} productId={product.id} nextHref={nextHref}>
         <Field label="Name" htmlFor="product-name" required>
           <Input
             id="product-name"
@@ -59,11 +97,34 @@ export function BasicsForm({
           htmlFor="product-summary"
           required
           hint="One line, on every marketplace card. Write it for someone skimming."
+          action={
+            <EnhanceButton
+              label="Enhance summary"
+              {...(aiUnavailable ? { disabledReason: aiUnavailable } : {})}
+              run={() =>
+                enhance({
+                  field: "summary",
+                  text: summary,
+                  name: fieldValue("name"),
+                  description: descriptionRef.current?.getHTML() ?? "",
+                })
+              }
+              onResult={({ text }) =>
+                setCompare({ field: "summary", mine: summary, suggested: text })
+              }
+            />
+          }
         >
+          {/*
+            Controlled, unlike the name beside it. The rewrite has to be able to
+            replace this value, and a `defaultValue` textarea cannot be written to
+            from React without reaching into the DOM.
+          */}
           <Textarea
             id="product-summary"
             name="summary"
-            defaultValue={product.summary}
+            value={summary}
+            onChange={(event) => setSummary(event.target.value)}
             required
             minLength={10}
             maxLength={300}
@@ -75,10 +136,63 @@ export function BasicsForm({
           label="Description"
           required
           hint="Lead with what it does for a business. The technical detail has its own section on the product page — a reader who does not want it should not have to wade through it."
+          action={
+            <EnhanceButton
+              label="Enhance description"
+              {...(aiUnavailable ? { disabledReason: aiUnavailable } : {})}
+              run={() =>
+                enhance({
+                  field: "description",
+                  // HTML both ways — see `RichTextHandle`. `plainText` would
+                  // collapse every heading and list into one paragraph.
+                  text: descriptionRef.current?.getHTML() ?? "",
+                  name: fieldValue("name"),
+                  summary,
+                })
+              }
+              onResult={({ text }) =>
+                setCompare({
+                  field: "description",
+                  mine: descriptionRef.current?.getHTML() ?? "",
+                  suggested: text,
+                })
+              }
+            />
+          }
         >
-          <RichTextEditor name="description" defaultValue={product.description} />
+          <RichTextEditor
+            name="description"
+            defaultValue={product.description}
+            handleRef={descriptionRef}
+          />
         </Field>
       </SectionForm>
+
+      {/*
+        Outside `SectionForm`, and it makes no difference — `DialogContent`
+        portals to `document.body`, so nothing in here is in the form's DOM
+        subtree wherever it is written. That is precisely why accepting writes
+        through `setSummary` / `setHTML` into the real controls above rather than
+        rendering an input in the dialog.
+      */}
+      {compare && (
+        <CompareProseDialog
+          open
+          onOpenChange={(next) => !next && setCompare(null)}
+          title={compare.field === "summary" ? "Suggested summary" : "Suggested description"}
+          mine={compare.mine}
+          suggested={compare.suggested}
+          // The description is HTML both ways; the summary is a plain sentence.
+          rich={compare.field === "description"}
+          onMineChange={(mine) => setCompare({ ...compare, mine })}
+          onSuggestedChange={(suggested) => setCompare({ ...compare, suggested })}
+          onAccept={(value) => {
+            if (compare.field === "summary") setSummary(value);
+            else descriptionRef.current?.setHTML(value);
+            setCompare(null);
+          }}
+        />
+      )}
 
       {canChangeSlug && <SlugForm product={product} />}
     </div>

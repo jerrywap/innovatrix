@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { Repeater } from "./repeater";
-import { saveContentAction } from "../actions";
+import { proposeFeaturesAction, saveContentAction } from "../actions";
+import { EnhanceButton } from "./enhance-button";
+import { CompareFeaturesDialog, type Feature } from "./compare-dialog";
 import type { AdminProductView } from "@/services/catalog/product-view";
 
 /**
@@ -26,19 +29,59 @@ export function ContentForm({
   product,
   nextHref,
   action = saveContentAction,
+  propose = proposeFeaturesAction,
+  aiUnavailable,
 }: {
   product: AdminProductView;
   nextHref: string;
   action?: SectionFormProps["action"];
+  /** The surface's own proposal action — the staff one refuses a vendor. */
+  propose?: typeof proposeFeaturesAction;
+  aiUnavailable?: string;
 }) {
+  /*
+   * The accepted list, and a counter that remounts the repeater.
+   *
+   * `Repeater` seeds its rows from `initial` once and holds them in local state
+   * with uncontrolled inputs — there is no way for a parent to push new rows in.
+   * Making it controlled would touch content, media, pricing and demo; changing
+   * its `key` replaces it wholesale and is local to the one step that needs it.
+   *
+   * The cost is honest and worth stating: remounting discards anything typed into
+   * the rows since the last accept. That only happens when the author has just
+   * chosen to replace the whole list, which is the moment those edits were being
+   * discarded anyway.
+   */
+  const [features, setFeatures] = useState<Feature[]>(product.features);
+  const [generation, setGeneration] = useState(0);
+  const [compare, setCompare] = useState<null | { mine: Feature[]; suggested: Feature[] }>(
+    null,
+  );
+
   return (
     <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <FieldGroup
         title="Features"
         description="What it does, one line each. These appear as a list on the product page."
       >
+        <div className="flex justify-end">
+          <EnhanceButton
+            label="Generate features"
+            {...(aiUnavailable ? { disabledReason: aiUnavailable } : {})}
+            /*
+              The proposal reads the *saved* product — its name, summary,
+              description and taxonomy — not this form, which carries none of
+              them. `existing` is what is on screen, so a regeneration knows what
+              the author has already written and can keep the good lines.
+            */
+            run={() => propose({ productId: product.id, existing: features })}
+            onResult={({ features: suggested }) => setCompare({ mine: features, suggested })}
+          />
+        </div>
+
         <Repeater
-          initial={product.features}
+          key={generation}
+          initial={features}
           blank={() => ({ title: "", detail: undefined })}
           addLabel="Add a feature"
           emptyLabel="No features listed yet."
@@ -81,6 +124,24 @@ export function ContentForm({
           className="font-mono text-[13px]"
         />
       </Field>
+
+      {compare && (
+        <CompareFeaturesDialog
+          open
+          onOpenChange={(next) => !next && setCompare(null)}
+          mine={compare.mine}
+          suggested={compare.suggested}
+          onMineChange={(mine) => setCompare({ ...compare, mine })}
+          onSuggestedChange={(suggested) => setCompare({ ...compare, suggested })}
+          onAccept={(chosen) => {
+            // Blank rows are how an empty "Add a feature" leaves the dialog; the
+            // form would refuse them on save, which is a worse place to find out.
+            setFeatures(chosen.filter((feature) => feature.title.trim()));
+            setGeneration((n) => n + 1);
+            setCompare(null);
+          }}
+        />
+      )}
     </SectionForm>
   );
 }

@@ -59,6 +59,11 @@ export interface ExtractInput<T> {
   system: string;
   /** The transcript, or whatever the extraction should read. */
   input: string;
+  /**
+   * Overrides the deterministic default — see the note beside `temperature` in
+   * `attempt()`. Extraction leaves this alone; rewriting prose does not.
+   */
+  temperature?: number;
 }
 
 export async function extractStructured<T>(
@@ -98,9 +103,17 @@ async function attempt<T>(
     ...(input.config.fallbackModels.length
       ? { models: [model, ...input.config.fallbackModels] }
       : {}),
-    // Extraction is not creative writing. The same transcript should produce
-    // the same requirements twice running.
-    temperature: 0,
+    /*
+     * Extraction is not creative writing. The same transcript should produce
+     * the same requirements twice running.
+     *
+     * Overridable, because one caller is not extracting. `authoring.ts` rewrites
+     * a vendor's own prose, where determinism is the wrong goal — pressing
+     * "Enhance" twice and getting the identical sentence back reads as a broken
+     * button rather than a stable one. It passes the configured temperature;
+     * everything else here still gets `0` by omission.
+     */
+    temperature: input.temperature ?? 0,
     max_tokens: input.config.maxOutputTokens,
     messages: [
       { role: "system" as const, content: input.system },

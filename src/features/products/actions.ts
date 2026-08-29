@@ -20,6 +20,13 @@ import { PRODUCT_STATUSES, type ProductStatus } from "@/lib/db/enums";
 import { productPermissionsForTarget } from "@/lib/db/states";
 import { descriptionFields } from "@/lib/db/models/catalog";
 import {
+  aiPreflight,
+  enhanceProseInputSchema,
+  productAuthoringContext,
+  proposeFeaturesInputSchema,
+} from "./ai-authoring";
+import { ExtractionFailedError, enhanceProse, proposeFeatures } from "@/services/ai/authoring";
+import {
   BASICS_SECTION,
   CONTENT_SECTION,
   MEDIA_SECTION,
@@ -667,4 +674,98 @@ export async function saveDemoAction(
 
   if (result.ok && target) redirect(target);
   return result;
+}
+
+/* ────────────────────────────────────────────── AI authoring help */
+
+/**
+ * Rewrite a summary or a description — the staff half.
+ *
+ * ## It takes no product id
+ *
+ * The text and its context come from the form, not the database, which is what
+ * lets the same action serve `/admin/products/new` — where no product exists
+ * yet — and the basics step of an existing one. There is nothing to scope,
+ * because nothing is read or written: this is a pure function of the words the
+ * author has typed, plus a paid call.
+ *
+ * `requirePermission("product.update")` all the same. The permission is not
+ * protecting a record here, it is protecting the *spend* — this endpoint costs
+ * money per press, and the people who may edit a product are exactly the people
+ * who have a reason to press it.
+ *
+ * ## Nothing is saved
+ *
+ * The reply goes into a comparison modal beside the author's own version. What
+ * they keep is written into the form, and the form's own Save is still what
+ * commits it. That is why there is no `catalogChanged()` here — nothing changed.
+ */
+export async function enhanceProseAction(
+  input: unknown,
+): Promise<ActionResult<{ text: string }>> {
+  return withAction(async () => {
+    const staff = await requirePermission("product.update");
+    const parsed = parseInput(enhanceProseInputSchema, input);
+
+    const preflight = await aiPreflight(staff.user.id);
+    if (!preflight.ok) return fail(preflight.message);
+
+    try {
+      const { text } = await enhanceProse({
+        config: preflight.config,
+        field: parsed.field,
+        text: parsed.text,
+        context: {
+          ...(parsed.name ? { name: parsed.name } : {}),
+          ...(parsed.summary ? { summary: parsed.summary } : {}),
+          ...(parsed.description ? { description: parsed.description } : {}),
+        },
+      });
+
+      return ok({ text });
+    } catch (error) {
+      if (error instanceof ExtractionFailedError) {
+        return fail("The rewrite came back unreadable. Try again, or write it yourself.");
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * Propose a feature list — the staff half.
+ *
+ * Reads the product because the content step's form does not carry the name,
+ * the summary or the taxonomy, and a feature list written from the two fields on
+ * that screen would be a feature list written from nothing.
+ */
+export async function proposeFeaturesAction(
+  input: unknown,
+): Promise<ActionResult<{ features: Array<{ title: string; detail?: string }> }>> {
+  return withAction(async () => {
+    const staff = await requirePermission("product.update");
+    const parsed = parseInput(proposeFeaturesInputSchema, input);
+
+    const preflight = await aiPreflight(staff.user.id);
+    if (!preflight.ok) return fail(preflight.message);
+
+    const { products } = await import("@/repositories/product.repository");
+    const product = await products.findById(parsed.productId);
+    if (!product) return fail("That product no longer exists.");
+
+    try {
+      const { features } = await proposeFeatures({
+        config: preflight.config,
+        product: await productAuthoringContext(product),
+        existing: parsed.existing,
+      });
+
+      return ok({ features });
+    } catch (error) {
+      if (error instanceof ExtractionFailedError) {
+        return fail("The suggestions came back unreadable. Try again, or add them yourself.");
+      }
+      throw error;
+    }
+  });
 }
