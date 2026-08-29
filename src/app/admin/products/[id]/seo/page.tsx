@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { requirePermissionOrForbid } from "@/lib/auth/dal";
 import { loadWizardProduct } from "@/features/products/wizard";
+import { aiUnavailableReason } from "@/features/products/ai-availability";
 import { stepHref } from "@/features/products/steps";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { SeoForm } from "@/features/products/components/seo-form";
@@ -14,11 +15,16 @@ export default async function Page({ params }: PageProps<"/admin/products/[id]/s
 
   const { id } = await params;
   const { product } = await loadWizardProduct(id);
+  const aiUnavailable = await aiUnavailableReason();
 
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="seo" />
-      <SeoForm product={product} nextHref={stepHref(product.id, "review")} />
+      <SeoForm
+        product={product}
+        nextHref={stepHref(product.id, "review")}
+        {...(aiUnavailable ? { aiUnavailable } : {})}
+      />
     </div>
   );
 }

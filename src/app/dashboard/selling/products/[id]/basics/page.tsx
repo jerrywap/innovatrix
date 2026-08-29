@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import { requireVendorOrForbid } from "@/lib/auth/dal";
 import { loadVendorWizardProduct } from "@/features/products/wizard";
+import { aiUnavailableReason } from "@/features/products/ai-availability";
 import { stepHref } from "@/features/products/steps";
 import { BasicsForm } from "@/features/products/components/basics-form";
 import { StepHeading } from "@/features/products/components/step-heading";
-import { saveVendorBasicsAction } from "@/features/vendors/product-actions";
+import {
+  enhanceVendorProseAction,
+  saveVendorBasicsAction,
+} from "@/features/vendors/product-actions";
 
 export const metadata: Metadata = { title: "Basics" };
 
@@ -22,6 +26,7 @@ export default async function Page({
 
   const { id } = await params;
   const { product } = await loadVendorWizardProduct(id, vendorId);
+  const aiUnavailable = await aiUnavailableReason();
 
   return (
     <div className="flex flex-col gap-6">
@@ -30,6 +35,8 @@ export default async function Page({
         product={product}
         nextHref={stepHref(product.id, "classification", "vendor")}
         action={saveVendorBasicsAction}
+        enhance={enhanceVendorProseAction}
+        {...(aiUnavailable ? { aiUnavailable } : {})}
         canChangeSlug={false}
       />
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useImperativeHandle, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
@@ -49,17 +49,75 @@ import { EMPTY_DOCUMENT, type RichTextDocument } from "@/lib/rich-text/schema";
  * disagrees with at hydration.
  */
 
+/**
+ * What a sibling control may do to the editor's content.
+ *
+ * HTML on both sides rather than a `RichTextDocument`, because the caller is a
+ * round trip through a language model: HTML is what the model is asked for, and
+ * `setContent` parsing it back through Tiptap's own narrow schema is what makes
+ * the reply safe — an `<img>`, a `<script>` or an `h1` is dropped rather than
+ * escaped. Handing documents across this boundary instead would mean the caller
+ * building a node tree from a model's reply, which is the one thing nothing
+ * should do.
+ */
+export interface RichTextHandle {
+  getHTML(): string;
+  /** Replaces the content. Fires the same `onUpdate` a keystroke would. */
+  setHTML(html: string): void;
+}
+
 export function RichTextEditor({
   name,
   defaultValue,
+  defaultHtml,
   placeholder = "Describe what this product does, for someone deciding whether to buy it.",
   disabled,
+  handleRef,
+  onChangeHtml,
+  className,
 }: {
-  /** Hidden field name — the JSON document is posted under this. */
-  name: string;
+  /**
+   * Hidden field name — the JSON document is posted under this.
+   *
+   * Optional, because the compare dialog mounts two of these to *read* rather
+   * than to submit: `DialogContent` portals to `document.body`, so an input in
+   * there is outside the form's DOM subtree and would post nothing anyway. Two
+   * editors sharing a name would be the confusing version of the same nothing.
+   */
+  name?: string;
   defaultValue?: RichTextDocument | undefined;
+  /**
+   * Seed from HTML instead of a document.
+   *
+   * Tiptap's `content` takes either, and HTML is what the compare dialog has —
+   * it is the form the rewrite round trip uses. Parsing it here runs it through
+   * the same narrow schema `setHTML` does, so seeding from a model's reply is as
+   * safe as accepting one.
+   */
+  defaultHtml?: string;
   placeholder?: string;
   disabled?: boolean;
+  /**
+   * An escape hatch for a sibling control that needs to read or replace the
+   * content — the AI rewrite button is the only caller.
+   *
+   * Deliberately imperative rather than making this a controlled component.
+   * Tiptap reads `content` once at creation and ignores it afterwards, so a new
+   * `defaultValue` does nothing; going controlled would mean a `value`/`onChange`
+   * pair on every existing caller and a round trip through JSON on every
+   * keystroke. A handle changes nothing for the callers that do not use it.
+   */
+  handleRef?: React.Ref<RichTextHandle>;
+  /**
+   * Reports every edit as HTML, for a caller holding the value in its own state.
+   *
+   * Still not a controlled component: nothing flows back down, so the editor
+   * keeps its own selection and undo stack and there is no round trip through
+   * JSON on every keystroke. The compare dialog uses it to keep the pane it owns
+   * in step with what has been typed into it.
+   */
+  onChangeHtml?: (html: string) => void;
+  className?: string;
 }) {
   const initial = defaultValue ?? EMPTY_DOCUMENT;
   const [value, setValue] = useState(() => JSON.stringify(initial));
@@ -82,8 +140,11 @@ export function RichTextEditor({
         },
       }),
     ],
-    content: initial,
-    onUpdate: ({ editor: instance }) => setValue(JSON.stringify(instance.getJSON())),
+    content: defaultHtml ?? initial,
+    onUpdate: ({ editor: instance }) => {
+      setValue(JSON.stringify(instance.getJSON()));
+      onChangeHtml?.(instance.getHTML());
+    },
     editorProps: {
       attributes: {
         class: cn(
@@ -99,22 +160,40 @@ export function RichTextEditor({
     },
   });
 
+  /*
+   * `setContent` fires `onUpdate`, so the hidden input below updates itself and
+   * the submission path is untouched — there is no second way for content to
+   * reach the form.
+   */
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      getHTML: () => editor?.getHTML() ?? "",
+      setHTML: (html: string) => {
+        editor?.commands.setContent(html);
+      },
+    }),
+    [editor],
+  );
+
   // Keep the editable state in step if the form is disabled mid-submit.
   useEffect(() => {
     editor?.setEditable(!disabled);
   }, [editor, disabled]);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={cn("flex min-h-0 flex-col gap-1.5", className)}>
       <div
         className={cn(
-          "border-border bg-surface focus-within:ring-ring overflow-hidden rounded-xl border transition focus-within:ring-2",
+          "border-border bg-surface focus-within:ring-ring flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border transition focus-within:ring-2",
           disabled && "opacity-60",
         )}
       >
         <Toolbar editor={editor} disabled={disabled} />
         {editor ? (
-          <EditorContent editor={editor} />
+          // `min-h-0` so a pane that constrains its height gets a scrolling
+          // editor rather than one that pushes the footer out of the dialog.
+          <EditorContent editor={editor} className="min-h-0 flex-1 overflow-y-auto" />
         ) : (
           // Before hydration. Matching the editor's min-height stops the form
           // jumping when it mounts.
@@ -124,8 +203,14 @@ export function RichTextEditor({
         )}
       </div>
 
-      {/* What actually gets posted. The server re-validates it regardless. */}
-      <input type="hidden" name={name} value={value} />
+      {/*
+        What actually gets posted. The server re-validates it regardless.
+
+        Only where there is a name: the compare dialog mounts editors to read,
+        not to submit, and a nameless hidden input is a field the browser
+        correctly ignores rather than one it posts under an empty key.
+      */}
+      {name && <input type="hidden" name={name} value={value} />}
     </div>
   );
 }

@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
 import { forbidden } from "next/navigation";
+import { aiUnavailableReason } from "@/features/products/ai-availability";
 import { PageHeader } from "@/components/page-header";
 import { requireVendorOrForbid } from "@/lib/auth/dal";
 import { NewProductForm } from "@/features/products/components/new-product-form";
-import { createVendorProductAction } from "@/features/vendors/product-actions";
+import {
+  createVendorProductAction,
+  enhanceVendorProseAction,
+} from "@/features/vendors/product-actions";
 
 export const metadata: Metadata = { title: "New product" };
 
@@ -24,6 +28,8 @@ export default async function Page() {
   // page that offers a form the action will refuse is worse than a refusal.
   if (vendor.status !== "verified") forbidden();
 
+  const aiUnavailable = await aiUnavailableReason();
+
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6">
       <PageHeader
@@ -36,7 +42,11 @@ export default async function Page() {
         ]}
       />
 
-      <NewProductForm action={createVendorProductAction} />
+      <NewProductForm
+        action={createVendorProductAction}
+        enhance={enhanceVendorProseAction}
+        {...(aiUnavailable ? { aiUnavailable } : {})}
+      />
     </div>
   );
 }
