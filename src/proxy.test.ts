@@ -105,7 +105,7 @@ describe("two cookies on one response", () => {
      * and the rest were silently skipped — and a product URL carrying a currency
      * is exactly the case where two match.
      */
-    const response = visit("/marketplace/atlas-crm?currency=USD");
+    const response = visit("/details/atlas-crm?currency=USD");
 
     expect(response.cookies.get(CURRENCY_COOKIE)?.value).toBe("USD");
     expect(response.cookies.get("cosetup_rv")?.value).toContain("atlas-crm");

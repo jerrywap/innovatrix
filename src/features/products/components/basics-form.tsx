@@ -225,7 +225,7 @@ function SlugForm({ product }: { product: AdminProductView }) {
 
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex min-w-[280px] flex-1 flex-col gap-1.5">
-            <span className="text-subtle font-mono text-[12px]">/marketplace/</span>
+            <span className="text-subtle font-mono text-[12px]">/details/</span>
             <Input
               name="slug"
               defaultValue={product.slug}

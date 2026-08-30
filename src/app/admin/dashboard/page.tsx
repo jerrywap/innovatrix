@@ -35,6 +35,7 @@ import {
   type Range,
 } from "@/features/reporting/range";
 import { seriesFrom } from "@/features/reporting/series";
+import { productHref } from "@/config/catalogue";
 
 export const metadata: Metadata = { title: "Analytics" };
 
@@ -272,7 +273,7 @@ async function Commerce({ searchParams }: { searchParams: Promise<RawSearchParam
               label: row.name,
               value: row.units,
               display: `${row.units}`,
-              href: `/marketplace/${row.slug}` as Route,
+              href: productHref(row.slug) as Route,
             }))}
           />
         </ChartFrame>

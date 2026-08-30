@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildProductFacets, facetFilter, facetMatch, parseFacet } from "./models/catalog";
+import {
+  buildProductFacets,
+  facetFilter,
+  facetMatch,
+  parseFacet,
+  withAncestors,
+} from "./models/catalog";
 
 describe("buildProductFacets", () => {
   it("prefixes each dimension so slugs from different kinds cannot collide", () => {
@@ -139,5 +145,40 @@ describe("parseFacet", () => {
   it("returns null for something that isn't a facet term", () => {
     expect(parseFacet("crm")).toBeNull();
     expect(parseFacet(":crm")).toBeNull();
+  });
+});
+
+describe("withAncestors", () => {
+  const tree = new Map([
+    ["crm", "business-operations"],
+    ["erp", "business-operations"],
+  ]);
+
+  it("adds each category's parent, so a parent is a real facet term", () => {
+    // Without this the parent's landing page counts zero products and the rail
+    // greys it out — every parent dead on arrival.
+    expect(withAncestors(["crm"], tree).sort()).toEqual(["business-operations", "crm"]);
+  });
+
+  it("names a shared parent once, so its count is not doubled", () => {
+    // A product under two children of one parent belongs to that parent once.
+    // `$unwind` over `facets` counts occurrences, so a duplicate here is a
+    // wrong number on the rail rather than a wrong result set.
+    expect(withAncestors(["crm", "erp"], tree).sort()).toEqual([
+      "business-operations",
+      "crm",
+      "erp",
+    ]);
+  });
+
+  it("leaves a root alone", () => {
+    expect(withAncestors(["finance"], tree)).toEqual(["finance"]);
+  });
+
+  it("ignores a term that is its own parent", () => {
+    // Not reachable through the service, which refuses it — but this function is
+    // the one that would loop, and it is cheaper to be total than to rely on
+    // the caller.
+    expect(withAncestors(["loop"], new Map([["loop", "loop"]]))).toEqual(["loop"]);
   });
 });

@@ -76,8 +76,24 @@ const PROTECTED_PREFIXES = ["/dashboard", "/staff", "/admin"] as const;
 /** Auth pages a signed-in user has no reason to see. */
 const AUTH_PAGES = ["/login", "/register", "/forgot-password"] as const;
 
-/** `/marketplace/<slug>` — but not `/marketplace/category/...` or `/industry/...`. */
-const PRODUCT_PATH = /^\/marketplace\/(?!category\/|industry\/)([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
+/**
+ * `/details/<slug>` — a product page, and nothing else reaches this pattern.
+ *
+ * It used to be `/marketplace/<slug>` with a `(?!category\/|industry\/)`
+ * lookahead, which had to grow a clause for every static segment added beside a
+ * product. `/details` has no static children, so there is nothing to exclude and
+ * the exclusion is gone rather than merely unused.
+ *
+ * Keeping it pointed at `/marketplace` after the move would have failed **twice,
+ * silently**: recently-viewed would stop recording, and `/marketplace/{parent}` —
+ * a category — would start being pushed into the cookie as if it were a product.
+ * `getCardsBySlug` finds nothing for a category slug and filters it out, so the
+ * rail would simply go quiet. No error, nothing logged.
+ *
+ * The cookie stores bare slugs rather than URLs, so a browser holding one from
+ * before the move keeps working across the deploy with no migration.
+ */
+const PRODUCT_PATH = /^\/details\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
 
 /** The two AI doors (tickets 17, 18). Both need an owner before they render. */
 const ASSISTANT_PATH = /^\/(?:custom-software|customize)(?:\/|$)/;

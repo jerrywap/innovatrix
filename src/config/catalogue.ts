@@ -15,16 +15,32 @@ import type { ProductCatalogue, TaxonomyCatalogue } from "@/lib/db/enums";
 export interface CatalogueSurface {
   /** Where its grid lives. */
   listingPath: string;
-  /** Where a category landing page lives. */
-  categoryPath: string;
+  /**
+   * Where an industry landing page lives.
+   *
+   * Added late, and its absence was the bug. `sitemap.ts` hardcoded
+   * `/marketplace/industry/${slug}` for **every** industry while the category
+   * lines two above it split by ownership — so a template-scoped industry was
+   * advertised at a URL its own page never prerenders. Two spellings of one fact,
+   * and only one of them was in this table.
+   */
+  industryPath: string;
   /**
    * Where a **product page** lives.
    *
-   * Both catalogues point at `/marketplace` today, on purpose. A template's
-   * detail page has not moved yet, and moving it means touching canonicals,
-   * `openGraph`, the `slugHistory` redirect, breadcrumbs, JSON-LD `offers.url`,
-   * the proxy's product-path matcher and the sitemap. That is its own change; this
-   * line is where it starts.
+   * `/details` for both catalogues, and the move off `/marketplace` is what makes
+   * the two-tier category URLs possible at all: a product and a category cannot
+   * both own `/marketplace/[slug]`, because Next allows one dynamic segment per
+   * level.
+   *
+   * It also deleted a wart. `proxy.ts` used to match a product with
+   * `/^\/marketplace\/(?!category\/|industry\/)…/` — a negative lookahead that
+   * would have needed a new clause for every static segment ever added beside it.
+   * Under `/details/{slug}` the pattern has no exclusions, because `/details` has
+   * no static children.
+   *
+   * Still one path for both catalogues. The seam is for the day templates get
+   * their own domain; it just has nothing to distinguish yet.
    */
   productPath: string;
   /**
@@ -59,58 +75,146 @@ export interface CatalogueSurface {
    * its own, and that is the one remaining copy.
    */
   plural: string;
+  /**
+   * The noun for **counting** things in this catalogue — "258 software scripts".
+   *
+   * A third string, and a third job. `label` is a fact about *one item* in a
+   * mixed grid ("Full Software Script"); `plural` names the shelf you are
+   * standing in front of ("Software & Scripts"); this follows a number. None of
+   * the three can do another's work: "258 Software & Scripts" reads as a
+   * category name with a number stuck on it, and "258 Full Software Scripts"
+   * over-qualifies a count nobody asked to have qualified.
+   *
+   * Both forms, because English needs them and a card showing "1 products" is
+   * the sort of thing a person notices before anything else on the page.
+   */
+  countNoun: { one: string; many: string };
 }
 
 export const CATALOGUE_SURFACE: Record<ProductCatalogue, CatalogueSurface> = {
   script: {
     listingPath: "/marketplace",
-    categoryPath: "/marketplace/category",
-    productPath: "/marketplace",
+    industryPath: "/marketplace/industry",
+    productPath: "/details",
     label: "Full Software Script",
     plural: "Software & Scripts",
+    countNoun: { one: "software script", many: "software scripts" },
   },
   template: {
     listingPath: "/templates",
-    categoryPath: "/templates/category",
-    productPath: "/marketplace",
+    /*
+     * No route yet — `/templates/industry/[slug]` arrives with the two-tier
+     * landing pages. Stated here rather than left out because this table is the
+     * one place that answers "where does a template's X live", and a missing row
+     * is how the sitemap ended up with a literal.
+     */
+    industryPath: "/templates/industry",
+    productPath: "/details",
     label: "Website Template",
     plural: "Website Templates",
+    countNoun: { one: "template", many: "templates" },
   },
 };
 
 /**
- * Which catalogue's landing page a category term *owns*.
+ * The URL of a product's detail page. **The only way to build one.**
  *
- * ## Why this is not `CATALOGUE_SURFACE[catalogue].categoryPath`
+ * ## Why a function rather than reading `productPath` at the call site
+ *
+ * Because a product URL is built in twenty-three places, and eighteen of them
+ * were written `as Route`. A cast defeats `typedRoutes` completely — so moving
+ * the page would leave `tsc` perfectly happy about eighteen links pointing at a
+ * route that no longer exists, and the only way to find them would be to click
+ * each one. That is the same failure `sitemap.test.ts`'s docblock was written
+ * after, where the sitemap advertised `/about` and `/contact` and neither route
+ * existed.
+ *
+ * With one builder, moving the page is an edit *here* and a grep that comes back
+ * empty.
+ *
+ * ## `catalogue` is optional, and that is honest rather than lax
+ *
+ * Both catalogues resolve to the same path today, and six of the call sites — the
+ * cart, a notification, two staff screens, two dashboard screens — hold a slug
+ * and no catalogue. Making it required would only make them guess. The parameter
+ * exists so the seam survives for the eventual template domain; it just has
+ * nothing to distinguish yet.
+ *
+ * Not for a *landing* page — see `categoryLandingPath`.
+ */
+export function productHref(slug: string, catalogue: ProductCatalogue = "script"): string {
+  return `${CATALOGUE_SURFACE[catalogue].productPath}/${slug}`;
+}
+
+/**
+ * Where a category term lives — **the only way to build a category URL.**
+ *
+ * ## Why it takes the term rather than a catalogue
  *
  * Because a term's home is decided by the **term's** scope, not by the product
  * you happened to arrive from. A term scoped `template` owns a page under
  * `/templates`; a `both` term keeps its single page on `/marketplace` and appears
- * under `/templates` as a *filter* instead. `sitemap.ts` splits
- * `taxonomy.category` on exactly that rule, each landing page's
- * `generateStaticParams` re-derives it, and `templates/category/[slug]` states
- * the reason in full: "two pages for one term would be duplicate content we
- * generated deliberately".
+ * under `/templates` as a *filter* instead. `sitemap.ts` maps every category
+ * through this function, each landing page's `generateStaticParams` re-derives
+ * the same rule, and two pages for one term would be duplicate content we
+ * generated deliberately.
  *
- * Linking a breadcrumb by the product's catalogue would be a third spelling that
- * disagrees with both — a template product in a `both` category would point at
- * `/templates/category/<slug>`, a URL the sitemap withholds. And it would not
- * 404: `taxonomyScopeFilter("template")` matches `template`, `both` and `null`,
- * so the page renders. A silently crawlable duplicate is a worse outcome than a
- * loud failure, which is why this function exists rather than a one-line lookup.
+ * Linking a breadcrumb by the *product's* catalogue would be a second spelling
+ * that disagrees — a template product in a `both` category would point under
+ * `/templates`, a URL the sitemap withholds. And it would not 404:
+ * `taxonomyScopeFilter("template")` matches `template`, `both` and `null`, so the
+ * page renders. A silently crawlable duplicate is a worse outcome than a loud
+ * failure, which is why this function exists rather than a one-line lookup.
  *
- * Tolerant of a missing `catalogue`, which is what a `ProductDetail` cached
- * before that field existed will hand it — see the note on
- * `ProductDetail.taxonomy`. Absence falls to `/marketplace`, the term's home in
- * every case but the one this exists to catch.
+ * There is deliberately no `categoryPath` on `CatalogueSurface` any more. It used
+ * to name `/marketplace/category`, which is now a **308** to whatever this returns
+ * — a legacy address rather than a place anything lives, and a table entry nothing
+ * reads is a lie about where things are.
+ *
+ * ## Two segments for a child, one for a root
+ *
+ * `parentSlug` is what makes `/marketplace/{parent}/{child}` — the URL *is* the
+ * hierarchy, which is why a child belongs to exactly one parent.
+ *
+ * Tolerant of a missing `catalogue` **and** of a missing `parentSlug`, and both
+ * tolerances earn their keep for the same reason: a `ProductDetail` is cached, so
+ * one written before either field existed will hand this a term without it. A
+ * missing `catalogue` falls to `/marketplace`; a missing `parentSlug` falls to the
+ * one-segment form. Neither is a broken link — `/marketplace/[parent]` answers a
+ * child at that depth with a 308 up to its real address, which is what turns this
+ * tolerance into something safe rather than merely quiet.
  */
 export function categoryLandingPath(term: {
   slug: string;
   catalogue?: TaxonomyCatalogue;
+  parentSlug?: string;
 }): string {
   const surface =
     term.catalogue === "template" ? CATALOGUE_SURFACE.template : CATALOGUE_SURFACE.script;
-  return `${surface.categoryPath}/${term.slug}`;
+  return term.parentSlug
+    ? `${surface.listingPath}/${term.parentSlug}/${term.slug}`
+    : `${surface.listingPath}/${term.slug}`;
+}
+
+/**
+ * Segments that sit *beside* a category under `/marketplace` and `/templates`.
+ *
+ * Once a category owns `/{catalogue}/{parent}`, these two literals are competing
+ * for the same space. Next resolves a static segment before a dynamic one — so
+ * `/marketplace/category/crm` keeps reaching `category/[slug]` and never
+ * `[parent]/[child]` — which means the collision does not error. It just makes a
+ * category slugged `category` **permanently unreachable**: its landing page is
+ * shadowed, its sitemap entry 404s in effect, and nothing anywhere reports it.
+ *
+ * So it is refused at the write, where somebody can be told why.
+ *
+ * `page` is deliberately **not** here. It is a reserved *file* name, not a route
+ * segment, and `/marketplace/page` is a perfectly good category URL.
+ */
+export const RESERVED_CATALOGUE_SEGMENTS = ["category", "industry"] as const;
+
+export function isReservedCatalogueSegment(slug: string): boolean {
+  return (RESERVED_CATALOGUE_SEGMENTS as readonly string[]).includes(slug);
 }
 
 /**

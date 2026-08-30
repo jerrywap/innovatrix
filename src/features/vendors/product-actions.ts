@@ -11,7 +11,7 @@ import { ForbiddenError } from "@/lib/errors";
 import { objectIdSchema } from "@/validators/common";
 import {
   productBasicsSchema,
-  productClassificationSchema,
+  classificationWithPrimary,
   productDemoSchema,
   templateSiblingSchema,
 } from "@/validators/product-sections";
@@ -239,7 +239,7 @@ export async function saveVendorClassificationAction(
 
     const raw = parseNestedFormData(formData);
     const { productId } = parseInput(productIdSchema, raw);
-    const input = parseInput(productClassificationSchema, raw);
+    const input = parseInput(classificationWithPrimary, raw);
 
     await productService.saveClassification(
       productId,

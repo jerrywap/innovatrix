@@ -26,9 +26,17 @@
  */
 import "dotenv/config";
 import mongoose from "mongoose";
-import { buildProductFacets } from "../src/lib/db/models/catalog";
+import { buildProductFacets, withAncestors } from "../src/lib/db/models/catalog";
 import { LICENCE_TYPES, type LicenceType } from "../src/lib/db/enums";
 import { profileFor } from "./customization-vocabulary";
+import {
+  classifyProduct,
+  INDUSTRY_WEIGHTS,
+  KIND_CATEGORIES,
+  KINDS,
+  TECH_WEIGHTS,
+  TYPE_WEIGHTS,
+} from "./classification-vocabulary";
 
 const TOTAL = Number(process.argv[2] ?? 1000);
 
@@ -47,74 +55,9 @@ const TOTAL = Number(process.argv[2] ?? 1000);
  */
 const BULK_LICENCE_TYPE: LicenceType = "single_installation";
 
-/** Zipf-ish weights: the head is genuinely popular, the tail genuinely thin. */
-const CATEGORY_WEIGHTS: Array<[string, number]> = [
-  ["crm", 30],
-  ["booking", 18],
-  ["e-commerce", 14],
-  ["property", 10],
-  ["finance", 9],
-  ["healthcare", 8],
-  ["logistics", 6],
-  ["hr-and-rota", 5],
-];
-
-/**
- * Template categories, kept separate from the script ones above.
- *
- * A template carrying "CRM" would be worse than the greyed-out leak the catalogue
- * scoping fixes: it would show a script category in the template rail at a
- * **non-zero** count, so it would look correct. This seed writes documents
- * directly and never goes through `saveClassification`, so the cross-catalogue
- * check does not protect it — the separation has to be here.
- */
-const TEMPLATE_CATEGORY_WEIGHTS: Array<[string, number]> = [
-  ["admin-dashboards", 40],
-  ["ecommerce-pages", 25],
-  ["corporate-and-business", 20],
-  ["landing-pages", 15],
-];
-
-const INDUSTRY_WEIGHTS: Array<[string, number]> = [
-  ["healthcare", 22],
-  ["education", 18],
-  ["retail", 16],
-  ["property", 14],
-  ["logistics", 12],
-  ["hospitality", 10],
-  ["professional-services", 8],
-];
-
-const TECH_WEIGHTS: Array<[string, number]> = [
-  ["laravel", 34],
-  ["react", 26],
-  ["nextjs", 18],
-  ["postgresql", 16],
-  ["mysql", 14],
-  ["node", 12],
-  ["vue", 8],
-  ["python", 6],
-];
-
-/*
- * `product_type` weights — reconciled with `scripts/taxonomy-vocabulary.ts`.
- *
- * `template` used to be here at 12%, which is the modelling the `catalogue` field
- * replaces: whether something is a template is *which shop it is in*, not what
- * kind of thing it is within one. Those rows now become genuine templates via the
- * `catalogue` weight below, and the retired term is deactivated by
- * `db:backfill:catalogue`.
- */
-const TYPE_WEIGHTS: Array<[string, number]> = [
-  ["complete-application", 55],
-  ["module", 25],
-  ["starter-kit", 12],
-  ["integration", 8],
-];
-
 /**
  * Roughly one in eight bulk products is a template, so `/templates` has a
- * realistic grid and the split can be seen doing something at scale.
+ * realistic grid and the catalogue split can be seen doing something at scale.
  */
 const TEMPLATE_SHARE = 0.12;
 
@@ -151,23 +94,6 @@ const NOUNS = [
   "Foundry",
 ];
 
-const KINDS = [
-  "CRM",
-  "Booking",
-  "Portal",
-  "Desk",
-  "Ledger",
-  "Rota",
-  "Dispatch",
-  "Studio",
-  "Inventory",
-  "Billing",
-  "Scheduler",
-  "Tracker",
-  "Registry",
-  "Console",
-];
-
 /** Real sentences, so the text index has something to weight. */
 const OPENERS = [
   "Tracks every enquiry from first contact to signed contract",
@@ -193,16 +119,6 @@ const CLAUSES = [
   "with configurable approval steps per department",
 ];
 
-function pickWeighted(weights: Array<[string, number]>, random: () => number): string {
-  const total = weights.reduce((sum, [, weight]) => sum + weight, 0);
-  let cursor = random() * total;
-  for (const [value, weight] of weights) {
-    cursor -= weight;
-    if (cursor <= 0) return value;
-  }
-  return weights[0]![0];
-}
-
 /** Deterministic, so two runs produce the same catalogue and diffs are readable. */
 function mulberry32(seed: number): () => number {
   return function random() {
@@ -224,15 +140,38 @@ async function main() {
 
   // Resolve taxonomy ids by slug, so a product's `categoryIds` and its `facets`
   // agree — the invariant `ERD.md` warns about drifting.
-  const terms = await M.Taxonomy.find({}).select({ kind: 1, slug: 1 }).lean();
+  const terms = await M.Taxonomy.find({}).select({ kind: 1, slug: 1, parentId: 1 }).lean();
   const idBySlug = new Map(terms.map((t) => [`${t.kind}:${t.slug}`, t._id]));
 
+  /*
+   * child slug → parent slug, for the ancestor facet.
+   *
+   * A product carries its category's parent in `facets` as well as the category
+   * itself — that is what makes a parent landing page one indexed `$in` and its
+   * rail count a real number. `deriveFacets` does this lookup per call, which is
+   * one query per product here, so the map is built once from the read above and
+   * handed to the same pure `withAncestors` the service uses.
+   *
+   * Without it a bulk seed writes a thousand products whose parents all count
+   * **zero** — every top-level category empty, and nothing to say why.
+   */
+  const slugById = new Map(terms.map((t) => [String(t._id), t.slug]));
+  const parentBySlug = new Map(
+    terms
+      .filter((t) => t.kind === "category" && t.parentId)
+      .flatMap((t) => {
+        const parent = slugById.get(String(t.parentId));
+        return parent ? [[t.slug, parent] as const] : [];
+      }),
+  );
+
   const missing = [
-    ...CATEGORY_WEIGHTS.map(([s]) => `category:${s}`),
-    ...TEMPLATE_CATEGORY_WEIGHTS.map(([s]) => `category:${s}`),
+    ...Object.values(KIND_CATEGORIES).flatMap((entry) =>
+      [...entry.script, ...entry.template].map(([s]) => `category:${s}`),
+    ),
     ...INDUSTRY_WEIGHTS.map(([s]) => `industry:${s}`),
     ...TECH_WEIGHTS.map(([s]) => `technology:${s}`),
-    ...TYPE_WEIGHTS.map(([s]) => `product_type:${s}`),
+    ...[...TYPE_WEIGHTS.script, ...TYPE_WEIGHTS.template].map(([s]) => `product_type:${s}`),
   ].filter((key) => !idBySlug.has(key));
 
   if (missing.length > 0) {
@@ -267,25 +206,55 @@ async function main() {
   let ownersOnly = 0;
 
   for (let index = 0; index < TOTAL; index += 1) {
-    const noun = NOUNS[Math.floor(random() * NOUNS.length)]!;
-    const kind = KINDS[Math.floor(random() * KINDS.length)]!;
+    /*
+     * The name is drawn from **the index**, not the shared stream — so a slug is
+     * a pure function of the product's position and nothing else.
+     *
+     * It used to come off `random()`, which meant every draw anywhere in this
+     * loop shifted the cursor and changed every subsequent *slug*. The filter
+     * below upserts on `slug`, so a change as small as moving one `random()` call
+     * turned a re-seed into a **thousand new products** sitting beside the old
+     * thousand. That is exactly how this database reached 3,009.
+     *
+     * Pinned this way, `db:seed:bulk` is genuinely idempotent and stays so
+     * through edits to anything else in here.
+     */
+    const nameRandom = mulberry32(0x9e3779b9 ^ index);
+    const noun = NOUNS[Math.floor(nameRandom() * NOUNS.length)]!;
+    const kind = KINDS[Math.floor(nameRandom() * KINDS.length)]!;
     const name = `${noun} ${kind} ${index + 1}`;
     const slug = `${noun.toLowerCase()}-${kind.toLowerCase()}-${index + 1}`;
 
-    // Decided before the category, because it decides *which* vocabulary the
-    // category comes from.
+    // Decided before the category, because it decides *which* half of the kind's
+    // entry the category comes from.
     const isTemplate = random() < TEMPLATE_SHARE;
     if (isTemplate) templates += 1;
+    const catalogue = isTemplate ? "template" : "script";
 
-    const categorySlug = pickWeighted(
-      isTemplate ? TEMPLATE_CATEGORY_WEIGHTS : CATEGORY_WEIGHTS,
-      random,
+    /*
+     * The **kind decides the family**, and the weights decide which sibling.
+     *
+     * This used to be an independent draw from a flat list, so "Atlas Ledger"
+     * was as likely to be a Booking product as a Finance one — the catalogue's
+     * names contradicting its own filters, which makes it a poor thing to judge
+     * a filter design on. `classification-vocabulary.ts` holds the table, shared
+     * with `reclassify-products.ts` so a fresh seed and a reclassified database
+     * cannot disagree.
+     */
+    /*
+     * Classification draws from its **own** stream, seeded on the slug.
+     *
+     * Not the shared `random` above, and the difference is worth the extra line:
+     * a single stream advanced by every draw makes a product's category depend on
+     * how many products were generated before it, so `-- 250` and `-- 1000`
+     * classified the same slug differently. Per-slug also makes this agree
+     * exactly with `db:reclassify`, so running one after the other is a no-op
+     * rather than a thousand writes.
+     */
+    const { categorySlug, industrySlugs, technologySlugs, typeSlug } = classifyProduct(
+      slug,
+      catalogue,
     );
-    const industrySlug = pickWeighted(INDUSTRY_WEIGHTS, random);
-    const techSlugs = [
-      ...new Set([pickWeighted(TECH_WEIGHTS, random), pickWeighted(TECH_WEIGHTS, random)]),
-    ];
-    const typeSlug = pickWeighted(TYPE_WEIGHTS, random);
 
     const summary = `${OPENERS[Math.floor(random() * OPENERS.length)]} ${
       CLAUSES[Math.floor(random() * CLAUSES.length)]
@@ -325,9 +294,9 @@ async function main() {
     if (exposure === "owners_only") ownersOnly += 1;
 
     const facets = buildProductFacets({
-      categorySlugs: [categorySlug],
-      industrySlugs: [industrySlug],
-      technologySlugs: techSlugs,
+      categorySlugs: withAncestors([categorySlug], parentBySlug),
+      industrySlugs,
+      technologySlugs,
       productTypeSlug: typeSlug,
     });
 
@@ -343,10 +312,13 @@ async function main() {
             status: "published",
             publishedAt: new Date(Date.now() - Math.floor(random() * 400) * 86_400_000),
             categoryIds: [idBySlug.get(`category:${categorySlug}`)],
-            industryIds: [idBySlug.get(`industry:${industrySlug}`)],
-            technologyIds: techSlugs.map((s) => idBySlug.get(`technology:${s}`)),
+            // The breadcrumb, the canonical and JSON-LD all read this. One
+            // category, so it is that one.
+            primaryCategoryId: idBySlug.get(`category:${categorySlug}`),
+            industryIds: industrySlugs.map((s) => idBySlug.get(`industry:${s}`)),
+            technologyIds: technologySlugs.map((s) => idBySlug.get(`technology:${s}`)),
             productTypeId: idBySlug.get(`product_type:${typeSlug}`),
-            catalogue: isTemplate ? "template" : "script",
+            catalogue,
             facets,
             prices,
             media: [

@@ -11,6 +11,7 @@ import { Attachments } from "@/features/requests/components/attachments";
 import { Thread } from "@/features/messaging/components/thread";
 import { customerThread } from "@/services/messaging/messaging-service";
 import { Timeline } from "@/components/timeline";
+import { productHref } from "@/config/catalogue";
 
 export const metadata: Metadata = { title: "Request" };
 
@@ -69,7 +70,7 @@ export default async function Page({ params }: PageProps<"/dashboard/requests/[r
             )}
           </span>
           <Link
-            href={`/marketplace/${request.baseProduct.slug}` as Route}
+            href={productHref(request.baseProduct.slug) as Route}
             className="border-border hover:bg-surface-muted rounded-full border px-3.5 py-1.5 text-[12.5px]"
           >
             See the product

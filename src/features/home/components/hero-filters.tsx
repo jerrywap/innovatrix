@@ -7,6 +7,7 @@ import { marketplaceHref } from "@/services/marketplace/query";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { CATALOGUE_SURFACE } from "@/config/catalogue";
 import { PANEL_TERMS_PER_DIMENSION } from "../data";
+import { rootCategories } from "@/services/marketplace/taxonomy-tree";
 
 /**
  * The filter panel behind the hero search — a launcher for the marketplace.
@@ -47,7 +48,10 @@ export async function HeroFilters() {
     resolveStorefrontCurrency(),
   ]);
 
-  const categories = taxonomy.category.slice(0, PANEL_TERMS_PER_DIMENSION);
+  // Roots, then the cap. The panel offers a starting point, and a starting point
+  // is a top-level one — slicing across both tiers would offer whichever terms
+  // happened to sort first.
+  const categories = rootCategories(taxonomy).slice(0, PANEL_TERMS_PER_DIMENSION);
   const industries = taxonomy.industry.slice(0, PANEL_TERMS_PER_DIMENSION);
 
   /*

@@ -60,6 +60,7 @@
  */
 import "dotenv/config";
 import mongoose from "mongoose";
+import { slugify } from "../src/lib/slug";
 import { TAXONOMY_VOCABULARY } from "./taxonomy-vocabulary";
 import { syncAllIndexes } from "./sync-indexes";
 import { STAFF_ROLES, type StaffRole } from "../src/lib/db/enums";
@@ -121,7 +122,8 @@ async function main(): Promise<void> {
   let taxonomies = 0;
   for (const term of TAXONOMY_VOCABULARY) {
     await M.Taxonomy.updateOne(
-      { kind: term.kind, slug: taxonomySlug(term.name) },
+      // `term.slug` wins where stated — see `VocabularyTerm.slug`.
+      { kind: term.kind, slug: term.slug ?? slugify(term.name) },
       {
         $set: {
           name: term.name,
@@ -135,7 +137,34 @@ async function main(): Promise<void> {
     );
     taxonomies += 1;
   }
-  console.log(`taxonomies       ${taxonomies} upserted`);
+
+  /*
+   * `parentId` in a second pass, because a child may be written before its
+   * parent has an id. Same two-pass shape as `seed.ts`, for the same reason.
+   */
+  const categoryIdByName = new Map(
+    (await M.Taxonomy.find({ kind: "category" }).select({ name: 1 }).lean()).map((row) => [
+      row.name,
+      row._id,
+    ]),
+  );
+  let parented = 0;
+  for (const term of TAXONOMY_VOCABULARY) {
+    if (term.kind !== "category" || !term.parent) continue;
+    const parentId = categoryIdByName.get(term.parent);
+    if (!parentId)
+      throw new Error(`missing parent category "${term.parent}" for "${term.name}"`);
+    const result = await M.Taxonomy.updateOne(
+      {
+        kind: "category",
+        slug: term.slug ?? slugify(term.name),
+        parentId: { $ne: parentId },
+      },
+      { $set: { parentId } },
+    );
+    parented += result.modifiedCount;
+  }
+  console.log(`taxonomies       ${taxonomies} upserted, ${parented} newly parented`);
 
   /* ── tax ──────────────────────────────────────────────── */
 
@@ -331,23 +360,6 @@ async function main(): Promise<void> {
    * apparently stall is going to reach for Ctrl-C at the worst moment.
    */
   process.exit(0);
-}
-
-/**
- * The slug a taxonomy term gets.
- *
- * Duplicated from `seed.ts` on purpose rather than shared: the two must agree, and
- * the way to make them agree is one function. That refactor touches the demo seed,
- * which is 1,000 lines and not what this ticket is about — so this is the copy,
- * and it is marked as one. If they ever disagree the symptom is duplicate
- * taxonomies with the same name, which `db:docs` and the filter rail both show.
- */
-function taxonomySlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 /**

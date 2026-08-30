@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bookmark, BookmarkCheck } from "lucide-react";
 import { toggleSavedAction } from "@/features/marketplace/actions";
+import { productHref } from "@/config/catalogue";
 
 /**
  * Save for Later — §8's fourth CTA.
@@ -41,7 +42,7 @@ export function SaveButton({
       aria-pressed={saved}
       onClick={() => {
         if (!signedIn) {
-          router.push(`/login?next=/marketplace/${slug}`);
+          router.push(`/login?next=${productHref(slug)}`);
           return;
         }
 

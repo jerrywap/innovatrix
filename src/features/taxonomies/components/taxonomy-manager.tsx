@@ -6,6 +6,7 @@ import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { TaxonomyImageUpload } from "./taxonomy-image-upload";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/status-badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -36,6 +37,10 @@ export interface TaxonomyRow {
   icon?: string;
   sortOrder: number;
   isActive: boolean;
+  /** The parent category's id, for a child. Absent on a root and on every other kind. */
+  parentId?: string;
+  /** An uploaded browse-card image, when one is set. */
+  imageUrl?: string;
   /**
    * Which catalogue's vocabulary it is in.
    *
@@ -61,6 +66,20 @@ export function TaxonomyManager({
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
+  /*
+   * The terms a row may be filed under: this kind's roots, and only for
+   * categories.
+   *
+   * Roots only, because the tree is one level deep — `updateTaxonomy` refuses a
+   * parent that already has one, and offering the choice here would be an
+   * invitation to that refusal. The row being edited is excluded from its own
+   * list further down, where its id is known.
+   */
+  const parents =
+    kind === "category"
+      ? rows.filter((row) => !row.parentId).map(({ id, name }) => ({ id, name }))
+      : [];
+
   return (
     <div className="flex flex-col gap-3">
       <div className="border-border bg-surface divide-border divide-y rounded-xl border">
@@ -70,7 +89,13 @@ export function TaxonomyManager({
 
         {rows.map((row) =>
           editing === row.id ? (
-            <TaxonomyForm key={row.id} kind={kind} row={row} onDone={() => setEditing(null)} />
+            <TaxonomyForm
+              key={row.id}
+              kind={kind}
+              row={row}
+              parents={parents}
+              onDone={() => setEditing(null)}
+            />
           ) : (
             <TaxonomyRowView
               key={row.id}
@@ -81,7 +106,9 @@ export function TaxonomyManager({
           ),
         )}
 
-        {adding && <TaxonomyForm kind={kind} onDone={() => setAdding(false)} />}
+        {adding && (
+          <TaxonomyForm kind={kind} parents={parents} onDone={() => setAdding(false)} />
+        )}
       </div>
 
       {canManage && !adding && (
@@ -177,10 +204,12 @@ function TaxonomyRowView({
 function TaxonomyForm({
   kind,
   row,
+  parents,
   onDone,
 }: {
   kind: TaxonomyKind;
   row?: TaxonomyRow;
+  parents: ReadonlyArray<{ id: string; name: string }>;
   onDone: () => void;
 }) {
   const [state, formAction] = useActionState(
@@ -233,6 +262,16 @@ function TaxonomyForm({
         <Textarea name="description" defaultValue={row?.description} rows={2} maxLength={500} />
       </label>
 
+      {/*
+        Categories only, and only on an existing row: the upload key is derived
+        from the term's id, and a row being created does not have one yet. Adding
+        it after the first save is the honest sequence rather than inventing an id
+        client-side to write bytes against.
+      */}
+      {kind === "category" && row && (
+        <TaxonomyImageUpload taxonomyId={row.id} defaultValue={row.imageUrl ?? ""} />
+      )}
+
       <div className="flex flex-wrap items-end gap-4">
         <label className="flex flex-col gap-1">
           <span className="text-[12.5px] font-medium">Catalogue</span>
@@ -246,6 +285,43 @@ function TaxonomyForm({
             <option value="template">Templates only</option>
           </select>
         </label>
+
+        {/*
+          Categories only, and a native `<select>` rather than a Radix one.
+
+          This form is `<form action={formAction}>`, and React requests a real
+          `form.reset()` before running a function action — which a Radix control
+          answers by restoring a ref captured on first render. It bites on a
+          *failed* submit, where the row stays open and the control has silently
+          snapped back. Native inputs are unaffected, which is why `catalogue`
+          above is a plain `<select>` and why this one is too.
+        */}
+        {kind === "category" && (
+          <label className="flex flex-col gap-1">
+            <span className="text-[12.5px] font-medium">
+              Sits under{" "}
+              <span className="text-subtle font-normal">
+                — its landing page is one level up
+              </span>
+            </span>
+            <select
+              name="parentId"
+              defaultValue={row?.parentId ?? ""}
+              className="border-border bg-surface focus-visible:ring-signal/40 h-9 rounded-lg border px-2 text-[13px] focus-visible:ring-2 focus-visible:outline-none"
+            >
+              <option value="">Nothing — it is a top-level category</option>
+              {parents
+                // A category cannot be its own parent, and offering it is how
+                // somebody finds that out from an error message instead.
+                .filter((parent) => parent.id !== row?.id)
+                .map((parent) => (
+                  <option key={parent.id} value={parent.id}>
+                    {parent.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
 
         <label className="flex flex-col gap-1">
           <span className="text-[12.5px] font-medium">Order</span>

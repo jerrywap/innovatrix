@@ -1,6 +1,7 @@
 import { formatPlain } from "@/lib/money";
 import type { StorefrontCurrency } from "@/config/storefront";
 import { screenshots, type ProductDetail } from "@/services/marketplace/detail";
+import { productHref } from "@/config/catalogue";
 
 /**
  * `Product` + `Offer` structured data — §93.
@@ -50,7 +51,7 @@ export function ProductJsonLd({
     createdAt: Date;
   }>;
 }) {
-  const url = `${origin}/marketplace/${product.slug}`;
+  const url = `${origin}${productHref(product.slug)}`;
   const images = screenshots(product.media);
   const price = product.prices.find((row) => row.currency === currency) ?? product.prices[0];
   const current = product.versions.find((version) => version.isCurrent);

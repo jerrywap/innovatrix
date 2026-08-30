@@ -7,7 +7,7 @@ import { StarRating } from "@/components/star-rating";
 import { money } from "@/lib/money";
 import type { Route } from "next";
 import type { ProductCard as Card } from "@/services/marketplace";
-import { CATALOGUE_SURFACE } from "@/config/catalogue";
+import { CATALOGUE_SURFACE, productHref } from "@/config/catalogue";
 
 /**
  * The two catalogues, as colour.
@@ -73,7 +73,7 @@ export function ProductCardTile({
          * through the 80-odd `/marketplace/` literals in the tree, and this card is
          * the highest-traffic one of them.
          */
-        href={`${CATALOGUE_SURFACE[card.catalogue].productPath}/${card.slug}` as Route}
+        href={productHref(card.slug, card.catalogue) as Route}
         className="absolute inset-0 z-0 rounded-xl focus:outline-none"
       >
         {/* The accessible name for the overlay. The visible heading is not inside the link, so

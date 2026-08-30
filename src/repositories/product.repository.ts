@@ -121,6 +121,46 @@ export class ProductRepository extends BaseRepository<ProductDoc> {
     return docs.map((doc) => String(doc._id));
   }
 
+  /**
+   * How many products reference **every** taxonomy term, in one aggregation.
+   *
+   * The admin screen shows a usage count per row, and it used to get them by
+   * firing `countReferencingTaxonomy` once per term, concurrently. Its docblock
+   * justified that with "that is 28 counts … the bound is the size of the
+   * vocabulary" — which was true, and is the problem: the vocabulary is the thing
+   * about to grow. At a few hundred terms that is a few hundred simultaneous
+   * `countDocuments` on an uncached admin page load.
+   *
+   * `$unwind` over the four id arrays instead: one pass, one round trip, bounded
+   * by the number of *products* rather than by the number of terms.
+   *
+   * `productTypeId` is a single value rather than an array, so it is folded into
+   * a one-element array before the unwind — `$unwind` on a scalar is an error,
+   * and on a missing field it drops the document, which is what
+   * `preserveNullAndEmptyArrays` guards against for the products that carry none.
+   */
+  async countsByTaxonomy(): Promise<Map<string, number>> {
+    const rows = await this.model.aggregate<{ _id: unknown; count: number }>([
+      { $match: { deletedAt: null } },
+      {
+        $project: {
+          terms: {
+            $setUnion: [
+              { $ifNull: ["$categoryIds", []] },
+              { $ifNull: ["$industryIds", []] },
+              { $ifNull: ["$technologyIds", []] },
+              { $cond: [{ $ifNull: ["$productTypeId", false] }, ["$productTypeId"], []] },
+            ],
+          },
+        },
+      },
+      { $unwind: { path: "$terms", preserveNullAndEmptyArrays: false } },
+      { $group: { _id: "$terms", count: { $sum: 1 } } },
+    ]);
+
+    return new Map(rows.map((row) => [String(row._id), row.count]));
+  }
+
   /** How many products would a taxonomy delete orphan? */
   async countReferencingTaxonomy(taxonomyId: string): Promise<number> {
     const id = toObjectId(taxonomyId);

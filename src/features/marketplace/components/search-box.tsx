@@ -34,6 +34,13 @@ import type { Route } from "next";
  * the server is a full `$text` aggregation. 350ms is long enough that "invoice"
  * is one query rather than seven, and short enough that it still feels live.
  *
+ * ## Focus survives the debounce, and that took a rewrite
+ *
+ * The field used to be remounted — a `key` derived from the URL's `q` — so that
+ * an external change to the query reset it. It also remounted on the *own*
+ * `replace` the debounce fires, which destroyed the input and took focus with
+ * it. See `seenQuery` below for what replaced it.
+ *
  * ## It degrades to a plain form
  *
  * The `<form>` has a real `action`, so before hydration — or with JavaScript
@@ -62,18 +69,7 @@ export interface SearchBoxProps {
   formId?: string;
 }
 
-export function SearchBox(props: SearchBoxProps) {
-  const searchParams = useSearchParams();
-  // Remount when the URL's `q` changes, which resets the uncontrolled input to
-  // whatever the URL now says. The obvious alternative — a `useEffect` that
-  // calls `setValue` when `searchParams` changes — is a cascading render: the
-  // effect runs after paint, sets state, and forces a second render of a
-  // component that is already correct. React's `set-state-in-effect` rule flags
-  // it, and it is right to.
-  return <SearchField key={searchParams.get("q") ?? ""} {...props} />;
-}
-
-function SearchField({
+export function SearchBox({
   basePath,
   mode = "filter",
   inputId = "marketplace-search",
@@ -85,8 +81,49 @@ function SearchField({
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
 
-  const [value, setValue] = useState(searchParams.get("q") ?? "");
+  const urlQuery = searchParams.get("q") ?? "";
+  const [value, setValue] = useState(urlQuery);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  /*
+   * The last value **this box** put in the URL.
+   *
+   * In `filter` mode the debounce writes `?q=` itself, so the URL changing is
+   * usually this component's own doing. Without somewhere to record that, there
+   * is no way to tell "the visitor pressed Back" from "the timer just fired",
+   * and the two need opposite responses: reset the field, or leave it alone.
+   *
+   * State rather than a ref, because it is read **during render** by the
+   * adjustment below — which is precisely what a ref may not be used for, and
+   * what `react-hooks`' "Cannot access refs during render" says. A ref would
+   * also be the subtler mistake: it does not schedule a render, so the first
+   * comparison after a push could read a stale value.
+   */
+  const [ownPush, setOwnPush] = useState<string | null>(null);
+
+  /*
+   * Adjusting state during render — React's documented pattern for "derive from
+   * props", and deliberately **not** a `key` or an effect.
+   *
+   * It was a `key` on a wrapper, recomputed from `searchParams.get("q")`. That
+   * remounted the field whenever the URL's query changed — including on the
+   * component's *own* debounced `replace`, which meant the input was destroyed
+   * and rebuilt 350ms after a pause in typing, and **focus went with it**. Fast
+   * typists never noticed; anyone who paused mid-word was thrown out of the box.
+   *
+   * An effect would fix the focus and reintroduce the cascade the `key` was
+   * chosen to avoid: it runs after paint, sets state, and re-renders a component
+   * that was already right. This runs before paint, writes nothing when nothing
+   * changed, and never unmounts the input.
+   */
+  const [seenQuery, setSeenQuery] = useState(urlQuery);
+  if (urlQuery !== seenQuery) {
+    setSeenQuery(urlQuery);
+    // Only an *external* change adopts the URL — Back, a link, a cleared filter.
+    // Adopting our own would overwrite whatever has been typed since the timer
+    // started, which is how a debounce eats the end of a word.
+    if (urlQuery !== ownPush) setValue(urlQuery);
+  }
 
   const push = (next: string) => {
     // In `navigate` mode the destination is a different page, so the current
@@ -99,6 +136,9 @@ function SearchField({
 
     const query = params.toString();
     const href = (query ? `${basePath}?${query}` : basePath) as Route;
+
+    // Recorded before the navigation, because the re-render can arrive first.
+    setOwnPush(next.trim());
 
     startTransition(() => {
       // `typedRoutes` cannot know a runtime-built query string is valid, and

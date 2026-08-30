@@ -95,6 +95,8 @@ export interface AdminProductView {
    */
   scriptListingId?: string;
   categoryIds: string[];
+  /** Which of `categoryIds` drives the breadcrumb and the canonical. */
+  primaryCategoryId?: string;
   industryIds: string[];
   technologyIds: string[];
   productTypeId?: string;
@@ -208,6 +210,9 @@ export function toAdminProductView(product: ProductDoc): AdminProductView {
     catalogue: product.catalogue ?? "script",
     ...(product.scriptListingId ? { scriptListingId: String(product.scriptListingId) } : {}),
     categoryIds: product.categoryIds.map(String),
+    ...(product.primaryCategoryId
+      ? { primaryCategoryId: String(product.primaryCategoryId) }
+      : {}),
     industryIds: product.industryIds.map(String),
     technologyIds: product.technologyIds.map(String),
     ...(product.productTypeId ? { productTypeId: String(product.productTypeId) } : {}),

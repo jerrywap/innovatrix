@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { cacheLife, cacheTag } from "next/cache";
-import type { PipelineStage } from "mongoose";
+import type { PipelineStage, Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db/client";
 import { Product, Taxonomy } from "@/lib/db/models/catalog";
 import type { ProductCatalogue, TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
@@ -98,9 +98,44 @@ export interface MarketplaceResult {
 }
 
 export interface TaxonomyTerm {
+  /**
+   * The term's id, as a string.
+   *
+   * Free: `.select()` is an inclusion projection, so `_id` comes back whether or
+   * not it is asked for. It exists because `Product.primaryCategoryId` is an id
+   * and the index is otherwise entirely slug-keyed — without it, a consumer that
+   * has the primary's id and wants its slug has to go back to the database for
+   * something already in memory.
+   */
+  id: string;
   slug: string;
   name: string;
   description?: string;
+  /**
+   * The parent category's **slug**. Absent on a root, and on every other kind.
+   *
+   * A slug rather than an id because the whole index is slug-keyed — the rail,
+   * `categoryLandingPath` and `parseFacet` all speak slugs, and a `parentId`
+   * here would make every consumer carry a second key space for one field.
+   *
+   * **Absent when the parent is not in this scoped result set**, which is the
+   * case worth stating: a term whose parent is deactivated, or scoped to the
+   * other catalogue, renders as a *root* rather than disappearing. A parents-only
+   * rail filters on `parentSlug` being absent, so the alternative is a whole
+   * subtree vanishing from the storefront the moment somebody unticks one
+   * parent in the admin screen — silently, and with the products still published.
+   */
+  parentSlug?: string;
+  /**
+   * An uploaded image for this term's browse card, when one is set.
+   *
+   * Projected here because the card is rendered from the cached index — the same
+   * read that already carries `name` and `description`. `icon` is deliberately
+   * still absent: it has been on the model since ticket 02, has no input, no
+   * seed and no renderer, and widening the projection for a field nothing reads
+   * would make this list longer without making anything work.
+   */
+  imageUrl?: string;
   /**
    * Which catalogue's vocabulary it is in — `both` for most.
    *
@@ -176,14 +211,25 @@ const taxonomyIndexFor = cache(async function taxonomyIndexFor(
 
   const rows = await Taxonomy.find({ isActive: true, ...taxonomyScopeFilter(scope) })
     .sort({ sortOrder: 1, name: 1 })
-    .select({ kind: 1, slug: 1, name: 1, description: 1, catalogue: 1 })
+    .select({
+      kind: 1,
+      slug: 1,
+      name: 1,
+      description: 1,
+      catalogue: 1,
+      parentId: 1,
+      imageUrl: 1,
+    })
     .lean<
       Array<{
+        _id: Types.ObjectId;
         kind: TaxonomyKind;
         slug: string;
         name: string;
         description?: string;
         catalogue?: TaxonomyCatalogue;
+        parentId?: Types.ObjectId;
+        imageUrl?: string;
       }>
     >();
 
@@ -194,11 +240,22 @@ const taxonomyIndexFor = cache(async function taxonomyIndexFor(
     product_type: [],
   };
 
+  /*
+   * Built from `rows`, not from a second query — so a parent that this scope
+   * filtered out is simply absent from the map, and its children fall back to
+   * rendering as roots. See `TaxonomyTerm.parentSlug`.
+   */
+  const slugById = new Map(rows.map((row) => [String(row._id), row.slug]));
+
   for (const row of rows) {
+    const parentSlug = row.parentId ? slugById.get(String(row.parentId)) : undefined;
     index[row.kind].push({
+      id: String(row._id),
       slug: row.slug,
       name: row.name,
       ...(row.description ? { description: row.description } : {}),
+      ...(parentSlug ? { parentSlug } : {}),
+      ...(row.imageUrl ? { imageUrl: row.imageUrl } : {}),
       // Absent ⇒ `both`, matching the schema default, so a term written before
       // the field existed is usable in either catalogue rather than neither.
       catalogue: row.catalogue ?? "both",

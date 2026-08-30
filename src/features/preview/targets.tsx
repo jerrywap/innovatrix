@@ -4,6 +4,7 @@ import { revealDemoUrls } from "@/services/catalog/demo-service";
 import { viewerOwnsProduct, type ProductDetail } from "@/services/marketplace/detail";
 import { Brand } from "@/components/shell/brand";
 import { PreviewStage, type PreviewTarget } from "./components/preview-stage";
+import { productHref } from "@/config/catalogue";
 
 /**
  * Which demo addresses this viewer may be handed, resolved before anything
@@ -63,7 +64,7 @@ export async function PreviewTargets({
     <PreviewStage
       targets={targets}
       productName={product.name}
-      productHref={`/marketplace/${product.slug}`}
+      productHref={productHref(product.slug)}
       brand={<Brand />}
     />
   );

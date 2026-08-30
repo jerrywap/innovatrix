@@ -16,6 +16,7 @@ import {
   contentDisposition,
   healthcheckKey,
   paymentProofKey,
+  taxonomyImageKey,
   vendorBrandingKey,
   vendorDocumentKey,
   payoutEvidenceKey,
@@ -84,6 +85,8 @@ const UPLOAD_TTL_SECONDS: Record<StorageScope, number> = {
   "vendor-document": 300,
   // Half the size of a screenshot and the same shape of upload.
   "vendor-branding": 300,
+  // Same shape of upload as vendor branding.
+  "taxonomy-image": 300,
   // A bank document, like a receipt.
   "payout-evidence": 300,
   healthcheck: 60,
@@ -504,6 +507,14 @@ export function assertVendorDocumentKey(key: string, vendorId: string): string {
  */
 export function vendorBrandingPath(vendorId: string, kind: VendorBrandingKind): string {
   return vendorBrandingKey(storageContext(), vendorId, kind);
+}
+
+/**
+ * A category's browse-card image. Same arrangement as vendor branding: derived
+ * from the id, stable, so a replacement overwrites rather than orphaning.
+ */
+export function taxonomyImagePath(taxonomyId: string): string {
+  return taxonomyImageKey(storageContext(), taxonomyId);
 }
 
 /**

@@ -32,6 +32,7 @@ import type {
   DetailLicencePackage,
   DetailPrice,
 } from "@/services/marketplace/detail";
+import { productHref } from "@/config/catalogue";
 
 /**
  * Licence, add-ons and the two doors — §5, §8.
@@ -293,7 +294,7 @@ export function PurchasePanel({
             {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
             signedIn={signedIn}
             owned={owned}
-            productPath={`/marketplace/${slug}`}
+            productPath={productHref(slug)}
             disabled={!selected}
           />
         ) : (

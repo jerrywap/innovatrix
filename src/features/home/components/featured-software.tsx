@@ -1,9 +1,11 @@
 import Link from "next/link";
 import type { Route } from "next";
+import { categoryLandingPath } from "@/config/catalogue";
 import { ProductCardTile } from "@/features/marketplace/components/product-card";
 import { getRail, getTaxonomyIndex } from "@/services/marketplace";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { Band, SectionHead } from "@/components/band";
+import { rootCategories } from "@/services/marketplace/taxonomy-tree";
 
 /**
  * "Ready-to-use applications & scripts" — the marketplace, made tangible.
@@ -36,7 +38,8 @@ export async function FeaturedSoftware() {
   // unpublished. Rendering the heading over nothing looks broken.
   if (cards.length === 0) return null;
 
-  const categories = taxonomy.category.slice(0, 4);
+  // Roots, then the cap — see `hero-filters.tsx`.
+  const categories = rootCategories(taxonomy).slice(0, 4);
 
   return (
     <Band id="software" tone="muted">
@@ -50,7 +53,11 @@ export async function FeaturedSoftware() {
       <div className="mt-8 flex flex-wrap gap-1.5">
         <Chip href={`/marketplace?free=true&currency=${currency}` as Route}>Free</Chip>
         {categories.map((term) => (
-          <Chip key={term.slug} href={`/marketplace/category/${term.slug}` as Route}>
+          // `categoryLandingPath`, not a literal — a child's home is two segments
+          // deep now, and a hand-built one-segment URL only works because
+          // `/marketplace/[parent]` 308s it. Spending a redirect on every home-page
+          // chip is not what that safety net is for.
+          <Chip key={term.slug} href={categoryLandingPath(term) as Route}>
             {term.name}
           </Chip>
         ))}

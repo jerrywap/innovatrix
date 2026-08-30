@@ -82,4 +82,24 @@ describe("schema paths that a scope filter depends on", () => {
     expect(Product.schema.path("catalogue")).toBeDefined();
     expect(Taxonomy.schema.path("catalogue")).toBeDefined();
   });
+
+  /**
+   * The category tree, and it fails open in two directions at once.
+   *
+   * `deleteTaxonomy` refuses to remove a parent while `countChildren` finds any.
+   * That count is `countDocuments({ parentId })`, so with the path undeclared
+   * `strictQuery: true` drops the condition and the query becomes
+   * `countDocuments({})` — every taxonomy in the collection. The guard then reads
+   * as "this parent has 37 children" and never lets anything be deleted, which is
+   * the harmless direction and the one you would notice.
+   *
+   * The other direction is the reason this line is here. `syncIndexes` builds from
+   * the schema too, so a missing path also means a missing `{kind, parentId}`
+   * index — and a `parentId` that no longer round-trips means every child loads
+   * with no parent, renders as a root, and gets its own top-level landing page and
+   * sitemap entry. No error, and the pages all return 200.
+   */
+  it("declares the path the category tree depends on", () => {
+    expect(Taxonomy.schema.path("parentId")).toBeDefined();
+  });
 });

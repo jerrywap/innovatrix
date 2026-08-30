@@ -14,6 +14,8 @@ import {
 import { getProductDetail, screenshots } from "@/services/marketplace/detail";
 import { resolveAiConfig } from "@/services/ai/settings";
 import { pageMetadata } from "@/lib/seo";
+import type { Route } from "next";
+import { productHref } from "@/config/catalogue";
 
 /**
  * Per product, not one title for a thousand listings.
@@ -146,7 +148,7 @@ export default async function Page({ params, searchParams }: PageProps<"/customi
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-10">
       <p className="text-subtle text-[12.5px]">
-        <Link href={`/marketplace/${slug}`} className="underline underline-offset-4">
+        <Link href={productHref(slug) as Route} className="underline underline-offset-4">
           ← Back to {product.name}
         </Link>
       </p>

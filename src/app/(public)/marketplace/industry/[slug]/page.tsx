@@ -40,7 +40,10 @@ export async function generateMetadata({
   params,
 }: PageProps<"/marketplace/industry/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const term = await getTaxonomyTerm("industry", slug);
+  // Scoped, and it has to be: `getTaxonomyTerm` defaults to `"all"`, so an
+  // unscoped call here finds a template-only industry that `generateStaticParams`
+  // above deliberately excludes — see the note in the page body.
+  const term = await getTaxonomyTerm("industry", slug, "script");
   if (!term) return { title: "Not found" };
 
   const description = term.description ?? defaultDescription(term.name);
@@ -58,7 +61,21 @@ export default async function Page({
   searchParams,
 }: PageProps<"/marketplace/industry/[slug]">) {
   const { slug } = await params;
-  const term = await getTaxonomyTerm("industry", slug);
+  /*
+   * `"script"`, not the default `"all"` — and this was a live bug.
+   *
+   * `taxonomyScopeFilter("script")` matches `script`, `both` and `null`, so a
+   * template-only industry is absent from `getTaxonomyIndex("script")` and
+   * therefore from `generateStaticParams`. The unscoped lookup that used to be
+   * here still found it, so instead of 404ing the page rendered a real heading
+   * over a `catalogue="script"` grid — a permanently empty page, advertised in
+   * the sitemap, that no crawler was ever told was wrong.
+   *
+   * Latent until an admin could create one; the catalogue field on the taxonomy
+   * form silently defaulted to `both` until it was fixed, which is what kept this
+   * out of sight.
+   */
+  const term = await getTaxonomyTerm("industry", slug, "script");
   if (!term) notFound();
 
   return (

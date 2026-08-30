@@ -4,8 +4,19 @@ import { serverEnv } from "@/config/env";
 import { connectToDatabase } from "@/lib/db/client";
 import { Product } from "@/lib/db/models/catalog";
 import { getTaxonomyIndex } from "@/services/marketplace";
+import { termCounts } from "@/services/marketplace/term-counts";
+import {
+  isChildLandingIndexable,
+  isIndustryLandingIndexable,
+} from "@/services/marketplace/taxonomy-tree";
 import { storefrontSlugs } from "@/services/marketplace/storefront";
 import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG } from "@/services/catalog/cache";
+import {
+  CATALOGUE_SURFACE,
+  categoryLandingPath,
+  isReservedCatalogueSegment,
+  productHref,
+} from "@/config/catalogue";
 
 /**
  * The sitemap — §93.
@@ -88,35 +99,83 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // `"all"` — every landing page that exists belongs in the sitemap, and the
   // split below decides which path each term gets.
   const taxonomy = await getTaxonomyIndex("all");
+  const [scriptCounts, templateCounts] = await Promise.all([
+    termCounts("script"),
+    termCounts("template"),
+  ]);
+
   /*
-   * Category landing pages, split by which catalogue **owns** the term.
+   * Category landing pages, two-tier and split by which catalogue **owns** the term.
    *
-   * A `both` term has exactly one landing page, on `/marketplace`, and appears on
-   * `/templates` as a filter — which is what `generateStaticParams` on each page
-   * does too, and the two must agree or the sitemap advertises a URL that was
-   * never prerendered.
+   * Every URL is built by `categoryLandingPath`, never by hand. That is the whole
+   * point: `generateStaticParams` on each page, the breadcrumb, the `/search`
+   * chips and this file all have to agree about where a term lives, and one
+   * builder is the only way they cannot drift. The disagreement that function's
+   * docblock was written after was exactly this — a sitemap advertising a URL the
+   * page deliberately withheld.
+   *
+   * A `both` term keeps its single home on `/marketplace` and appears under
+   * `/templates` as a filter. Parents are always listed; a **child** only clears
+   * the bar `isChildLandingIndexable` sets, which is what keeps a thin page — or
+   * a child that is indistinguishable from its parent — out of the index.
    */
-  const landingPages: MetadataRoute.Sitemap = [
-    ...taxonomy.category
+  const categoryPages: MetadataRoute.Sitemap = taxonomy.category
+    .filter((term) => !isReservedCatalogueSegment(term.slug))
+    .filter((term) => {
+      const counts = term.catalogue === "template" ? templateCounts : scriptCounts;
+      /*
+       * A parent earns a URL once something is filed under it — and not before.
+       * Advertising an empty category is the thin page the child floor exists to
+       * prevent, arriving one tier up: the page renders (a link to it must never
+       * 404) but there is nothing on it worth a crawl.
+       */
+      if (!term.parentSlug) return (counts.category.get(term.slug) ?? 0) > 0;
+      return isChildLandingIndexable({
+        childCount: counts.category.get(term.slug) ?? 0,
+        parentCount: counts.category.get(term.parentSlug) ?? 0,
+      });
+    })
+    .map((term) => ({
+      url: `${origin}${categoryLandingPath(term)}`,
+      changeFrequency: "weekly" as const,
+      // A parent is the page worth ranking; a child that earned its place is one
+      // notch below it rather than a peer.
+      priority: term.parentSlug ? 0.7 : 0.8,
+    }));
+
+  /*
+   * Industries — on **both** surfaces, and that is a deliberate departure from
+   * the ownership rule above.
+   *
+   * A `both` category gets one page because two would list the same rows. A
+   * `both` industry gets two because they list *different* rows:
+   * `/marketplace/industry/logistics` is scripts, `/templates/industry/logistics`
+   * is templates. Different inventory, different heading, different canonical.
+   *
+   * The marketplace side keeps its existing behaviour — every script-visible
+   * industry, no floor — because those pages already exist and already rank, and
+   * introducing a floor there would de-index working pages to enforce a rule
+   * invented after them. The template side is new, so it starts with one.
+   */
+  const industryPages: MetadataRoute.Sitemap = [
+    ...taxonomy.industry
       .filter((term) => term.catalogue !== "template")
       .map((term) => ({
-        url: `${origin}/marketplace/category/${term.slug}`,
+        url: `${origin}${CATALOGUE_SURFACE.script.industryPath}/${term.slug}`,
         changeFrequency: "weekly" as const,
-        priority: 0.8,
+        priority: 0.7,
       })),
-    ...taxonomy.category
-      .filter((term) => term.catalogue === "template")
+    ...taxonomy.industry
+      .filter((term) => term.catalogue !== "script")
+      .filter((term) => isIndustryLandingIndexable(templateCounts.industry.get(term.slug) ?? 0))
       .map((term) => ({
-        url: `${origin}/templates/category/${term.slug}`,
+        url: `${origin}${CATALOGUE_SURFACE.template.industryPath}/${term.slug}`,
         changeFrequency: "weekly" as const,
-        priority: 0.8,
+        priority: 0.7,
       })),
-    ...taxonomy.industry.map((term) => ({
-      url: `${origin}/marketplace/industry/${term.slug}`,
-      changeFrequency: "weekly" as const,
-      priority: 0.7,
-    })),
   ];
+
+  const landingPages: MetadataRoute.Sitemap = [...categoryPages, ...industryPages];
 
   await connectToDatabase();
 
@@ -147,7 +206,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.5,
     })),
     ...products.map((product) => ({
-      url: `${origin}/marketplace/${product.slug}`,
+      url: `${origin}${productHref(product.slug)}`,
       ...(product.updatedAt ? { lastModified: product.updatedAt } : {}),
       changeFrequency: "weekly" as const,
       priority: 0.6,

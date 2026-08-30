@@ -16,7 +16,7 @@ import {
   type ProductDetail,
 } from "@/services/marketplace/detail";
 import { DemoPanel } from "@/features/product/demo-panel";
-import { CATALOGUE_SURFACE, categoryLandingPath } from "@/config/catalogue";
+import { CATALOGUE_SURFACE, categoryLandingPath, productHref } from "@/config/catalogue";
 import { Gallery, HeroExpand, ProductMedia } from "@/features/product/gallery";
 import { ProductJsonLd } from "@/features/product/json-ld";
 import { VendorByline } from "@/features/product/vendor-byline";
@@ -62,7 +62,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({
   params,
-}: PageProps<"/marketplace/[slug]">): Promise<Metadata> {
+}: PageProps<"/details/[slug]">): Promise<Metadata> {
   const { slug } = await params;
   const product = await getProductDetail(slug);
   if (!product) return { title: "Not found" };
@@ -81,12 +81,12 @@ export async function generateMetadata({
   return {
     title,
     description,
-    alternates: { canonical: `/marketplace/${slug}` },
+    alternates: { canonical: productHref(slug) },
     openGraph: {
       title,
       description,
       type: "website",
-      url: `/marketplace/${slug}`,
+      url: productHref(slug),
       ...(image ? { images: [{ url: image, alt: product.name }] } : {}),
     },
     twitter: {
@@ -97,14 +97,14 @@ export async function generateMetadata({
   };
 }
 
-export default async function Page({ params }: PageProps<"/marketplace/[slug]">) {
+export default async function Page({ params }: PageProps<"/details/[slug]">) {
   const { slug } = await params;
   const product = await getProductDetail(slug);
 
   if (!product) {
     const currentSlug = await getCurrentSlugFor(slug);
     // 308, not 302 — a renamed product's ranking should follow it.
-    if (currentSlug) permanentRedirect(`/marketplace/${currentSlug}`);
+    if (currentSlug) permanentRedirect(productHref(currentSlug) as Route);
     notFound();
   }
 
@@ -324,21 +324,45 @@ async function RatedJsonLd({ product, origin }: { product: ProductDetail; origin
  */
 function crumbsFor(product: ProductDetail): Crumb[] {
   const surface = CATALOGUE_SURFACE[product.catalogue];
+  /*
+   * Index zero is the **primary** category now, not the alphabetically-first
+   * facet — `primaryFirst` in `detail.ts` fixes the order at the source. That
+   * matters more than it used to: `facets` also carries each category's parent,
+   * so without it this crumb could name a term the author never chose.
+   */
   const category = product.taxonomy.categories[0];
+  /*
+   * The parent, for the middle crumb, taken from the product's own list rather
+   * than looked up — the ancestor facet means it is already there.
+   */
+  const parent = category?.parentSlug
+    ? product.taxonomy.categories.find((term) => term.slug === category.parentSlug)
+    : undefined;
 
   return [
     /*
      * The catalogue this product *belongs to*, not the route it happens to
      * render under.
      *
-     * `CATALOGUE_SURFACE.template.productPath` is `/marketplace` on purpose, so
-     * a website template's detail page lives here too — and this crumb used to
-     * be the hardcoded string "Marketplace" for both. A template buyer was told
-     * the wrong shelf and handed the wrong way back to it.
+     * Both catalogues' `productPath` is `/details` on purpose, so a website
+     * template's detail page lives here too — and this crumb used to be the
+     * hardcoded string "Marketplace" for both. A template buyer was told the
+     * wrong shelf and handed the wrong way back to it.
      */
     { name: surface.plural, path: surface.listingPath },
+    /*
+     * The tier above, when there is one. Four crumbs rather than three is the
+     * visible half of the two-tier vocabulary — and it is what makes a parent
+     * landing page reachable from every product filed under it, which is the
+     * internal linking the whole scheme is for.
+     *
+     * Skipped when the parent is not in the product's own list, which is what a
+     * `ProductDetail` cached before the ancestor facets existed will look like.
+     * Three crumbs is the old shape, not a broken one.
+     */
+    ...(parent ? [{ name: parent.name, path: categoryLandingPath(parent) }] : []),
     // The term's own landing page, which is not always this product's catalogue.
-    // See `categoryLandingPath` — linking by `surface.categoryPath` here would
+    // See `categoryLandingPath` — linking by `surface.listingPath` here would
     // manufacture a URL the sitemap deliberately withholds.
     ...(category ? [{ name: category.name, path: categoryLandingPath(category) }] : []),
     // No `path` on the last one — schema.org's way of saying "you are here".

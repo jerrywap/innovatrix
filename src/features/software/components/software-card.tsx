@@ -4,6 +4,7 @@ import type { Route } from "next";
 import { ArrowUpCircle, KeyRound, MonitorPlay, Package, Sparkles } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import type { EntitlementView } from "@/services/entitlements/entitlement-service";
+import { productHref } from "@/config/catalogue";
 
 /**
  * One owned product — §29.
@@ -134,13 +135,13 @@ export function SoftwareCard({ entitlement }: { entitlement: EntitlementView }) 
           // resolves §9 exposure per viewer. An owner passes `owners_only` by
           // definition, so this is the one place that rule pays off — nothing
           // here re-implements it.
-          <Action href={`/marketplace/${entitlement.product.slug}#demo` as Route}>
+          <Action href={`${productHref(entitlement.product.slug)}#demo` as Route}>
             <MonitorPlay className="size-3.5" aria-hidden />
             Open demo
           </Action>
         )}
 
-        <Action href={`/marketplace/${entitlement.product.slug}` as Route}>Product page</Action>
+        <Action href={productHref(entitlement.product.slug) as Route}>Product page</Action>
       </div>
     </article>
   );

@@ -19,6 +19,7 @@ import { formatReference } from "../src/lib/references";
 import { syncAllIndexes } from "./sync-indexes";
 import { BRAND } from "../src/config/brand";
 
+import { slugify } from "../src/lib/slug";
 import { TAXONOMY_VOCABULARY } from "./taxonomy-vocabulary";
 
 async function main() {
@@ -36,16 +37,13 @@ async function main() {
   // `product_type` and each auto-created what the other was missing.
   const taxonomies = TAXONOMY_VOCABULARY;
 
-  const slugify = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/&/g, "and")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
-
   const taxonomyIds = new Map<string, mongoose.Types.ObjectId>();
+  // Names, so the second pass can resolve `parent` (a name) to an id.
+  const idByCategoryName = new Map<string, mongoose.Types.ObjectId>();
   for (const t of taxonomies) {
-    const slug = slugify(t.name);
+    // `t.slug` wins where it is stated: `slugify("Business & Operations")` is
+    // `business-and-operations`, which is a worse URL than the one we chose.
+    const slug = t.slug ?? slugify(t.name);
     const doc = await M.Taxonomy.findOneAndUpdate(
       { kind: t.kind, slug },
       {
@@ -62,8 +60,30 @@ async function main() {
       { upsert: true, returnDocument: "after" },
     ).lean();
     taxonomyIds.set(`${t.kind}:${slug}`, doc!._id);
+    if (t.kind === "category") idByCategoryName.set(t.name, doc!._id);
   }
-  console.log(`taxonomies: ${taxonomyIds.size}`);
+
+  /*
+   * Second pass for `parentId`, and it has to be a second pass.
+   *
+   * A child can be upserted before its parent exists — the vocabulary lists
+   * parents first, but nothing in the loop above guarantees the parent's id is
+   * known at the moment the child is written. Resolving the whole tier first and
+   * linking afterwards makes the order irrelevant.
+   */
+  let parented = 0;
+  for (const t of taxonomies) {
+    if (t.kind !== "category" || !t.parent) continue;
+    const parentId = idByCategoryName.get(t.parent);
+    if (!parentId) throw new Error(`missing parent category "${t.parent}" for "${t.name}"`);
+    const slug = t.slug ?? slugify(t.name);
+    const result = await M.Taxonomy.updateOne(
+      { kind: "category", slug, parentId: { $ne: parentId } },
+      { $set: { parentId } },
+    );
+    parented += result.modifiedCount;
+  }
+  console.log(`taxonomies: ${taxonomyIds.size} (${parented} newly parented)`);
 
   const tax = (kind: string, name: string) => {
     const id = taxonomyIds.get(`${kind}:${slugify(name)}`);

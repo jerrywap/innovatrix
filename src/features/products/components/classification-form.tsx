@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Checkbox } from "@/components/ui/checkbox";
 import { MultiSelect } from "@/components/multi-select";
 import { NativeSelect } from "@/components/native-select";
 import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
@@ -16,6 +15,32 @@ export interface TaxonomyOption {
   name: string;
   /** Which catalogue's vocabulary it belongs to — `both` for most. */
   catalogue: TaxonomyCatalogue;
+  /** A category's parent. Absent on a root and on every other kind. */
+  parentId?: string;
+}
+
+/**
+ * Categories in tree order — each root, then its children — with the parent's
+ * name on every child so `MultiSelect` can indent and announce it.
+ *
+ * The order matters as much as the labels: a flat alphabetical list of a
+ * two-level vocabulary reads as noise, and the picker's search is the only other
+ * way through it.
+ *
+ * A term whose parent is not in this (catalogue-filtered) list is treated as a
+ * root, matching `rootCategories` on the read side. Deactivate one parent and its
+ * children stay pickable rather than vanishing from the form.
+ */
+function asTree(options: readonly TaxonomyOption[]): TaxonomyOption[] {
+  const byId = new Map(options.map((option) => [option.id, option]));
+  const roots = options.filter((option) => !option.parentId || !byId.has(option.parentId));
+
+  return roots.flatMap((root) => [
+    root,
+    ...options
+      .filter((option) => option.parentId === root.id)
+      .map((child) => ({ ...child, group: root.name })),
+  ]);
 }
 
 /**
@@ -82,6 +107,19 @@ export function ClassificationForm({
   const inCatalogue = (option: TaxonomyOption) =>
     option.catalogue === "both" || option.catalogue === catalogue;
 
+  const categoryOptions = asTree(options.category.filter(inCatalogue));
+
+  /*
+   * Mirrored out of `MultiSelect` so the primary picker can depend on it.
+   *
+   * The control keeps its own state — this is a copy that follows it, never an
+   * input to it. Seeded from the product so the row is right on first render,
+   * before anything has been toggled.
+   */
+  const [chosenCategories, setChosenCategories] = useState<readonly string[]>(
+    product.categoryIds,
+  );
+
   return (
     <SectionForm action={action} productId={product.id} nextHref={nextHref}>
       <Field label="Catalogue" hint="Categories list also varies based on this catalogue">
@@ -110,8 +148,15 @@ export function ClassificationForm({
         <MultiSelect
           name="categoryIds"
           label="Categories"
-          options={options.category.filter(inCatalogue)}
+          options={categoryOptions}
           defaultSelected={product.categoryIds}
+          onSelectedChange={setChosenCategories}
+        />
+
+        <PrimaryCategory
+          options={categoryOptions}
+          chosen={chosenCategories}
+          current={product.primaryCategoryId}
         />
       </FieldGroup>
 
@@ -131,10 +176,11 @@ export function ClassificationForm({
         title="Technologies"
         description="What it is built with. A developer's filter, not a buyer's."
       >
-        <CheckboxList
+        <MultiSelect
           name="technologyIds"
+          label="Technologies"
           options={options.technology.filter(inCatalogue)}
-          selected={product.technologyIds}
+          defaultSelected={product.technologyIds}
         />
       </FieldGroup>
 
@@ -166,34 +212,70 @@ export function ClassificationForm({
   );
 }
 
-function CheckboxList({
-  name,
+/**
+ * Which of the chosen categories the product actually belongs to.
+ *
+ * ## It appears only when there is a decision to make
+ *
+ * With one category selected there is nothing to choose, so no control renders —
+ * 1,009 of 1,010 products carry exactly one, so almost nobody ever sees this. The
+ * defaulting rule lives in `classificationWithPrimary`, which is the one place
+ * that can be tested and the one place the server trusts; rendering a hidden input
+ * here to say the same thing would be a second copy of it, free to drift.
+ *
+ * Unmounting the row when the count drops back to one is therefore **not** the
+ * data-loss shape the docblocks above warn about. An absent field means "the
+ * server decides", and with one category there is only one answer.
+ *
+ * ## Native radios
+ *
+ * `SectionForm` dispatches by hand, so React's pre-action `form.reset()` never
+ * fires here and a Radix control would in fact be safe. There is still no
+ * `RadioGroup` in `components/ui`, and adding one to ship five radios is a new
+ * dependency surface for no gain — the same argument the `NativeSelect` above
+ * makes.
+ */
+function PrimaryCategory({
   options,
-  selected,
+  chosen,
+  current,
 }: {
-  name: string;
   options: readonly TaxonomyOption[];
-  selected: readonly string[];
+  chosen: readonly string[];
+  current?: string;
 }) {
-  const chosen = new Set(selected);
+  // The same intersection `MultiSelect` applies, so flipping the catalogue drops
+  // a term from the chips and from here together rather than leaving a radio for
+  // something no longer selected. Order follows `options`, so the radios read in
+  // the same sequence as the list above.
+  const picked = options.filter((option) => chosen.includes(option.id));
+  if (picked.length < 2) return null;
 
-  if (options.length === 0) {
-    return (
-      <p className="text-subtle text-[13px]">None defined yet — add some under Taxonomies.</p>
-    );
-  }
+  const checked =
+    current && picked.some((option) => option.id === current) ? current : picked[0]!.id;
 
   return (
-    <div className="border-border bg-surface grid max-h-[220px] gap-1 overflow-y-auto rounded-xl border p-2 sm:grid-cols-2">
-      {options.map((option) => (
-        <label
-          key={option.id}
-          className="hover:bg-surface-muted flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px]"
-        >
-          <Checkbox name={name} value={option.id} defaultChecked={chosen.has(option.id)} />
-          {option.name}
-        </label>
-      ))}
-    </div>
+    <fieldset className="border-border mt-3 rounded-lg border px-3 pt-2 pb-2.5">
+      <legend className="text-subtle px-1 font-mono text-[10.5px] tracking-[0.14em] uppercase">
+        Primary category
+      </legend>
+      <p className="text-muted-foreground mb-1.5 text-[12.5px]">
+        The one this is filed under — it decides the breadcrumb and the page&rsquo;s address.
+      </p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {picked.map((option) => (
+          <label key={option.id} className="flex items-center gap-1.5 text-[13.5px]">
+            <input
+              type="radio"
+              name="primaryCategoryId"
+              value={option.id}
+              defaultChecked={option.id === checked}
+              className="accent-[var(--signal)]"
+            />
+            {option.name}
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }

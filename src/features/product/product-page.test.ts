@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const pagePath = fileURLToPath(
-  new URL("../../app/(public)/marketplace/[slug]/page.tsx", import.meta.url),
+  new URL("../../app/(public)/details/[slug]/page.tsx", import.meta.url),
 );
 const source = readFileSync(pagePath, "utf8");
 

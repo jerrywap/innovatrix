@@ -12,6 +12,7 @@ import { requireOrg, requireUser } from "@/lib/auth/dal";
 import { getOwnedSoftware } from "@/services/entitlements/entitlement-service";
 import { ReviewForm } from "@/features/reviews/components/review-form";
 import { ReviewPrompt } from "@/features/reviews/components/review-prompt";
+import { productHref } from "@/config/catalogue";
 
 export const metadata: Metadata = { title: "Software" };
 
@@ -81,7 +82,7 @@ export default async function Page({
           </Link>
         )}
         <Link
-          href={`/marketplace/${owned.product.slug}` as Route}
+          href={productHref(owned.product.slug) as Route}
           className="border-border hover:bg-surface-muted rounded-full border px-4 py-2 text-[13px]"
         >
           Product page

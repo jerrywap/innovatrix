@@ -11,6 +11,7 @@ import { MoneyDisplay } from "@/components/money-display";
 import { money } from "@/lib/money";
 import { removeLineAction, setQuantityAction } from "../actions";
 import type { CartLineView, CartNotice } from "@/services/cart/cart-service";
+import { productHref } from "@/config/catalogue";
 
 /**
  * The basket's line items — §12.
@@ -118,7 +119,7 @@ function ProductLine({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <Link
-              href={`/marketplace/${line.productSlug}` as Route}
+              href={productHref(line.productSlug) as Route}
               className="text-[14px] font-medium hover:underline"
             >
               {line.productName}

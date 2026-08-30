@@ -15,6 +15,7 @@ import { vendorNames } from "@/services/marketplace/storefront";
 import type { CatalogueScope } from "@/config/catalogue";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { FilterPanel, FilterTaxonomy } from "./components/filter-rail";
+import { termCounts, type TermCounts } from "@/services/marketplace/term-counts";
 import { FilterPopover } from "./components/filter-popover";
 
 /**
@@ -49,12 +50,17 @@ export async function FilterControls({
   catalogue,
   forced,
   locked,
+  categoryRoot,
+  activeCategory,
 }: {
   searchParams: Promise<RawSearchParams>;
   basePath: string;
   catalogue: CatalogueScope;
   forced?: { category?: string[]; industry?: string[] };
   locked?: ReadonlyArray<"category" | "industry" | "technology" | "productType">;
+  /** Which tier of the category tree to show — see `FilterTaxonomy`. */
+  categoryRoot?: string;
+  activeCategory?: string;
 }) {
   const raw = await searchParams;
   const currency = await resolveStorefrontCurrency(raw.currency);
@@ -65,13 +71,17 @@ export async function FilterControls({
     ...(forced ? { forced } : {}),
   });
 
-  const [taxonomy, vendorLabels] = await Promise.all([
+  const [taxonomy, vendorLabels, counts] = await Promise.all([
     // Scoped, which is what stops one catalogue's panel advertising the other's
     // categories.
     getTaxonomyIndex(catalogue),
     // Only for the slugs actually in the URL — there is no seller index to read,
     // and this is the label on the chip that lets you take the filter off again.
     vendorNames(query.vendor ?? []),
+    // What the panel may list at all — catalogue-wide, never relative to this
+    // query. See `termCounts` for why a relative or capped count cannot decide
+    // visibility.
+    termCounts(catalogue),
   ]);
 
   return (
@@ -103,7 +113,10 @@ export async function FilterControls({
               taxonomy={taxonomy}
               basePath={basePath}
               currency={currency}
+              counts={counts}
               {...(locked ? { locked } : {})}
+              {...(categoryRoot ? { categoryRoot } : {})}
+              {...(activeCategory ? { activeCategory } : {})}
             />
           </Suspense>
         }
@@ -134,14 +147,21 @@ async function PanelTaxonomy({
   taxonomy,
   basePath,
   currency,
+  counts,
   locked,
+  categoryRoot,
+  activeCategory,
 }: {
   query: ParsedMarketplaceQuery;
   raw: RawSearchParams;
   taxonomy: TaxonomyIndex;
   basePath: string;
   currency: StorefrontCurrency;
+  /** Catalogue-wide counts, deciding what may render. See `termCounts`. */
+  counts: TermCounts;
   locked?: ReadonlyArray<"category" | "industry" | "technology" | "productType">;
+  categoryRoot?: string;
+  activeCategory?: string;
 }) {
   const result = await searchMarketplace(query);
   const currencyInUrl = currencyMustBeInUrl(query);
@@ -155,7 +175,10 @@ async function PanelTaxonomy({
       hrefFor={(changes) =>
         marketplaceHref(basePath, raw, currencyInUrl ? { currency, ...changes } : changes)
       }
+      termCounts={counts}
       {...(locked ? { locked } : {})}
+      {...(categoryRoot ? { categoryRoot } : {})}
+      {...(activeCategory ? { activeCategory } : {})}
     />
   );
 }

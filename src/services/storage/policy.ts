@@ -131,6 +131,12 @@ export const STORAGE_POLICY: Record<StorageScope, ScopePolicy> = {
    * same reason: it is a bank document, it arrives as a PDF or a photograph, and every
    * extra format allowed is another decoder somebody has to trust.
    */
+  /** A category browse card. The same set as vendor branding, and the same reasons. */
+  "taxonomy-image": {
+    maxBytes: 5 * MB,
+    contentTypes: ["image/jpeg", "image/png", "image/webp", "image/avif"],
+    extensions: ["jpg", "jpeg", "png", "webp", "avif"],
+  },
   "payout-evidence": {
     maxBytes: 10 * MB,
     contentTypes: ["application/pdf", "image/jpeg", "image/png"],
