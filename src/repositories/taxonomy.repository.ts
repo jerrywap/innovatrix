@@ -60,6 +60,50 @@ export class TaxonomyRepository extends BaseRepository<TaxonomyDoc> {
   }
 
   /**
+   * child slug → parent slug, for the whole category vocabulary.
+   *
+   * One read of a two-field projection rather than a `$lookup` or a per-slug
+   * query: the category vocabulary is a couple of hundred terms at its largest,
+   * both tiers come back in the same pass, and the map is what `withAncestors`
+   * needs to turn a product's categories into its facets.
+   *
+   * Deliberately **not** scoped by `isActive`. A product filed under a category
+   * somebody has just deactivated still needs its parent facet — otherwise
+   * deactivating a term would silently drop every one of its products off the
+   * parent's landing page, which is the opposite of what "stop offering this"
+   * means.
+   */
+  async parentSlugByChildSlug(): Promise<Map<string, string>> {
+    const rows = await this.model
+      .find({ kind: "category" })
+      .select({ slug: 1, parentId: 1 })
+      .lean<Array<{ _id: Types.ObjectId; slug: string; parentId?: Types.ObjectId }>>();
+
+    const slugById = new Map(rows.map((row) => [String(row._id), row.slug]));
+
+    const parents = new Map<string, string>();
+    for (const row of rows) {
+      const parentSlug = row.parentId ? slugById.get(String(row.parentId)) : undefined;
+      if (parentSlug) parents.set(row.slug, parentSlug);
+    }
+    return parents;
+  }
+
+  /**
+   * How many children a term has — the other half of the delete guard.
+   *
+   * `deleteTaxonomy` refuses while any *product* references a term, which is the
+   * right guard for a leaf and no guard at all for a parent: a parent carries no
+   * products of its own, so that count is zero and the delete would be waved
+   * through, orphaning every child under it.
+   *
+   * Indexed by `{kind, parentId}`.
+   */
+  async countChildren(id: string | Types.ObjectId): Promise<number> {
+    return this.model.countDocuments({ parentId: toObjectId(String(id)) });
+  }
+
+  /**
    * id → slug, for deriving `products.facets`.
    *
    * A map rather than a list because the caller is joining three id arrays

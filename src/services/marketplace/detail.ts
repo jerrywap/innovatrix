@@ -18,10 +18,10 @@ import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG, productTag } from "@/services/catalog/cache";
 import { listCustomerVersions } from "@/services/catalog/version-service";
 import { publicDemoView, type PublicDemoView } from "@/services/catalog/demo-service";
-import { getTaxonomyIndex, type ProductCard } from "./index";
+import { getTaxonomyIndex, type ProductCard, type TaxonomyIndex } from "./index";
 import { toCardsForRelated } from "./card-mapper";
 import { buildMarketplacePipeline } from "./pipeline";
-import type { PipelineStage } from "mongoose";
+import type { PipelineStage, Types } from "mongoose";
 import { formatDay } from "@/lib/dates";
 
 /**
@@ -88,6 +88,16 @@ export interface TaxonomyRef {
   slug: string;
   name: string;
   catalogue?: TaxonomyCatalogue;
+  /**
+   * The parent category's slug, so `categoryLandingPath` can build two segments.
+   *
+   * Optional for the same reason `catalogue` is: this shape is inside a
+   * `"use cache"` entry, so a `ProductDetail` cached before the field existed will
+   * arrive without it and must still render a working link. The one-segment
+   * fallback is caught by `/marketplace/[parent]`, which 308s a child at that
+   * depth up to its real address.
+   */
+  parentSlug?: string;
 }
 
 export interface ProductDetail {
@@ -240,6 +250,7 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
           slug: facet.slug,
           name: term?.name ?? facet.slug,
           ...(term?.catalogue ? { catalogue: term.catalogue } : {}),
+          ...(term?.parentSlug ? { parentSlug: term.parentSlug } : {}),
         };
       });
   };
@@ -318,7 +329,7 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
       suggestedAreas: product.customization?.suggestedAreas ?? [],
     },
     taxonomy: {
-      categories: nameOf("category", "cat"),
+      categories: primaryFirst(nameOf("category", "cat"), product.primaryCategoryId, taxonomy),
       industries: nameOf("industry", "ind"),
       technologies: nameOf("technology", "tech"),
       ...(nameOf("product_type", "type")[0]
@@ -351,6 +362,52 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
 }
 
 /**
+ * The product's own categories, with its **primary** one first.
+ *
+ * ## Why the order needed taking in hand
+ *
+ * The list is derived from `facets`, and `buildProductFacets` **sorts** — so
+ * "first category" has always meant *alphabetically first by slug*, never
+ * anything the author chose. Three consumers read index zero and call it the
+ * primary: the breadcrumb, JSON-LD's `applicationCategory`, and the customise
+ * page's back-link.
+ *
+ * Two things then made that untenable rather than merely sloppy. `facets` now
+ * carries each category's **parent** as well (see `withAncestors`), so index zero
+ * could be a term the author never chose at all. And under a two-tier vocabulary
+ * the first category decides which parent's landing page a product hangs off,
+ * which is a ranking decision rather than a cosmetic one.
+ *
+ * So it is fixed once, here, at the source — not at the three call sites, which
+ * would be three chances to disagree. Everything downstream keeps reading index
+ * zero and is simply right now.
+ *
+ * The parent stays *in* the list. It is a true fact about the product, the chips
+ * read better for it, and the breadcrumb needs the parent's name anyway.
+ *
+ * Falls back to the existing order when the primary is unset or no longer
+ * resolves — a product the backfill has not reached, or a category deactivated
+ * out from under it.
+ */
+function primaryFirst(
+  categories: TaxonomyRef[],
+  primaryCategoryId: Types.ObjectId | undefined,
+  taxonomy: TaxonomyIndex,
+): TaxonomyRef[] {
+  if (!primaryCategoryId) return categories;
+
+  const primarySlug = taxonomy.category.find(
+    (term) => term.id === String(primaryCategoryId),
+  )?.slug;
+  if (!primarySlug) return categories;
+
+  const primary = categories.find((term) => term.slug === primarySlug);
+  if (!primary) return categories;
+
+  return [primary, ...categories.filter((term) => term.slug !== primarySlug)];
+}
+
+/**
  * A slug that used to belong to a product — §93's 301 path.
  *
  * Separate from `getProductDetail` because the answer is different in kind: a
@@ -373,6 +430,40 @@ export async function getCurrentSlugFor(oldSlug: string): Promise<string | null>
     .lean<{ slug: string }>();
 
   return moved?.slug ?? null;
+}
+
+/**
+ * Is this slug a product at all, and what is its address now?
+ *
+ * One query where the disambiguator would otherwise need two. `/marketplace/[parent]`
+ * has to answer "not a category — is it a product, or a product that has been
+ * renamed?", and those are the same question: both `slug` and `slugHistory` are
+ * indexed (`catalog.ts`), an `$or` over two indexed fields is an index union, and
+ * the answer either way is *the current slug*.
+ *
+ * A live slug outranks a historic one implicitly — a slug cannot be both the
+ * current address of one product and the old address of another without a
+ * uniqueness violation upstream — so there is no tie to break here.
+ *
+ * Returns the slug rather than the product because the caller redirects; it has
+ * no use for a detail payload it is about to throw away.
+ */
+export async function resolveProductSlug(slug: string): Promise<string | null> {
+  "use cache";
+  cacheTag(CATALOG_TAG);
+  cacheLife(CACHE_PROFILE.product);
+
+  await connectToDatabase();
+
+  const found = await Product.findOne({
+    $or: [{ slug }, { slugHistory: slug }],
+    status: "published",
+    deletedAt: null,
+  })
+    .select({ slug: 1 })
+    .lean<{ slug: string }>();
+
+  return found?.slug ?? null;
 }
 
 /** Published slugs, for `generateStaticParams`. Bounded — the rest render on demand. */

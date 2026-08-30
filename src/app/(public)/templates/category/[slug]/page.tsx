@@ -1,120 +1,28 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
-import { notFound } from "next/navigation";
-import { PageHeader } from "@/components/page-header";
-import { Skeleton } from "@/components/ui/skeleton";
-import { getTaxonomyIndex, getTaxonomyTerm } from "@/services/marketplace";
-import { FilterControls } from "@/features/marketplace/filter-controls";
-import { MarketplaceResults } from "@/features/marketplace/results-section";
-import { ResultsSkeleton } from "@/features/marketplace/components/results-skeleton";
-import { SearchBox } from "@/features/marketplace/components/search-box";
+import { notFound, permanentRedirect } from "next/navigation";
+import type { Route } from "next";
+import { categoryLandingPath } from "@/config/catalogue";
+import { getTaxonomyIndex } from "@/services/marketplace";
+import { categoryBySlug } from "@/services/marketplace/taxonomy-tree";
 
 /**
- * A template category landing page — admin dashboards, ecommerce pages, corporate.
+ * The old template-category landing URL — a 308, like its marketplace twin.
  *
- * ## One landing page per term, never two
+ * Same reasoning in full at `marketplace/category/[slug]/page.tsx`: the
+ * destination needs a database lookup so it cannot be a `next.config.ts` entry or
+ * a `proxy.ts` rule, the lookup is unscoped because the question is where a term
+ * lives rather than whether this shop may show it, and a page that always
+ * redirects needs neither `generateStaticParams` nor `generateMetadata`.
  *
- * `generateStaticParams` lists only terms scoped **exactly** `template`. A `both`
- * term — an industry, a technology, or a category genuinely shared with scripts —
- * keeps its single landing page on `/marketplace` and appears here as a *filter*
- * instead. The rail always links to filter URLs rather than landing pages, so
- * nothing is lost by that, and two pages for one term would be duplicate content
- * we generated deliberately.
- *
- * ## Why templates get category pages when technology never did
- *
- * The decision recorded on the marketplace's own landing page is that technology
- * and product-type stay filters, because eight thin pages with no unique copy is
- * negative SEO. That still holds. These are `category`-kind terms with real
- * seeded prose behind them, which is exactly the distinction that comment draws —
- * not a reversal of it.
+ * The one asymmetry worth stating: a `script`-scoped term arriving here is sent
+ * to `/marketplace/…`. That is not a leak, it is the ownership rule — a term has
+ * exactly one home and `categoryLandingPath` is the only thing that decides which.
  */
-export async function generateStaticParams() {
-  const taxonomy = await getTaxonomyIndex("template");
-  const owned = taxonomy.category.filter((term) => term.catalogue === "template");
-
-  // Cache Components requires at least one param, and an empty database at build
-  // time would otherwise fail the build rather than skip prerendering.
-  return owned.length > 0
-    ? owned.map((term) => ({ slug: term.slug }))
-    : [{ slug: "admin-dashboards" }];
-}
-
-export async function generateMetadata({
-  params,
-}: PageProps<"/templates/category/[slug]">): Promise<Metadata> {
+export default async function Page({ params }: PageProps<"/templates/category/[slug]">) {
   const { slug } = await params;
-  const term = await getTaxonomyTerm("category", slug, "template");
-  if (!term) return { title: "Not found" };
 
-  const description = term.description ?? defaultDescription(term.name);
-
-  return {
-    title: `${term.name} templates`,
-    description,
-    alternates: { canonical: `/templates/category/${slug}` },
-    openGraph: { title: `${term.name} templates`, description, type: "website" },
-  };
-}
-
-export default async function Page({
-  params,
-  searchParams,
-}: PageProps<"/templates/category/[slug]">) {
-  const { slug } = await params;
-  // Scoped, so a script-only category under `/templates/` 404s rather than
-  // rendering an empty grid under a heading that looks real.
-  const term = await getTaxonomyTerm("category", slug, "template");
+  const taxonomy = await getTaxonomyIndex("all");
+  const term = categoryBySlug(taxonomy, slug);
   if (!term) notFound();
 
-  return (
-    <div className="mx-auto w-full max-w-[1240px] px-5 py-10 lg:px-10 lg:py-14">
-      <PageHeader
-        title={`${term.name} templates`}
-        description={term.description ?? defaultDescription(term.name)}
-      />
-
-      {/*
-        The search box and the filter button share a row.
-
-        Two boundaries rather than one: each resolves on its own, so a slow
-        taxonomy read cannot hold up the search input beside it. Neither runs the
-        product query — that is `MarketplaceResults`, further down and behind its
-        own boundary — which is what lets both of these paint with the shell.
-      */}
-      <div className="mt-6 flex max-w-[640px] items-center gap-2.5">
-        <div className="min-w-0 flex-1">
-          <Suspense fallback={<Skeleton className="h-11 w-full rounded-xl" />}>
-            <SearchBox basePath={`/templates/category/${slug}`} />
-          </Suspense>
-        </div>
-
-        <Suspense fallback={<Skeleton className="h-11 w-[52px] rounded-xl sm:w-[104px]" />}>
-          <FilterControls
-            searchParams={searchParams}
-            basePath={`/templates/category/${slug}`}
-            catalogue="template"
-            forced={{ category: [slug] }}
-            locked={["category"]}
-          />
-        </Suspense>
-      </div>
-
-      <div className="mt-8">
-        <Suspense fallback={<ResultsSkeleton />}>
-          <MarketplaceResults
-            catalogue="template"
-            searchParams={searchParams}
-            basePath={`/templates/category/${slug}`}
-            forced={{ category: [slug] }}
-            locked={["category"]}
-          />
-        </Suspense>
-      </div>
-    </div>
-  );
-}
-
-function defaultDescription(name: string): string {
-  return `${name} templates you can drop into your own project — the markup, the styling and the components, ready to make your own.`;
+  permanentRedirect(categoryLandingPath(term) as Route);
 }

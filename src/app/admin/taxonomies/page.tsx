@@ -30,10 +30,14 @@ const KIND_LABELS: Record<TaxonomyKind, string> = {
  * ## Why the usage counts are computed here
  *
  * Each row shows how many products reference it, which drives whether delete is
- * offered at all. That is 28 counts — one per taxonomy — and doing them as 28
- * sequential queries would be the obvious N+1. They run concurrently instead;
- * at this cardinality that is the right trade, and the bound is the size of the
- * vocabulary rather than anything a visitor controls.
+ * offered at all. **One aggregation for all of them**, not a count per term.
+ *
+ * It used to be the latter, run concurrently, and the note here argued that "at
+ * this cardinality that is the right trade, and the bound is the size of the
+ * vocabulary". Both halves were true; the second is what changed. A two-tier
+ * vocabulary is a few hundred terms, and a few hundred simultaneous
+ * `countDocuments` on every load of an uncached page is not a trade any more.
+ * `countsByTaxonomy` is bounded by the number of products instead.
  *
  * Not cached: this is an admin screen behind a permission, and an editor
  * showing a stale count would offer a delete that then fails.
@@ -44,13 +48,7 @@ export default async function TaxonomiesPage() {
 
   const all = await taxonomies.listAll();
 
-  const counts = await Promise.all(
-    all.map(async (taxonomy) => ({
-      id: String(taxonomy._id),
-      count: await products.countReferencingTaxonomy(String(taxonomy._id)),
-    })),
-  );
-  const usageById = new Map(counts.map((entry) => [entry.id, entry.count]));
+  const usageById = await products.countsByTaxonomy();
 
   const rowsByKind = new Map<TaxonomyKind, TaxonomyRow[]>(
     TAXONOMY_KINDS.map((kind) => [kind, []]),
@@ -66,6 +64,8 @@ export default async function TaxonomiesPage() {
       ...(taxonomy.icon ? { icon: taxonomy.icon } : {}),
       sortOrder: taxonomy.sortOrder,
       isActive: taxonomy.isActive,
+      ...(taxonomy.parentId ? { parentId: String(taxonomy.parentId) } : {}),
+      ...(taxonomy.imageUrl ? { imageUrl: taxonomy.imageUrl } : {}),
       catalogue: taxonomy.catalogue ?? "both",
       usageCount: usageById.get(String(taxonomy._id)) ?? 0,
     });

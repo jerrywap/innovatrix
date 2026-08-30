@@ -333,6 +333,80 @@ describe("taxonomy", () => {
     expect(reindexed?.facets).toEqual(["cat:crm-systems", "ind:property"]);
   });
 
+  /**
+   * The ancestor facet, and the one write that keeps it honest.
+   *
+   * A product carries its category's **parent** in `facets` too, so that a parent
+   * landing page is one indexed `$in` and its rail count is a real number rather
+   * than zero. Nothing about the *product* changes when a term is re-parented, so
+   * if `updateTaxonomy` did not re-derive on `parentId` the way it does on a slug,
+   * every product under that term would keep pointing at its old parent — the new
+   * parent's page simply missing products, with nothing logged.
+   *
+   * Integration rather than unit because that is exactly what a unit test cannot
+   * see: the assertion is that a write to *one* collection propagated to another.
+   */
+  it("re-derives facets when a category is re-parented", async () => {
+    const before = await taxonomyService.createTaxonomy(
+      { kind: "category", name: "Business & Operations" },
+      ACTOR,
+    );
+    const after = await taxonomyService.createTaxonomy(
+      { kind: "category", name: "Sales & Customers" },
+      ACTOR,
+    );
+    const child = await taxonomyService.createTaxonomy(
+      { kind: "category", name: "CRM", parentId: String(before._id) },
+      ACTOR,
+    );
+
+    const product = await draft("Atlas CRM");
+    await catalog.saveClassification(
+      String(product._id),
+      {
+        catalogue: "script" as const,
+        categoryIds: [String(child._id)],
+        industryIds: [],
+        technologyIds: [],
+      },
+      ACTOR,
+    );
+
+    // Filed under the child, and carrying its parent as well.
+    const classified = await models.Product.findById(product._id).lean();
+    expect(classified?.facets).toEqual(["cat:business-and-operations", "cat:crm"]);
+
+    const result = await taxonomyService.updateTaxonomy(
+      String(child._id),
+      { kind: "category", name: "CRM", parentId: String(after._id) },
+      ACTOR,
+    );
+
+    // A parent change is not a slug change, so this is the case that would have
+    // reported zero if the re-derive keyed on the slug alone.
+    expect(result.productsReindexed).toBe(1);
+    const moved = await models.Product.findById(product._id).lean();
+    expect(moved?.facets).toEqual(["cat:crm", "cat:sales-and-customers"]);
+  });
+
+  it("refuses to delete a parent while it still has children", async () => {
+    // The product-reference count that guards every other delete is **zero** for
+    // a parent — products are filed under children — so without a second guard
+    // this delete succeeds and orphans the subtree.
+    const parent = await taxonomyService.createTaxonomy(
+      { kind: "category", name: "Commerce" },
+      ACTOR,
+    );
+    await taxonomyService.createTaxonomy(
+      { kind: "category", name: "E-commerce", parentId: String(parent._id) },
+      ACTOR,
+    );
+
+    await expect(taxonomyService.deleteTaxonomy(String(parent._id), ACTOR)).rejects.toThrow(
+      /filed under this one/i,
+    );
+  });
+
   it("refuses to delete a taxonomy that products still reference", async () => {
     const category = await taxonomyService.createTaxonomy(
       { kind: "category", name: "CRM" },

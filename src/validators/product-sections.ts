@@ -106,7 +106,38 @@ export const productClassificationSchema = z.object({
    * "Not a valid id", making an "(optional)" field mandatory once rendered.
    */
   productTypeId: optionalId(),
+  /**
+   * Which of `categoryIds` is the primary. `optionalId()` because the form omits
+   * the field entirely when there is nothing to choose.
+   */
+  primaryCategoryId: optionalId(),
 });
+
+/**
+ * The primary is always a member of `categoryIds`, and this is where that is made
+ * true rather than hoped for.
+ *
+ * Three cases, and each has a real caller. **Nothing chosen** clears it — the
+ * server `$unset`s it, so a product stripped of its categories does not keep a
+ * dangling pointer. **A primary that is not among the categories** falls back
+ * rather than being rejected: it is what a stale form or a hand-posted body
+ * produces, and the first category is a correct answer, where a validation error
+ * would be a dead end the person cannot act on. **Nothing submitted** takes the
+ * same fallback, which is the ordinary path — the form deliberately omits the
+ * field when only one category is selected.
+ *
+ * Applied here rather than in the form because this is what the server trusts. A
+ * client can post anything, and two places deciding is how they come to disagree.
+ */
+export const classificationWithPrimary = productClassificationSchema.transform((value) => ({
+  ...value,
+  primaryCategoryId:
+    value.categoryIds.length === 0
+      ? undefined
+      : value.primaryCategoryId && value.categoryIds.includes(value.primaryCategoryId)
+        ? value.primaryCategoryId
+        : value.categoryIds[0],
+}));
 
 /**
  * Also listing the front-end as a website template.

@@ -6,6 +6,7 @@ import { AppendOnScroll } from "./append-on-scroll";
 import { ProductCardTile } from "./product-card";
 import { marketplaceHref, type RawSearchParams } from "@/services/marketplace/query";
 import type { MarketplaceResult, TaxonomyIndex } from "@/services/marketplace";
+import { rootCategories } from "@/services/marketplace/taxonomy-tree";
 
 /**
  * The grid, its empty state and its pagination.
@@ -101,10 +102,14 @@ function NoResults({ query, taxonomy }: { query?: string; taxonomy: TaxonomyInde
       </div>
 
       <ul className="flex flex-wrap justify-center gap-2">
-        {taxonomy.category.slice(0, 8).map((term) => (
-          <li key={term.slug}>
-            <Link
-              /*
+        {/* Roots, then the cap — slicing a mixed tier would show whichever eight
+            terms happened to sort first, which is not a useful eight. */}
+        {rootCategories(taxonomy)
+          .slice(0, 8)
+          .map((term) => (
+            <li key={term.slug}>
+              <Link
+                /*
                 `categoryLandingPath`, not a `/marketplace/category/` literal.
                 This was a live dead end on `/templates`: `getTaxonomyIndex`
                 returns template-scoped terms there, and a hardcoded
@@ -116,13 +121,13 @@ function NoResults({ query, taxonomy }: { query?: string; taxonomy: TaxonomyInde
                 Byte-identical for `script` and `both` terms, so `/marketplace`
                 is unchanged.
               */
-              href={categoryLandingPath(term) as Route}
-              className="border-border hover:bg-surface-muted rounded-full border px-3 py-1 text-[12.5px]"
-            >
-              {term.name}
-            </Link>
-          </li>
-        ))}
+                href={categoryLandingPath(term) as Route}
+                className="border-border hover:bg-surface-muted rounded-full border px-3 py-1 text-[12.5px]"
+              >
+                {term.name}
+              </Link>
+            </li>
+          ))}
       </ul>
 
       <Link

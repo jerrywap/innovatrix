@@ -86,14 +86,17 @@ export const loadVendorWizardProduct = cache(
  */
 export const loadTaxonomyOptions = cache(
   async (): Promise<
-    Record<TaxonomyKind, Array<{ id: string; name: string; catalogue: TaxonomyCatalogue }>>
+    Record<
+      TaxonomyKind,
+      Array<{ id: string; name: string; catalogue: TaxonomyCatalogue; parentId?: string }>
+    >
   > => {
     await connectToDatabase();
 
     const all = await taxonomies.listAll({ activeOnly: true });
     const grouped: Record<
       TaxonomyKind,
-      Array<{ id: string; name: string; catalogue: TaxonomyCatalogue }>
+      Array<{ id: string; name: string; catalogue: TaxonomyCatalogue; parentId?: string }>
     > = {
       category: [],
       industry: [],
@@ -106,6 +109,9 @@ export const loadTaxonomyOptions = cache(
         id: String(taxonomy._id),
         name: taxonomy.name,
         catalogue: taxonomy.catalogue ?? "both",
+        // Categories only. The form turns this into the tree order and the group
+        // label; nothing else reads it.
+        ...(taxonomy.parentId ? { parentId: String(taxonomy.parentId) } : {}),
       });
     }
 

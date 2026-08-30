@@ -1,8 +1,10 @@
 import "server-only";
+import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import type { TaxonomyDoc } from "@/lib/db/models/catalog";
 import type { TaxonomyCatalogue, TaxonomyKind } from "@/lib/db/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { isReservedCatalogueSegment, RESERVED_CATALOGUE_SEGMENTS } from "@/config/catalogue";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import { products } from "@/repositories/product.repository";
 import { taxonomies } from "@/repositories/taxonomy.repository";
@@ -35,8 +37,19 @@ export interface TaxonomyInput {
   slug?: string;
   description?: string;
   icon?: string;
+  /** The browse-card image URL. `""` clears it. */
+  imageUrl?: string;
   sortOrder?: number;
   isActive?: boolean;
+  /**
+   * The parent category, for a `category` only. `null` clears it, making the
+   * term a root; `undefined` leaves it alone.
+   *
+   * The tri-state matters because `Partial<TaxonomyInput>` is how an update
+   * arrives, and "promote this to a root" and "do not touch the parent" are
+   * different intents that both look like a missing field otherwise.
+   */
+  parentId?: string | null;
 }
 
 export async function createTaxonomy(
@@ -46,6 +59,7 @@ export async function createTaxonomy(
   await connectToDatabase();
 
   const desired = input.slug ? slugify(input.slug) : slugify(input.name);
+  assertNotReserved(desired, input.kind);
   const slug = await uniqueSlug(desired, (candidate) =>
     taxonomies.slugExists(input.kind, candidate),
   );
@@ -57,8 +71,14 @@ export async function createTaxonomy(
     slug,
     ...(input.description ? { description: input.description } : {}),
     ...(input.icon ? { icon: input.icon } : {}),
+    ...(input.imageUrl ? { imageUrl: input.imageUrl } : {}),
     sortOrder: input.sortOrder ?? 0,
     isActive: input.isActive ?? true,
+    // Only categories nest; `parentId` on any other kind is ignored rather than
+    // rejected, because nothing offers the control for them in the first place.
+    ...(input.kind === "category" && input.parentId
+      ? { parentId: toObjectId(input.parentId) }
+      : {}),
   } as Partial<TaxonomyDoc>);
 
   await writeAuditLog({
@@ -94,9 +114,58 @@ export async function updateTaxonomy(
   if (input.name !== undefined) update.name = input.name.trim();
   if (input.description !== undefined) update.description = input.description;
   if (input.icon !== undefined) update.icon = input.icon;
+  if (input.imageUrl !== undefined) update.imageUrl = input.imageUrl;
   if (input.sortOrder !== undefined) update.sortOrder = input.sortOrder;
   if (input.isActive !== undefined) update.isActive = input.isActive;
   if (input.catalogue !== undefined) update.catalogue = input.catalogue;
+
+  /*
+   * A parent change re-derives products, exactly as a slug change does.
+   *
+   * Not obvious, and the reason it is here rather than left out: a product
+   * carries its category's parent in `facets` (see `withAncestors`). So
+   * re-parenting a term changes the correct facets of every product filed under
+   * it — and nothing about the *product* changed, so nothing else would ever
+   * re-derive them. The parent's landing page would simply be missing products,
+   * with nothing logged.
+   */
+  let parentChanged = false;
+  if (input.parentId !== undefined) {
+    const next = input.parentId ? toObjectId(input.parentId) : undefined;
+    if (String(next ?? "") !== String(existing.parentId ?? "")) {
+      if (existing.kind !== "category") {
+        throw new ValidationError("Only categories can sit under a parent.", {
+          parentId: ["This kind is a flat list."],
+        });
+      }
+      if (next && String(next) === id) {
+        throw new ValidationError("A category cannot be its own parent.", {
+          parentId: ["Pick a different parent."],
+        });
+      }
+      if (next) {
+        const parent = await taxonomies.findById(String(next));
+        if (!parent || parent.kind !== "category") {
+          throw new ValidationError("That parent does not exist.", {
+            parentId: ["Pick a category."],
+          });
+        }
+        /*
+         * One level deep, and this is where that is enforced rather than assumed.
+         * `withAncestors` does a single lookup, so a grandchild would carry its
+         * parent's facet and not its grandparent's — a tree that renders wrong
+         * rather than one that errors.
+         */
+        if (parent.parentId) {
+          throw new ValidationError("Categories only nest one level deep.", {
+            parentId: [`"${parent.name}" is itself under another category.`],
+          });
+        }
+      }
+      if (next) update.parentId = next;
+      parentChanged = true;
+    }
+  }
 
   let slugChanged = false;
   if (input.slug !== undefined) {
@@ -107,15 +176,25 @@ export async function updateTaxonomy(
           slug: [`"${slug}" is taken within ${existing.kind}.`],
         });
       }
+      assertNotReserved(slug, existing.kind);
       update.slug = slug;
       slugChanged = true;
     }
   }
 
-  const taxonomy = await taxonomies.updateById(id, { $set: update });
+  const taxonomy = await taxonomies.updateById(id, {
+    $set: update,
+    // An empty image URL is a removal, not a value.
+    ...(update.imageUrl === "" ? { $unset: { imageUrl: "" } } : {}),
+    // Promoting a child to a root **unsets** rather than writing `null`:
+    // `TaxonomyDoc.parentId` is "absent on a root", and a stored `null` would
+    // make `{ parentId: { $exists: false } }` — the backfill's residual check —
+    // quietly stop seeing it.
+    ...(parentChanged && !update.parentId ? { $unset: { parentId: "" } } : {}),
+  });
   if (!taxonomy) throw new NotFoundError("taxonomy", { id });
 
-  const productsReindexed = slugChanged ? await reindexProductsFor(id) : 0;
+  const productsReindexed = slugChanged || parentChanged ? await reindexProductsFor(id) : 0;
 
   await writeAuditLog({
     action: "taxonomy.updated",
@@ -125,6 +204,27 @@ export async function updateTaxonomy(
   });
 
   return { taxonomy, productsReindexed };
+}
+
+/**
+ * Refuse a slug that would be shadowed by a static route segment.
+ *
+ * Categories only, because they are the only kind that gets a one-segment URL
+ * directly under `/marketplace` or `/templates`. An industry called `category`
+ * lives at `/marketplace/industry/category` and collides with nothing.
+ *
+ * A refusal rather than a silent rename, and here rather than in the form,
+ * because this is the write path — the admin screen is one caller and the seeds
+ * are others. `uniqueSlug` already lives beside it, so the two slug rules sit
+ * together instead of one being remembered and the other enforced.
+ */
+function assertNotReserved(slug: string, kind: TaxonomyKind): void {
+  if (kind !== "category" || !isReservedCatalogueSegment(slug)) return;
+  throw new ValidationError("That address is reserved by the marketplace itself.", {
+    slug: [
+      `"${slug}" cannot be used — ${RESERVED_CATALOGUE_SEGMENTS.join(" and ")} are routes.`,
+    ],
+  });
 }
 
 /**
@@ -184,6 +284,24 @@ export async function deleteTaxonomy(id: string, actor: AuditActor): Promise<voi
       `${inUse} product${inUse === 1 ? "" : "s"} still use this ${label(taxonomy.kind)}. ` +
         `Reassign them first, or set it inactive to stop offering it without ` +
         `breaking what already exists.`,
+    );
+  }
+
+  /*
+   * The product count above is not a guard for a *parent*.
+   *
+   * A parent category carries no products of its own — products are filed under
+   * children — so `inUse` is zero for exactly the term whose deletion does the
+   * most damage. Without this the delete succeeds, every child keeps a
+   * `parentId` pointing at nothing, and each of them quietly reappears as a root
+   * with its own top-level landing page.
+   */
+  const children = await taxonomies.countChildren(id);
+  if (children > 0) {
+    throw new ConflictError(
+      `${children} categor${children === 1 ? "y is" : "ies are"} filed under this one. ` +
+        `Move them somewhere else first, or set it inactive — an inactive parent ` +
+        `keeps its children where they are.`,
     );
   }
 

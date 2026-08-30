@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SearchBox } from "@/features/marketplace/components/search-box";
 import { FilterControls } from "@/features/marketplace/filter-controls";
 import { MarketplaceResults } from "@/features/marketplace/results-section";
+import { CategoryBrowser } from "@/features/marketplace/components/category-browser";
 import { ResultsSkeleton } from "@/features/marketplace/components/results-skeleton";
 import { pageMetadata } from "@/lib/seo";
 import { CATALOGUE_SURFACE } from "@/config/catalogue";
@@ -53,6 +54,12 @@ export default function Page({ searchParams }: PageProps<"/templates">) {
         title={CATALOGUE_SURFACE.template.plural}
         description="Front-ends you can drop in and make your own — dashboards, storefronts, corporate sites."
       />
+
+      {/* Its own boundary: `getTaxonomyIndex` is cached, but this must not
+          hold up the header above it. */}
+      <Suspense fallback={<Skeleton className="mt-6 h-[132px] w-full rounded-[26px]" />}>
+        <CategoryBrowser catalogue="template" />
+      </Suspense>
 
       {/*
         The search box and the filter button share a row.

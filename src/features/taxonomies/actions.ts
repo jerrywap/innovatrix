@@ -33,11 +33,25 @@ const taxonomyFormSchema = z.object({
   slug: z.union([slugSchema, z.literal("")]).optional(),
   description: optionalText(500),
   icon: optionalText(40),
+  /** The browse-card image. `""` clears it — see `TaxonomyImageUpload`. */
+  imageUrl: optionalText(600),
   sortOrder: z.coerce.number().int().min(0).max(9999).default(0),
   isActive: z
     .union([z.literal("on"), z.literal("true"), z.boolean()])
     .optional()
     .transform((v) => v === "on" || v === "true" || v === true),
+  /**
+   * The parent category. Empty string ⇒ a root.
+   *
+   * `""` rather than absent because a `<select>` with a "— none —" option
+   * submits the empty string, and "make this a root" has to be distinguishable
+   * from "this form did not include the field" — which is what `null` carries
+   * into `updateTaxonomy`.
+   */
+  parentId: z
+    .union([objectIdSchema, z.literal("")])
+    .optional()
+    .transform((value) => (value === "" ? null : value)),
 });
 
 /**
@@ -64,10 +78,21 @@ export async function createTaxonomyAction(
     const created = await taxonomyService.createTaxonomy(
       {
         kind: input.kind,
+        /*
+         * Passed through, which it was not.
+         *
+         * The schema has parsed `catalogue` since the catalogue split and this
+         * call dropped it, so every term created here silently took the `both`
+         * default and no admin could ever change it — a `script` category
+         * offered in the template rail, and the other way round.
+         */
+        catalogue: input.catalogue,
         name: input.name,
+        ...(input.parentId ? { parentId: input.parentId } : {}),
         ...(input.slug ? { slug: input.slug } : {}),
         ...(input.description ? { description: input.description } : {}),
         ...(input.icon ? { icon: input.icon } : {}),
+        ...(input.imageUrl ? { imageUrl: input.imageUrl } : {}),
         sortOrder: input.sortOrder,
         isActive: input.isActive,
       },
@@ -81,7 +106,25 @@ export async function createTaxonomyAction(
   });
 }
 
-const updateSchema = taxonomyFormSchema.partial().extend({ id: objectIdSchema });
+/**
+ * The update half — and `.partial()` alone would be wrong.
+ *
+ * `.partial()` makes a field optional; it does **not** strip a `.default()`.
+ * `taxonomyFormSchema.partial().parse({})` still yields
+ * `{ catalogue: "both", sortOrder: 0 }`, so a caller that omits `catalogue`
+ * would have it silently reset — a `script` category quietly becoming available
+ * in the template rail, with no error and nothing in the diff.
+ *
+ * So `catalogue` is re-declared here without its default: absent now genuinely
+ * means "leave it alone", which is what `updateTaxonomy` reads it as.
+ *
+ * `sortOrder` and `isActive` have the same shape and are left as they are:
+ * the manager form submits both on every save, so the default is never reached.
+ * Worth knowing before a second caller appears.
+ */
+const updateSchema = taxonomyFormSchema
+  .partial()
+  .extend({ id: objectIdSchema, catalogue: z.enum(TAXONOMY_CATALOGUES).optional() });
 
 export async function updateTaxonomyAction(
   _previous: ActionResult<TaxonomySaved> | null,
@@ -95,9 +138,16 @@ export async function updateTaxonomyAction(
       input.id,
       {
         ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.catalogue !== undefined ? { catalogue: input.catalogue } : {}),
+        // `null` is meaningful here — it promotes a child to a root — so this
+        // tests against `undefined` rather than truthiness.
+        ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
         ...(input.slug ? { slug: input.slug } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
         ...(input.icon !== undefined ? { icon: input.icon } : {}),
+        // `undefined` means the field was absent; `""` means somebody removed the
+        // image, and `updateTaxonomy` turns that into an `$unset`.
+        ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
       },
@@ -128,5 +178,64 @@ export async function deleteTaxonomyAction(id: string): Promise<ActionResult<voi
     revalidatePath("/admin/taxonomies");
 
     return ok(undefined);
+  });
+}
+
+const imageUploadSchema = z.object({
+  id: objectIdSchema,
+  filename: z.string().trim().min(1).max(255),
+  contentType: z.string().trim().min(1).max(120),
+  sizeBytes: z.coerce.number().int().positive(),
+});
+
+/**
+ * A presigned `PUT` for a category's browse-card image.
+ *
+ * ## Nothing about the destination comes from the client
+ *
+ * The key is `taxonomy/{id}/image`, built here from an id this action has just
+ * validated. There is no `replaceKey` to check against anything, because there is
+ * no claim being made: the same term always writes to the same object.
+ *
+ * That stability is also why a second upload replaces the first instead of adding
+ * to the bucket, which matters while `s3:DeleteObject` is denied and nothing
+ * cleans up after us. `publicObjectUrl`'s `?v=` stamp is what stops caches along
+ * the way serving the previous bytes from an unchanged URL.
+ *
+ * Bytes never pass through this server — the browser `PUT`s them itself. That is
+ * the architectural rule in AGENTS.md, not a preference.
+ *
+ * `taxonomy.manage`, matching every other action in this file: whoever may rename
+ * a category may picture it.
+ */
+export async function createTaxonomyImageUploadAction(input: unknown): Promise<
+  ActionResult<{
+    uploadUrl: string;
+    key: string;
+    headers: Record<string, string>;
+    publicUrl: string;
+  }>
+> {
+  return withAction(async () => {
+    await requirePermission("taxonomy.manage");
+    const parsed = parseInput(imageUploadSchema, input);
+
+    const storage = await import("@/services/storage");
+    const key = storage.taxonomyImagePath(parsed.id);
+
+    const ticket = await storage.createUploadUrl({
+      scope: "taxonomy-image",
+      key,
+      filename: parsed.filename,
+      contentType: parsed.contentType,
+      sizeBytes: parsed.sizeBytes,
+    });
+
+    return ok({
+      uploadUrl: ticket.url,
+      key: ticket.key,
+      publicUrl: storage.publicObjectUrl(ticket.key, { version: Date.now() }),
+      headers: ticket.headers,
+    });
   });
 }

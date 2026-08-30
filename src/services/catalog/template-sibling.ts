@@ -137,6 +137,11 @@ const EXCLUDED: Record<Excluded, string> = {
     "Hard constraint: `assertTermsInCatalogue` refuses a script category in a template, " +
     "so the vendor's next classification save would fail about chips they never chose. " +
     "`no_template_category` exists to make them choose.",
+  primaryCategoryId:
+    "Follows `categoryIds`, and could not do otherwise: the primary is always a member " +
+    "of that array, so copying it onto a sibling that deliberately has no categories " +
+    "would leave it pointing at a script term the template is forbidden to hold. It is " +
+    "set when the vendor picks the template's own categories.",
   technologyIds:
     "All scoped `both`, so nothing would refuse them — but the seed's own fixtures are " +
     "the evidence: scripts carry Laravel/PostgreSQL, templates carry Tailwind/Bootstrap. " +

@@ -1,116 +1,56 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
-import { notFound } from "next/navigation";
-import { PageHeader } from "@/components/page-header";
-import { Skeleton } from "@/components/ui/skeleton";
-import { getTaxonomyIndex, getTaxonomyTerm } from "@/services/marketplace";
-import { FilterControls } from "@/features/marketplace/filter-controls";
-import { MarketplaceResults } from "@/features/marketplace/results-section";
-import { ResultsSkeleton } from "@/features/marketplace/components/results-skeleton";
-import { SearchBox } from "@/features/marketplace/components/search-box";
+import { notFound, permanentRedirect } from "next/navigation";
+import type { Route } from "next";
+import { categoryLandingPath } from "@/config/catalogue";
+import { getTaxonomyIndex } from "@/services/marketplace";
+import { categoryBySlug } from "@/services/marketplace/taxonomy-tree";
 
 /**
- * A category landing page — §7, §93.
+ * The old category landing URL. Now a 308, and nothing else.
  *
- * ## Why this is a page and not a filter shortcut
+ * Categories moved to `/marketplace/{parent}` and `/marketplace/{parent}/{child}`
+ * when the vocabulary gained a second tier. This route stays because every URL
+ * indexed under the old shape, every inbound link and every bookmark runs through
+ * it — and a 404 here throws away whatever ranking the catalogue has. **308, not
+ * 302**: it is the one search engines transfer ranking through.
  *
- * §93 wants unique titles, descriptions and canonicals. A route that redirected
- * to `/marketplace?category=crm` would have none of those, and Google would see
- * one page where the business wants twenty-eight.
+ * ## Why it is a page rather than a config entry
  *
- * The copy comes from `Taxonomy.description`. Without a real description the
- * criterion fails with twenty-eight identical strings, so the fallback here is
- * written to at least be *specific* — it names the category — while the seed
- * carries real prose.
+ * `next.config.ts` `redirects()` is static, and the destination is not: a child's
+ * home is two segments deep and the parent has to be looked up. `proxy.ts` cannot
+ * do it either — its docblock forbids database access outright, because the proxy
+ * runs on prefetches and a query here would multiply traffic by the number of
+ * links on a page.
  *
- * Technology and product-type deliberately have **no** landing pages: eight
- * thin pages with no unique copy is negative SEO, not more of it. They stay
- * filters.
+ * ## The lookup is deliberately unscoped
+ *
+ * Every other landing page passes a catalogue scope so a term belonging to the
+ * other shop 404s rather than rendering an empty grid. This one is the opposite
+ * case: the question is "where does this term live now", and `categoryLandingPath`
+ * answers it from the term's own scope. A `template` category arriving here is
+ * sent to `/templates/…`, which is its home.
+ *
+ * That is also a bug fix. Unscoped *rendering* is what this page used to do, and
+ * it meant a template category under `/marketplace/category/` drew a real heading
+ * over a scripts-only grid. Redirecting on the same lookup turns the leak into
+ * the correct answer.
+ *
+ * ## No `generateStaticParams`, and no `generateMetadata`
+ *
+ * A page that always redirects never renders a `<head>`, so metadata would be
+ * dead code; and prerendering a route whose every param is a redirect is at best
+ * pointless. Three routes here already build under Cache Components with no
+ * `generateStaticParams` — `vendors/[slug]`, `customize/[slug]`, `preview/[slug]`
+ * — so this is precedented rather than novel.
+ *
+ * There is no `<Suspense>` in this file, so the guard has nowhere to drift to;
+ * `loading-boundaries.test.ts` is satisfied either way.
  */
-export async function generateStaticParams() {
-  const taxonomy = await getTaxonomyIndex("script");
-  // Cache Components requires at least one param, and an empty database at
-  // build time would otherwise fail the build rather than skip prerendering.
-  return taxonomy.category.length > 0
-    ? taxonomy.category.map((term) => ({ slug: term.slug }))
-    : [{ slug: "crm" }];
-}
-
-export async function generateMetadata({
-  params,
-}: PageProps<"/marketplace/category/[slug]">): Promise<Metadata> {
+export default async function Page({ params }: PageProps<"/marketplace/category/[slug]">) {
   const { slug } = await params;
-  const term = await getTaxonomyTerm("category", slug);
-  if (!term) return { title: "Not found" };
 
-  const description = term.description ?? defaultDescription(term.name);
-
-  return {
-    title: `${term.name} software`,
-    description,
-    alternates: { canonical: `/marketplace/category/${slug}` },
-    openGraph: { title: `${term.name} software`, description, type: "website" },
-  };
-}
-
-export default async function Page({
-  params,
-  searchParams,
-}: PageProps<"/marketplace/category/[slug]">) {
-  const { slug } = await params;
-  const term = await getTaxonomyTerm("category", slug);
+  const taxonomy = await getTaxonomyIndex("all");
+  const term = categoryBySlug(taxonomy, slug);
   if (!term) notFound();
 
-  return (
-    <div className="mx-auto w-full max-w-[1240px] px-5 py-10 lg:px-10 lg:py-14">
-      <PageHeader
-        title={`${term.name} software`}
-        description={term.description ?? defaultDescription(term.name)}
-      />
-
-      {/*
-        The search box and the filter button share a row.
-
-        Two boundaries rather than one: each resolves on its own, so a slow
-        taxonomy read cannot hold up the search input beside it. Neither runs the
-        product query — that is `MarketplaceResults`, further down and behind its
-        own boundary — which is what lets both of these paint with the shell.
-      */}
-      <div className="mt-6 flex max-w-[640px] items-center gap-2.5">
-        <div className="min-w-0 flex-1">
-          <Suspense fallback={<Skeleton className="h-11 w-full rounded-xl" />}>
-            <SearchBox basePath={`/marketplace/category/${slug}`} />
-          </Suspense>
-        </div>
-
-        <Suspense fallback={<Skeleton className="h-11 w-[52px] rounded-xl sm:w-[104px]" />}>
-          <FilterControls
-            searchParams={searchParams}
-            basePath={`/marketplace/category/${slug}`}
-            catalogue="script"
-            forced={{ category: [slug] }}
-            locked={["category"]}
-          />
-        </Suspense>
-      </div>
-
-      <div className="mt-8">
-        {/* The shared silhouette, not a bare block: the same content resolved out of two
-            different shapes before, and only one of them matched the layout. */}
-        <Suspense fallback={<ResultsSkeleton />}>
-          <MarketplaceResults
-            catalogue="script"
-            searchParams={searchParams}
-            basePath={`/marketplace/category/${slug}`}
-            forced={{ category: [slug] }}
-            locked={["category"]}
-          />
-        </Suspense>
-      </div>
-    </div>
-  );
-}
-
-function defaultDescription(name: string): string {
-  return `Ready-made ${name.toLowerCase()} software you can buy, adapt to your process and install — with the source included.`;
+  permanentRedirect(categoryLandingPath(term) as Route);
 }

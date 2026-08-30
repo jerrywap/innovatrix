@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   productBasicsSchema,
   licencePackageFormSchema,
+  classificationWithPrimary,
   productClassificationSchema,
   productDemoSchema,
   productMediaSchema,
@@ -222,5 +223,49 @@ describe("basics — the description arrives as JSON text, not an object", () =>
       content: [{ type: "script", content: [] }],
     });
     expect(basics(script).success).toBe(false);
+  });
+});
+
+describe("classificationWithPrimary", () => {
+  const CAT_A = "6a8355409d4bd1e3ed755b30";
+  const CAT_B = "6a8355409d4bd1e3ed755b31";
+  const GONE = "6a8355409d4bd1e3ed755b32";
+
+  /**
+   * The primary is always a member of `categoryIds`. Each of these three is the
+   * shape of a real request, and each fails **silently** if the rule slips: a
+   * breadcrumb naming a term the product does not carry, or a canonical pointing
+   * at a landing page it does not appear on.
+   */
+  it("falls back to the first category when none is submitted", () => {
+    // The ordinary path — the form omits the field entirely when there is only
+    // one category, because there is nothing to choose.
+    const result = classificationWithPrimary.parse({ categoryIds: [CAT_A, CAT_B] });
+    expect(result.primaryCategoryId).toBe(CAT_A);
+  });
+
+  it("keeps a submitted primary that is one of the categories", () => {
+    const result = classificationWithPrimary.parse({
+      categoryIds: [CAT_A, CAT_B],
+      primaryCategoryId: CAT_B,
+    });
+    expect(result.primaryCategoryId).toBe(CAT_B);
+  });
+
+  it("falls back rather than rejecting a primary that is not among them", () => {
+    // A stale form, or a hand-posted body. A validation error here would be a
+    // dead end the person cannot act on; the first category is a correct answer.
+    const result = classificationWithPrimary.parse({
+      categoryIds: [CAT_A],
+      primaryCategoryId: GONE,
+    });
+    expect(result.primaryCategoryId).toBe(CAT_A);
+  });
+
+  it("clears it when there are no categories at all", () => {
+    // `undefined` is what `saveClassification` turns into an `$unset`, so this is
+    // what stops a stripped product keeping a dangling pointer.
+    const result = classificationWithPrimary.parse({ categoryIds: [] });
+    expect(result.primaryCategoryId).toBeUndefined();
   });
 });

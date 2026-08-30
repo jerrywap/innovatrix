@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
+import { CATALOGUE_SURFACE } from "@/config/catalogue";
 import { getTaxonomyIndex } from "@/services/marketplace";
 
 /**
@@ -42,7 +43,7 @@ export async function Industries() {
             {industries.map((term) => (
               <li key={term.slug}>
                 <Link
-                  href={`/marketplace/industry/${term.slug}` as Route}
+                  href={`${CATALOGUE_SURFACE.script.industryPath}/${term.slug}` as Route}
                   className="border-border bg-surface text-muted-foreground hover:border-border-strong hover:text-foreground block rounded-full border px-4 py-2 text-[13px] whitespace-nowrap transition"
                   {...(copy === 1 ? { tabIndex: -1 } : {})}
                 >

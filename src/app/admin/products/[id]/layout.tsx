@@ -34,10 +34,9 @@ export default async function ProductWizardLayout({
         title={product.name}
         description={product.summary}
         breadcrumbs={[{ label: "Products", href: "/admin/products" }, { label: product.name }]}
-        // A "View live" link belongs here, but `/marketplace/[slug]` is
-        // ticket 09 and does not exist yet — and `typedRoutes` will not compile
-        // a link to a route that has not been built. That is the rule working:
-        // the link arrives with the page it points at.
+        // A "View live" link belongs here. The route exists now — it is
+        // `/details/[slug]` — so what is left is deciding what it should do for a
+        // draft, which has no live page to view. Not this change.
         actions={<StatusBadge status={product.status} />}
       />
 

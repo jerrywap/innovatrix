@@ -8,6 +8,7 @@ import { categoryLandingPath, CATALOGUE_SURFACE } from "@/config/catalogue";
 import { DEFAULT_CURRENCY } from "@/config/storefront";
 import { CatalogueExits } from "./catalogue-exits";
 import { SEARCH_OPENERS } from "./data";
+import { rootCategories } from "@/services/marketplace/taxonomy-tree";
 
 /**
  * `/search` with nothing asked for yet.
@@ -41,8 +42,18 @@ export async function SearchLanding() {
     getRail("featured", currency, 3, "all"),
   ]);
 
-  const scriptTerms = taxonomy.category.filter((term) => term.catalogue !== "template");
-  const templateTerms = taxonomy.category.filter((term) => term.catalogue === "template");
+  /*
+   * Roots only, on both sides.
+   *
+   * This prints every term it is given as a chip, with no cap — which was fine
+   * for a flat dozen and is not for a two-level tree: the second tier is where
+   * the vocabulary's growth lives, and a page whose stated job is "not a second
+   * home page" cannot carry all of it. Each parent's own page lists its children,
+   * which is where the tier below belongs.
+   */
+  const roots = rootCategories(taxonomy);
+  const scriptTerms = roots.filter((term) => term.catalogue !== "template");
+  const templateTerms = roots.filter((term) => term.catalogue === "template");
 
   return (
     <div className="flex flex-col gap-12">

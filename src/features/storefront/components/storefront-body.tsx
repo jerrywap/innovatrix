@@ -4,6 +4,7 @@ import type { Route } from "next";
 import { BadgeCheck, ExternalLink, Package } from "lucide-react";
 import { StarRating } from "@/components/star-rating";
 import { CATALOGUE_SURFACE } from "@/config/catalogue";
+import { gradientFor } from "@/lib/gradient";
 import { countryName, flagOf } from "@/lib/countries";
 import { formatDay } from "@/lib/dates";
 import { initialsOf } from "@/lib/initials";
@@ -384,26 +385,4 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
-}
-
-/**
- * A band for a vendor with no cover, stable for the life of their slug.
- *
- * From `--chart-*` and `--signal`, which are already defined in both themes, so
- * the fallback needs no dark-mode branch of its own. The slug is immutable once
- * a vendor is verified, so a storefront's band does not change under a returning
- * visitor.
- */
-const COVER_GRADIENTS = [
-  "from-[var(--chart-1)]/55 via-[var(--chart-2)]/30 to-[var(--chart-4)]/20",
-  "from-[var(--chart-5)]/55 via-[var(--chart-4)]/30 to-[var(--chart-3)]/20",
-  "from-[var(--chart-2)]/55 via-[var(--chart-3)]/30 to-[var(--chart-5)]/20",
-  "from-[var(--chart-4)]/55 via-[var(--chart-1)]/25 to-[var(--chart-2)]/20",
-  "from-[var(--signal)]/45 via-[var(--chart-3)]/30 to-[var(--chart-5)]/20",
-] as const;
-
-function gradientFor(slug: string): string {
-  let sum = 0;
-  for (let index = 0; index < slug.length; index += 1) sum += slug.charCodeAt(index);
-  return COVER_GRADIENTS[sum % COVER_GRADIENTS.length] ?? COVER_GRADIENTS[0];
 }

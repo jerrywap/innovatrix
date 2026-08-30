@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getProductDetail, screenshots } from "@/services/marketplace/detail";
 import { PreviewTargets, embeddable } from "@/features/preview/targets";
 import { ScreenshotStage } from "@/features/preview/components/screenshot-stage";
+import { productHref } from "@/config/catalogue";
 
 export async function generateMetadata({
   params,
@@ -88,7 +89,7 @@ export default async function Page({ params }: PageProps<"/preview/[slug]">) {
     <ScreenshotStage
       images={screenshots(product.media).map(({ url, alt }) => ({ url, alt }))}
       productName={product.name}
-      productHref={`/marketplace/${product.slug}`}
+      productHref={productHref(product.slug)}
       brand={<Brand />}
     />
   );

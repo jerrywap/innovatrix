@@ -59,10 +59,42 @@ export interface TaxonomyDoc {
    * the vocabulary too, each catalogue advertises the other's categories.
    */
   catalogue: TaxonomyCatalogue;
+  /**
+   * The parent term, for `category` only — the tree is **one level deep**.
+   *
+   * Absent on a root, never `null`. Absence is the norm for three of the four
+   * kinds and for every parent category, so writing a `null` to every one of
+   * them would be noise; `scriptListingId` on the product below makes the same
+   * choice for the same reason.
+   *
+   * Industries, technologies and product types are flat and stay flat. They are
+   * browsed as one list, and a hierarchy over them would be a second answer to
+   * a question `kind` already answers.
+   *
+   * Re-parenting is a **content** edit with a product-side consequence: a
+   * product carries its category's parent in `facets` too (see
+   * `deriveFacets`), so changing this has to re-derive exactly as a slug change
+   * does. `updateTaxonomy` owns that.
+   */
+  parentId?: Types.ObjectId;
   slug: string;
   name: string;
   description?: string;
   icon?: string;
+  /**
+   * A picture for the category browse card. Absent for almost every term.
+   *
+   * An **override**, not the source. With no value the card falls back to the
+   * best-selling product in the category (`categoryPreviews`) and then to a
+   * gradient, so this is only ever set where somebody wants a specific image
+   * rather than a representative one — which is why it is optional and why the
+   * cards look right before anybody uploads anything.
+   *
+   * A URL rather than a storage key: the key is derived from the term's id and is
+   * stable, so the stored URL carries a `?v=` stamp to defeat caches on replace —
+   * the same arrangement vendor branding uses, and for the same reason.
+   */
+  imageUrl?: string;
   sortOrder: number;
   isActive: boolean;
 }
@@ -73,10 +105,12 @@ const taxonomySchema = new Schema<TaxonomyDoc>(
     // `both` by default: industries and technologies genuinely are shared, and a
     // `script` default would leave `/templates` with an empty rail.
     catalogue: { type: String, enum: TAXONOMY_CATALOGUES, default: "both" },
+    parentId: { type: Schema.Types.ObjectId, ref: "Taxonomy" },
     slug: { type: String, required: true, lowercase: true, trim: true },
     name: { type: String, required: true, trim: true },
     description: String,
     icon: String,
+    imageUrl: String,
     sortOrder: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
   },
@@ -87,6 +121,15 @@ const taxonomySchema = new Schema<TaxonomyDoc>(
 // and an industry.
 taxonomySchema.index({ kind: 1, slug: 1 }, { unique: true });
 taxonomySchema.index({ kind: 1, isActive: 1, sortOrder: 1 });
+/*
+ * Children of a parent — `countChildren`, which is what stops `deleteTaxonomy`
+ * orphaning a subtree.
+ *
+ * Worth its own index rather than riding the one above: a parent has no products
+ * of its own, so the product-reference count that guards every other delete
+ * returns zero for it and would wave the delete through.
+ */
+taxonomySchema.index({ kind: 1, parentId: 1 });
 
 export const Taxonomy = defineModel<TaxonomyDoc>("Taxonomy", taxonomySchema);
 
@@ -500,6 +543,26 @@ export interface ProductDoc {
    */
   scriptListingId?: Types.ObjectId;
   categoryIds: Types.ObjectId[];
+  /**
+   * Which of `categoryIds` this product actually *belongs* to.
+   *
+   * **Always a member of `categoryIds`** — the validator enforces it, and the
+   * invariant is worth stating because something depends on it: the delete guard
+   * counts products by `categoryIds`, so a term that is somebody's primary is
+   * already counted and needs no second check.
+   *
+   * It exists because `categoryIds[0]` is not an answer. The breadcrumb, the
+   * canonical URL and JSON-LD's `applicationCategory` each need one category, and
+   * each reads the first one it finds — but `buildProductFacets` **sorts**, so
+   * "first" has meant *alphabetically first by slug* rather than anything the
+   * author chose. With a two-tier vocabulary that also decides which parent's
+   * landing page the product hangs off, so the guess stopped being cosmetic.
+   *
+   * Emits no facet. It is a display and ordering fact, not a filter dimension —
+   * a visitor browsing "Finance" wants everything filed under Finance, primary or
+   * not.
+   */
+  primaryCategoryId?: Types.ObjectId;
   industryIds: Types.ObjectId[];
   technologyIds: Types.ObjectId[];
   productTypeId?: Types.ObjectId;
@@ -585,6 +648,7 @@ const productSchema = new Schema<ProductDoc>(
     catalogue: { type: String, enum: PRODUCT_CATALOGUES, required: true, default: "script" },
     scriptListingId: { type: Schema.Types.ObjectId, ref: "Product" },
     categoryIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
+    primaryCategoryId: { type: Schema.Types.ObjectId, ref: "Taxonomy" },
     industryIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
     technologyIds: { type: [Schema.Types.ObjectId], ref: "Taxonomy", default: [] },
     productTypeId: { type: Schema.Types.ObjectId, ref: "Taxonomy" },
@@ -801,6 +865,52 @@ export const FACET_PREFIX = {
  * marketplace silently stops matching — so ticket 06 re-derives it on save
  * rather than patching it incrementally.
  */
+/**
+ * Each category slug, plus its parent's — the ancestor facet.
+ *
+ * ## Why a product carries a term it was never tagged with
+ *
+ * A product filed under `crm` also carries `cat:business-operations`, so that the
+ * parent is a real facet term rather than a computed one. Two things depend on
+ * that, and the second is the one that forecloses the alternative:
+ *
+ * **Counts.** Facet counts come from `$unwind`ing the products' own `facets`
+ * (`pipeline.ts`), so a parent no product carries counts **zero** — and the rail
+ * greys out zero-count terms. Every parent would render dead on arrival, which is
+ * the primary navigation of the two-tier scheme.
+ *
+ * **Pagination.** The obvious alternative is to leave the data alone and have a
+ * parent's landing page force `[parent, ...children]`. That works for page one.
+ * `appendSearch` in `results-section.tsx` then flattens the forced list into
+ * ordinary `?category=` parameters so the infinite-scroll append can re-parse
+ * them — through `slugs()`, which caps at `MAX_TERMS_PER_DIMENSION`. A parent
+ * with more children than that cap silently returns a *different result set on
+ * page two*. With the ancestor facet the forced list is one term and the failure
+ * cannot happen.
+ *
+ * ## One level, and one lookup
+ *
+ * The tree is one level deep, so this is a map lookup rather than a walk. If a
+ * third tier is ever wanted, this is the function that has to change first — and
+ * the place to notice that a walk over a denormalised field is a different cost.
+ *
+ * Pure, and separate from the map it needs, so it can be tested without a
+ * database. `deriveFacets` fetches `parentBySlug`; this decides what to do with it.
+ */
+export function withAncestors(
+  slugs: readonly string[],
+  parentBySlug: ReadonlyMap<string, string>,
+): string[] {
+  const out = new Set<string>();
+  for (const slug of slugs) {
+    out.add(slug);
+    const parent = parentBySlug.get(slug);
+    // A parent of itself would loop, and is the shape a bad edit makes.
+    if (parent && parent !== slug) out.add(parent);
+  }
+  return [...out];
+}
+
 export function buildProductFacets(input: {
   categorySlugs?: string[];
   industrySlugs?: string[];

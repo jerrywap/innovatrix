@@ -4,7 +4,7 @@ import type { Route } from "next";
 import { ArrowRight, Boxes } from "lucide-react";
 import { FreeBadge } from "@/components/free-badge";
 import { MoneyDisplay } from "@/components/money-display";
-import { CATALOGUE_SURFACE } from "@/config/catalogue";
+import { productHref } from "@/config/catalogue";
 import { money } from "@/lib/money";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import { getLinkedScriptListing, type ProductDetail } from "@/services/marketplace/detail";
@@ -50,11 +50,12 @@ export async function CompleteApplicationBanner({ product }: { product: ProductD
   return (
     <Link
       /*
-       * Through `CATALOGUE_SURFACE`, never a `/marketplace/` literal — that table is
-       * the seam for the template catalogue's eventual move to its own domain, and
-       * this is one of the links that has to follow it.
+       * Through `productHref`, never a `/marketplace/` literal — it is the one
+       * builder for a product URL, and the seam the template catalogue's eventual
+       * move to its own domain goes through. This is one of the links that has to
+       * follow it.
        */
-      href={`${CATALOGUE_SURFACE.script.productPath}/${script.slug}` as Route}
+      href={productHref(script.slug) as Route}
       className="border-border bg-surface flex items-center gap-3.5 rounded-xl border p-3.5 transition-colors hover:border-[var(--signal)]/40 focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:outline-none"
     >
       <span className="bg-surface-muted flex size-9 shrink-0 items-center justify-center rounded-lg">

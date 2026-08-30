@@ -10,6 +10,9 @@ import {
 } from "@/services/marketplace/query";
 import type { FacetCount, MarketplaceSort } from "@/services/marketplace/pipeline";
 import type { TaxonomyIndex } from "@/services/marketplace";
+import { visibleChildren, visibleRoots } from "@/services/marketplace/taxonomy-tree";
+import type { TermCounts } from "@/services/marketplace/term-counts";
+import { categoryLandingPath } from "@/config/catalogue";
 import type { StorefrontCurrency } from "@/config/storefront";
 import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 
@@ -22,11 +25,24 @@ import { STOREFRONT_CURRENCIES } from "@/config/storefront";
  * "copy the URL and someone else sees the same results" criterion is true by
  * construction rather than by a `useEffect` that syncs state into the URL.
  *
- * ## Every term always renders
+ * ## Every term of a *flat* dimension always renders
  *
- * Terms come from the cached taxonomy, not from the result set, so the rail
- * never loses options as it narrows — the dead end where filtering to two
- * things leaves you unable to filter to a third.
+ * Industry, technology and type come from the cached taxonomy, not from the
+ * result set, so the rail never loses options as it narrows — the dead end where
+ * filtering to two things leaves you unable to filter to a third.
+ *
+ * **Categories are the exception, and it is a trade rather than an oversight.**
+ * They are a two-level tree, and rendering both tiers flat means the section
+ * grows with the whole vocabulary rather than with its top tier — a 220px column
+ * that is thousands of pixels tall, and on a phone the same list inside a 340px
+ * popover, which is the only filter UI there is below `lg`. So the section shows
+ * one tier at a time: the roots, or the children of whichever root you are
+ * browsing. Nothing becomes unreachable — a root's page lists its children, and
+ * each child links back up.
+ *
+ * The same section also **navigates** rather than toggling. See the note at the
+ * `href` below: a `?category=` toggle on a landing page is inert, because
+ * `forced` overrides the URL there.
  *
  * ## Counts appear on some dimensions and not others
  *
@@ -95,6 +111,9 @@ export function FilterTaxonomy({
   countableDimensions,
   hrefFor,
   locked = [],
+  categoryRoot,
+  activeCategory,
+  termCounts,
 }: {
   raw: RawSearchParams;
   taxonomy: TaxonomyIndex;
@@ -102,6 +121,26 @@ export function FilterTaxonomy({
   countableDimensions: readonly FacetCount["dimension"][];
   hrefFor: (changes: Parameters<typeof marketplaceHref>[2]) => string;
   locked?: ReadonlyArray<(typeof DIMENSIONS)[number]["key"]>;
+  /**
+   * Whose children the category section lists. Absent ⇒ the top tier.
+   *
+   * A landing page passes its own parent, so the rail shows that parent's
+   * children — which is what replaces `locked: ["category"]` there. A leaf with
+   * no children yields an empty list and the section drops out on its own, which
+   * is the same result `locked` used to produce without a second mechanism.
+   */
+  categoryRoot?: string;
+  /** The category currently being browsed, marked as active. */
+  activeCategory?: string;
+  /**
+   * Catalogue-wide product counts per dimension — see `termCounts`.
+   *
+   * **Global, never relative to the current query**, and that is what makes it
+   * safe to hide on. A term is dropped when it has nothing behind it *anywhere*,
+   * so the list is the same whatever you have narrowed to: filtering can never
+   * remove the option you were about to pick next.
+   */
+  termCounts: TermCounts;
 }) {
   const countOf = new Map(
     facetCounts.map((count) => [`${count.dimension}:${count.slug}`, count.count]),
@@ -110,7 +149,20 @@ export function FilterTaxonomy({
   return (
     <>
       {DIMENSIONS.filter((dimension) => !locked.includes(dimension.key)).map((dimension) => {
-        const terms = taxonomy[dimension.kind];
+        const isCategory = dimension.key === "category";
+        const global = termCounts[dimension.key];
+        /*
+         * Nothing with an empty shelf.
+         *
+         * Categories go through `visibleRoots` / `visibleChildren`, which apply
+         * the same rule plus the lone-child one. The flat dimensions filter here
+         * directly — there is no tier to collapse, only emptiness to drop.
+         */
+        const terms = isCategory
+          ? categoryRoot
+            ? visibleChildren(taxonomy, categoryRoot, global)
+            : visibleRoots(taxonomy, global)
+          : taxonomy[dimension.kind].filter((term) => (global.get(term.slug) ?? 0) > 0);
         if (terms.length === 0) return null;
 
         const showCounts = countableDimensions.includes(dimension.key);
@@ -121,24 +173,54 @@ export function FilterTaxonomy({
             <div className="flex flex-col gap-0.5">
               {terms.map((term) => {
                 const count = countOf.get(`${dimension.key}:${term.slug}`) ?? 0;
-                const isSelected = selected.has(term.slug);
+                const isSelected = isCategory
+                  ? term.slug === activeCategory
+                  : selected.has(term.slug);
 
-                // Single-valued: a product has one type, so "either type" is
-                // not a question anyone is asking.
-                const changes =
-                  dimension.key === "productType"
-                    ? { productType: isSelected ? undefined : term.slug }
-                    : toggleTerm(raw, dimension.key, term.slug);
+                /*
+                 * Categories **navigate**; every other dimension toggles.
+                 *
+                 * Two reasons, and the first is a bug rather than a preference. A
+                 * landing page pins its own term through `forced`, and
+                 * `parseMarketplaceQuery` reads `forced ?? raw` — so a `?category=`
+                 * toggle rendered on a category page is *inert*: it changes the URL
+                 * and nothing else. Mixing "toggle here, navigate there" by page
+                 * would be worse than picking one.
+                 *
+                 * The second is the point of the whole scheme. A `?category=` link
+                 * is worth nothing to a crawler; a link to the landing page is what
+                 * turns those pages from sitemap orphans into an internal graph.
+                 *
+                 * The rest of the query travels: `marketplaceHref` carries industry,
+                 * technology, price and sort onto the destination, so changing
+                 * category keeps everything else you had chosen.
+                 */
+                const href = isCategory
+                  ? marketplaceHref(categoryLandingPath(term), raw, { category: undefined })
+                  : hrefFor(
+                      // Single-valued: a product has one type, so "either type" is
+                      // not a question anyone is asking.
+                      dimension.key === "productType"
+                        ? { productType: isSelected ? undefined : term.slug }
+                        : toggleTerm(raw, dimension.key, term.slug),
+                    );
 
                 return (
                   <RailLink
                     key={term.slug}
-                    href={hrefFor(changes)}
+                    href={href}
                     active={isSelected}
                     label={term.name}
                     count={showCounts ? count : undefined}
-                    // A term with no matches is still clickable — it just
-                    // widens the set, which is what OR means.
+                    /*
+                     * Still greyed, and it still means something different now.
+                     *
+                     * Nothing on this list is *globally* empty any more — that is
+                     * filtered out above. A zero here means "none under what you
+                     * have already selected", which is a term you can still click
+                     * to widen the set. Exactly the case the old invariant was
+                     * protecting, now the only case left.
+                     */
                     muted={showCounts && count === 0}
                   />
                 );
@@ -158,8 +240,11 @@ export function FilterRail({
   currency,
   currencyInUrl,
   locked = [],
+  categoryRoot,
+  activeCategory,
   facetCounts,
   countableDimensions,
+  termCounts,
 }: {
   basePath: string;
   raw: RawSearchParams;
@@ -168,8 +253,11 @@ export function FilterRail({
   currencyInUrl: boolean;
   /** Dimensions a landing page owns — rendered as context, not as a control. */
   locked?: ReadonlyArray<(typeof DIMENSIONS)[number]["key"]>;
+  categoryRoot?: string;
+  activeCategory?: string;
   facetCounts: readonly FacetCount[];
   countableDimensions: readonly FacetCount["dimension"][];
+  termCounts: TermCounts;
 }) {
   const hrefFor = hrefBuilder(basePath, raw, currency, currencyInUrl);
 
@@ -194,6 +282,9 @@ export function FilterRail({
         countableDimensions={countableDimensions}
         hrefFor={hrefFor}
         locked={locked}
+        categoryRoot={categoryRoot}
+        activeCategory={activeCategory}
+        termCounts={termCounts}
       />
     </aside>
   );

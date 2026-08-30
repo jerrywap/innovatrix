@@ -11,6 +11,7 @@ import { requirePermissionOrForbid } from "@/lib/auth/dal";
 import { Product } from "@/lib/db/models/catalog";
 import { listReported, reportsFor } from "@/services/reviews/review-service";
 import { ModerationPanel } from "@/features/reviews/components/moderation-panel";
+import { productHref } from "@/config/catalogue";
 
 export const metadata: Metadata = { title: "Reported reviews" };
 
@@ -88,7 +89,7 @@ export default async function Page() {
                 <span className="flex min-w-0 flex-col gap-1">
                   {product ? (
                     <Link
-                      href={`/marketplace/${product.slug}#reviews` as Route}
+                      href={`${productHref(product.slug)}#reviews` as Route}
                       className="text-[14px] underline underline-offset-4"
                     >
                       {product.name}

@@ -1,4 +1,5 @@
 import "server-only";
+import { termCounts } from "@/services/marketplace/term-counts";
 import { getTaxonomyIndex, searchMarketplace } from "@/services/marketplace";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
 import {
@@ -33,6 +34,8 @@ export async function MarketplaceResults({
   catalogue,
   forced,
   locked,
+  categoryRoot,
+  activeCategory,
 }: {
   searchParams: Promise<RawSearchParams>;
   basePath: string;
@@ -48,6 +51,17 @@ export async function MarketplaceResults({
   catalogue: CatalogueScope;
   /** A landing page's own term, which the rail cannot remove. */
   forced?: { category?: string[]; industry?: string[] };
+  /**
+   * Which tier of the category tree the rail shows, and which term is current.
+   *
+   * A category landing page passes these **instead of** `locked: ["category"]`.
+   * `locked` deletes the section outright, which was right while the rail toggled
+   * a flat list; now the rail navigates a tree, and what a landing page wants is
+   * the tier *below* it rather than nothing. `locked` stays for the industry
+   * pages, which have no tree.
+   */
+  categoryRoot?: string;
+  activeCategory?: string;
   locked?: ReadonlyArray<"category" | "industry" | "technology" | "productType">;
 }) {
   const raw = await searchParams;
@@ -59,11 +73,20 @@ export async function MarketplaceResults({
     ...(forced ? { forced } : {}),
   });
 
-  const [result, taxonomy] = await Promise.all([
+  const [result, taxonomy, counts] = await Promise.all([
     searchMarketplace(query),
     // Scoped, which is what stops one catalogue's rail advertising the other's
     // categories greyed out at zero.
     getTaxonomyIndex(catalogue),
+    /*
+     * Catalogue-wide counts, which decide what the rail *lists* — as distinct
+     * from `result.facetCounts`, which decide what number sits beside it.
+     *
+     * Its own cached read rather than a slice of the search: the search's counts
+     * are relative to this query and capped at 200 facets, and a visibility rule
+     * built on either would silently drop real terms. `termCounts` says why.
+     */
+    termCounts(catalogue),
   ]);
 
   // §74 — "log searches with zero results; that list is a product-roadmap
@@ -114,7 +137,10 @@ export async function MarketplaceResults({
       countableDimensions={result.countableDimensions}
       currency={currency}
       currencyInUrl={currencyMustBeInUrl(query)}
+      termCounts={counts}
       {...(locked ? { locked } : {})}
+      {...(categoryRoot ? { categoryRoot } : {})}
+      {...(activeCategory ? { activeCategory } : {})}
     />
   );
 

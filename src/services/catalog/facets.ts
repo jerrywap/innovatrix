@@ -1,6 +1,6 @@
 import "server-only";
 import type { Types } from "mongoose";
-import { buildProductFacets } from "@/lib/db/models/catalog";
+import { buildProductFacets, withAncestors } from "@/lib/db/models/catalog";
 import { taxonomies } from "@/repositories/taxonomy.repository";
 import { ValidationError } from "@/lib/errors";
 import type { ProductCatalogue, TaxonomyCatalogue } from "@/lib/db/enums";
@@ -73,14 +73,22 @@ export async function deriveFacets(ids: TaxonomyIds): Promise<string[]> {
   // still needs its `vend:` term, and returning early would drop it.
   if (all.length === 0 && !ids.vendorSlug) return [];
 
-  const slugs = all.length > 0 ? await taxonomies.slugsByIds(all) : new Map<string, string>();
+  const [slugs, parentBySlug] = await Promise.all([
+    all.length > 0 ? taxonomies.slugsByIds(all) : new Map<string, string>(),
+    // Read unconditionally alongside the slugs rather than only when there are
+    // categories: it is one small projection, and a branch here is a branch that
+    // can be wrong.
+    taxonomies.parentSlugByChildSlug(),
+  ]);
   const resolve = (list: readonly (string | Types.ObjectId)[] | undefined) =>
     (list ?? []).map((id) => slugs.get(String(id))).filter((slug): slug is string => !!slug);
 
   const productTypeSlug = ids.productTypeId ? slugs.get(String(ids.productTypeId)) : undefined;
 
   return buildProductFacets({
-    categorySlugs: resolve(ids.categoryIds),
+    // Categories carry their parent too — see `withAncestors` for why that is
+    // stored rather than computed at query time.
+    categorySlugs: withAncestors(resolve(ids.categoryIds), parentBySlug),
     industrySlugs: resolve(ids.industryIds),
     technologySlugs: resolve(ids.technologyIds),
     ...(productTypeSlug ? { productTypeSlug } : {}),
@@ -107,7 +115,10 @@ export async function deriveFacetsForMany(
     ...(product.productTypeId ? [product.productTypeId] : []),
   ]);
 
-  const slugs = await taxonomies.slugsByIds(everyId);
+  const [slugs, parentBySlug] = await Promise.all([
+    taxonomies.slugsByIds(everyId),
+    taxonomies.parentSlugByChildSlug(),
+  ]);
 
   return products.map((product) => {
     const resolve = (list: readonly (string | Types.ObjectId)[] | undefined) =>
@@ -120,7 +131,7 @@ export async function deriveFacetsForMany(
     return {
       id: product.id,
       facets: buildProductFacets({
-        categorySlugs: resolve(product.categoryIds),
+        categorySlugs: withAncestors(resolve(product.categoryIds), parentBySlug),
         industrySlugs: resolve(product.industryIds),
         technologySlugs: resolve(product.technologyIds),
         ...(productTypeSlug ? { productTypeSlug } : {}),

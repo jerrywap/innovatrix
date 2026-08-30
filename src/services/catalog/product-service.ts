@@ -265,6 +265,7 @@ export async function saveClassification(
     industryIds: string[];
     technologyIds: string[];
     productTypeId?: string;
+    primaryCategoryId?: string;
   },
   actor: AuditActor,
   scope: VendorScope = {},
@@ -335,6 +336,18 @@ export async function saveClassification(
       // state that makes browsing wrong in both directions at once.
       catalogue: input.catalogue,
       categoryIds: input.categoryIds.map((id) => toObjectId(id)),
+      /*
+       * In the same `$set` as `categoryIds`, for the reason above: two writes
+       * could leave a product whose primary is not one of its categories, and the
+       * breadcrumb would then name a term the product does not carry.
+       *
+       * `undefined` is meaningful — `saveSection` turns it into an `$unset`, which
+       * is how clearing every category clears the primary too rather than leaving
+       * a pointer at a term nothing else references.
+       */
+      ...(input.primaryCategoryId
+        ? { primaryCategoryId: toObjectId(input.primaryCategoryId) }
+        : { primaryCategoryId: undefined }),
       industryIds: input.industryIds.map((id) => toObjectId(id)),
       technologyIds: input.technologyIds.map((id) => toObjectId(id)),
       ...(input.productTypeId

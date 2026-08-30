@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Route } from "next";
+import { productHref } from "@/config/catalogue";
 
 /**
  * What the product does today, in the listing's own words.
@@ -111,7 +112,7 @@ export function ListingPanel({ listing }: { listing: ListingSummary }) {
             <p className="text-subtle text-[12px]">
               and {hidden} more on the{" "}
               <Link
-                href={`/marketplace/${listing.slug}` as Route}
+                href={productHref(listing.slug) as Route}
                 className="underline underline-offset-2"
               >
                 listing

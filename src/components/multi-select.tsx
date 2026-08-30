@@ -8,6 +8,14 @@ import { cn } from "@/lib/utils";
 export interface MultiSelectOption {
   id: string;
   name: string;
+  /**
+   * The name of the group this option sits under — a category's parent.
+   *
+   * Presentational *and* announced: the row is indented, and the group name is
+   * appended to the accessible name so the relationship survives without sight.
+   * Absent ⇒ a top-level option.
+   */
+  group?: string;
 }
 
 /**
@@ -42,6 +50,22 @@ export interface MultiSelectOption {
  * narrows the vocabulary, and without the intersection the form would go on
  * submitting script terms the server is required to refuse.
  *
+ * ## Grouping is an indent, not a `role="group"`
+ *
+ * The obvious shape for a two-level vocabulary is a heading per parent with its
+ * children nested under it. It is the wrong one **here**, for a reason specific
+ * to this taxonomy: a parent category is itself selectable — "a product may carry
+ * a parent alone" — so it cannot be a heading. It would have to appear twice, once
+ * as the group's title and again as the first option inside it, which reads as a
+ * bug.
+ *
+ * So the listbox stays flat and a child is indented, with its parent's name
+ * appended to the accessible name in an `sr-only` span. That keeps the visible
+ * text as the start of the accessible name (WCAG 2.5.3), and it leaves `matches`
+ * a flat array — which is why none of the keyboard code below needed touching. A
+ * nested list would have made the rendered tree and the *navigable* list two
+ * different shapes, and `moveTo` indexes the navigable one.
+ *
  * ## Keyboard: the combobox pattern, not a tab stop per option
  *
  * Focus never leaves the search field — `aria-activedescendant` moves a *virtual*
@@ -49,8 +73,10 @@ export interface MultiSelectOption {
  * stops between the field and the next control, and a visible focus ring that
  * appears to be in two places at once.
  *
- * Props are plain data only: this is a client component rendered by a Server
- * Component, and a function prop across that boundary is a 500 (see `AGENTS.md`).
+ * Props are plain data, with one exception: `onSelectedChange`. A Server
+ * Component may not pass it — a function across that boundary is a 500 (see
+ * `AGENTS.md`) — and it is optional precisely so that stays true for every caller
+ * that does not need it.
  */
 export function MultiSelect({
   name,
@@ -58,6 +84,7 @@ export function MultiSelect({
   options,
   defaultSelected,
   emptyLabel = "None defined yet — add some under Taxonomies.",
+  onSelectedChange,
 }: {
   /** The form field name. Emitted once per selected id, as a repeated field. */
   name: string;
@@ -66,6 +93,19 @@ export function MultiSelect({
   options: readonly MultiSelectOption[];
   defaultSelected: readonly string[];
   emptyLabel?: string;
+  /**
+   * Fired on every toggle, so a sibling control can depend on the selection.
+   *
+   * A **mirror, never an input**: the state below stays the source of truth and
+   * this control remains uncontrolled from the caller's point of view. Making it
+   * controlled would put the selection back where a DOM `form.reset()` can reach
+   * it, which is the bug this component exists to be immune to.
+   *
+   * The one prop here that is not plain data — so a caller passing it must itself
+   * be a Client Component. Optional, so every Server Component caller is
+   * unaffected.
+   */
+  onSelectedChange?: (ids: readonly string[]) => void;
 }) {
   const [selected, setSelected] = useState<readonly string[]>(defaultSelected);
   const [query, setQuery] = useState("");
@@ -93,10 +133,18 @@ export function MultiSelect({
     return <p className="text-subtle text-[13px]">{emptyLabel}</p>;
   }
 
-  const toggle = (id: string) =>
-    setSelected((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-    );
+  const toggle = (id: string) => {
+    /*
+     * `next` computed here rather than inside the updater, so the callback fires
+     * once per event with the value it produced. Calling it from inside the
+     * updater would run it again on every re-render React chooses to replay.
+     */
+    const next = selected.includes(id)
+      ? selected.filter((item) => item !== id)
+      : [...selected, id];
+    setSelected(next);
+    onSelectedChange?.(next);
+  };
 
   const moveTo = (index: number) => {
     const next = matches[Math.max(0, Math.min(index, matches.length - 1))];
@@ -245,6 +293,8 @@ export function MultiSelect({
                   onPointerMove={() => setActiveId(option.id)}
                   className={cn(
                     "flex cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-sm",
+                    // Indented past the tick, so the tick column still lines up.
+                    option.group && "pl-6",
                     option.id === activeId && "bg-accent text-accent-foreground",
                   )}
                 >
@@ -253,6 +303,13 @@ export function MultiSelect({
                     aria-hidden
                   />
                   {option.name}
+                  {/*
+                    The indent, said out loud. A search that filters a child away
+                    from its parent leaves no visual context either, so this is
+                    not only for screen readers — it is the only place the
+                    relationship is stated at all once the list is filtered.
+                  */}
+                  {option.group && <span className="sr-only"> in {option.group}</span>}
                 </li>
               );
             })}

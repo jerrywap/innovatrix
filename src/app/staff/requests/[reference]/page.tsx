@@ -26,6 +26,7 @@ import {
   VendorBriefPanel,
   type BriefSummary,
 } from "@/features/staff/components/vendor-brief-panel";
+import { productHref } from "@/config/catalogue";
 
 export const metadata: Metadata = { title: "Request" };
 
@@ -118,7 +119,7 @@ export default async function Page({ params }: PageProps<"/staff/requests/[refer
                 )}
               </span>
               <Link
-                href={`/marketplace/${request.baseProduct.slug}` as Route}
+                href={productHref(request.baseProduct.slug) as Route}
                 className="border-border hover:bg-surface-muted rounded-full border px-3.5 py-1.5 text-[12.5px]"
               >
                 Product page

@@ -11,7 +11,7 @@ import { objectIdSchema } from "@/validators/common";
 import {
   descriptionOnlySchema,
   productBasicsSchema,
-  productClassificationSchema,
+  classificationWithPrimary,
   productDemoSchema,
   productSlugSchema,
   templateSiblingSchema,
@@ -426,7 +426,7 @@ export async function saveClassificationAction(
 
     const raw = parseNestedFormData(formData);
     const { productId } = parseInput(productIdSchema, raw);
-    const input = parseInput(productClassificationSchema, raw);
+    const input = parseInput(classificationWithPrimary, raw);
 
     await productService.saveClassification(
       productId,

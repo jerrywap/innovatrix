@@ -26,6 +26,8 @@ import { customAlphabet } from "nanoid";
  * │   ├── documents/{nanoid}-{safeName}             ← verification. NEVER public.
  * │   └── branding/{cover|logo}                     ← storefront artwork, CDN-able.
  * │                                                   Stable: a replacement overwrites.
+ * ├── taxonomy/{taxonomyId}/image                   ← category card art, CDN-able.
+ * │                                                   Stable, like vendor branding.
  * ├── attachments/{organizationId}/{requestId}/{nanoid}-{safeName}
  * ├── documents/quotes/{quoteId}/{nanoid}.pdf
  * ├── documents/invoices/{invoiceId}/{nanoid}.pdf
@@ -84,6 +86,20 @@ export type StorageScope =
    * nobody asked for.
    */
   | "vendor-branding"
+  /**
+   * A category's browse-card image.
+   *
+   * Shares `vendor-branding`'s two properties and needs its own scope for the
+   * same reason that one does: the key is **stable**, so a replacement
+   * overwrites in place, and a scope that also served product media would have
+   * to mint a fresh key — which is exactly the behaviour being avoided.
+   *
+   * Kept apart from `vendor-branding` rather than widened into it because the
+   * two answer to different people. A vendor uploads their own branding; only
+   * staff with `taxonomy.manage` touch this, and a shared scope would make a
+   * bucket policy unable to tell them apart.
+   */
+  | "taxonomy-image"
   | "payout-evidence"
   | "healthcheck";
 
@@ -311,6 +327,23 @@ export function vendorBrandingKey(
   kind: VendorBrandingKind,
 ): string {
   const key = `${ctx.root}/vendors/${segment(vendorId, "vendorId")}/branding/${kind}`;
+  return assertKeyInPrefix(key, ctx.root);
+}
+
+/**
+ * A category's image, at a key derived from its id.
+ *
+ * **Stable and extensionless**, for the reasons `vendorBrandingKey` sets out
+ * above and which apply here unchanged: `s3:DeleteObject` is denied, so a minted
+ * key would leave every replaced image in the bucket for ever, and there is
+ * nowhere to get an extension from that would survive a JPEG being replaced by a
+ * WebP. Freshness is `publicObjectUrl`'s `?v=` stamp.
+ *
+ * Under `taxonomy/`, not `vendors/` — these are staff-authored and world-readable,
+ * and a prefix an operator can reason about is worth more than a shorter path.
+ */
+export function taxonomyImageKey(ctx: KeyBuilderContext, taxonomyId: string): string {
+  const key = `${ctx.root}/taxonomy/${segment(taxonomyId, "taxonomyId")}/image`;
   return assertKeyInPrefix(key, ctx.root);
 }
 

@@ -7,6 +7,7 @@ import { revealCredentials, type RevealedCredential } from "@/services/catalog/d
 import { viewerOwnsProduct } from "@/services/marketplace/detail";
 import type { ProductDetail } from "@/services/marketplace/detail";
 import { CopyField } from "./copy-field";
+import { productHref } from "@/config/catalogue";
 
 /**
  * The demo panel — §9.
@@ -189,7 +190,7 @@ function LockedNotice({
         </p>
         {needsAccount ? (
           <Link
-            href={`/login?next=/marketplace/${slug}` as Route}
+            href={`/login?next=${productHref(slug)}` as Route}
             className="w-fit text-[12.5px] underline underline-offset-4"
           >
             Sign in

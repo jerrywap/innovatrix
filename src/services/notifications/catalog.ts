@@ -3,6 +3,7 @@ import type { NotificationCategory } from "@/lib/db/enums";
 import type { DomainEventMap, DomainEventName } from "@/lib/events";
 import type { EmailContent } from "@/emails/layout";
 import { BRAND } from "@/config/brand";
+import { productHref } from "@/config/catalogue";
 
 /**
  * §69's event → notification table, as data.
@@ -784,7 +785,7 @@ export const CATALOG: Catalog = {
       category: "products",
       title: (p) => `${p.productName} is on sale`,
       body: () => "Customers can buy it now.",
-      href: (p) => `/marketplace/${p.productSlug}`,
+      href: (p) => productHref(p.productSlug),
     },
   ],
 
