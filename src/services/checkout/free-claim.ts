@@ -97,7 +97,7 @@ export async function claimFreeProduct(
    * `(orderId, orderLineId)`, which stops one order fulfilling twice but says
    * nothing about two orders for the same product; without this check a second
    * click would mint a second order, a second payment and a second entitlement,
-   * and the customer's My Scripts would list the same thing twice.
+   * and the customer's purchases would list the same thing twice.
    */
   const owned = await entitlements.findForProduct(context.organizationId, input.productId);
   if (owned && owned.status === "active") {
@@ -239,7 +239,7 @@ async function billingFor(organizationId: string, userName?: string) {
  *
  * `readiness.ts` will not let a product publish without a released version
  * carrying an `application_package`, so a miss here is a should-not-happen. It
- * answers `{}` rather than throwing, and the caller falls back to the My Scripts
+ * answers `{}` rather than throwing, and the caller falls back to the My Purchases
  * page — a claim that succeeded should not read as a failure because the last step
  * of it found nothing to point at.
  */

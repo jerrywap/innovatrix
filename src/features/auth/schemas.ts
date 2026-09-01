@@ -1,4 +1,3 @@
-import type { Route } from "next";
 import { z } from "zod";
 
 /**
@@ -72,49 +71,12 @@ export const acceptInviteSchema = z.object({ invitationId: z.string().min(1) });
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 
-/**
- * Where to send someone after signing in.
+/*
+ * `safeRedirectPath` and `optionalRedirectPath` used to live here and now live in
+ * `@/lib/return-path`.
  *
- * Only same-origin *paths* are honoured. `//evil.com` and `https://evil.com`
- * are both valid values of a `next` query parameter and both are open
- * redirects — the second slash check is the one that catches the protocol-
- * relative form.
- *
- * ## The cast
- *
- * `typedRoutes` makes `redirect()` and `<Link href>` take a `Route`, and this
- * is the one place in the codebase where that guarantee cannot hold: the value
- * arrives from a query string at runtime, so no compile-time check can know
- * whether `/dashboard/orders/ORD-2026-0148` exists.
- *
- * This function is therefore the boundary. Everything it returns has been
- * proven to be a same-origin path, and the cast is confined here rather than
- * scattered across each caller — where the next person would copy it without
- * the validation.
+ * They had to move: `proxy.ts` runs on the Edge runtime and cannot import a
+ * feature module, so it hand-rolled the same three open-redirect checks, and
+ * `services/marketplace/query.ts` hand-rolled them a third time. The new module
+ * imports nothing but a type, which is what lets all four callers share one rule.
  */
-export function safeRedirectPath(
-  next: string | undefined,
-  fallback: Route = "/dashboard",
-): Route {
-  if (!next) return fallback;
-  if (!next.startsWith("/")) return fallback;
-  if (next.startsWith("//")) return fallback;
-  if (next.startsWith("/\\")) return fallback;
-  return next as Route;
-}
-
-/**
- * The same check, for the case where "no redirect" is a real answer.
- *
- * A page rendering a form needs to know whether to *include* a hidden `next`
- * field at all. Passing `""` as the fallback to `safeRedirectPath` was the
- * previous way of asking that, and `""` is not a route — it only compiled
- * before `typedRoutes` was turned on.
- */
-export function optionalRedirectPath(next: string | undefined): Route | undefined {
-  if (!next) return undefined;
-  const resolved = safeRedirectPath(next, "/dashboard");
-  // safeRedirectPath falls back when the input is unsafe; treat that as "none"
-  // rather than silently redirecting somewhere the caller didn't ask for.
-  return resolved === "/dashboard" && next !== "/dashboard" ? undefined : resolved;
-}

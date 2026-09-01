@@ -71,6 +71,43 @@ describe("no route sends a possibly-stale session to a bare /login", () => {
       "use `redirect(await loginDestination())` — a bare /login loops for an expired cookie",
     ).toEqual([]);
   });
+
+  /**
+   * …and nothing *links* to a bare `/login` either.
+   *
+   * A second rule rather than a second file, because it is the same convention
+   * failing the same way. The rule above is about a redirect loop; this one is
+   * about the destination, and it exists because the codebase drifted exactly
+   * here: `?next=` was built, the proxy attached it, and then six links — the
+   * public header's "Sign in" among them, on every public page — did not. The
+   * symptom is not an error. It is landing on the dashboard, which looks fine,
+   * so nobody reports it as a bug.
+   *
+   * `loginPath()` is the answer: it takes the path you want to come back to,
+   * validates it, and refuses an auth screen.
+   *
+   * Scoped to the surfaces that can know where the visitor is. The `(auth)`
+   * screens are exempt because their own path is `/login`-adjacent and useless
+   * as a destination — they forward the `next` they were given, or read the
+   * parked one, and there is nothing to catch by pattern there.
+   */
+  it("routes every link to login through loginPath()", () => {
+    const BARE_LOGIN_LINK = /href=\{?["'`]\/login["'`]/;
+    const SCOPES = [
+      join("src", "components"),
+      join("src", "app", "(public)"),
+      join("src", "features"),
+    ];
+
+    const offenders = SCOPES.flatMap((scope) => sourceFiles(scope))
+      .map((file) => relative(process.cwd(), file))
+      .filter((rel) => BARE_LOGIN_LINK.test(readFileSync(rel, "utf8")));
+
+    expect(
+      offenders,
+      "use `loginPath(here)` — a bare /login link drops the page the visitor was on",
+    ).toEqual([]);
+  });
 });
 
 describe("session cookie names", () => {

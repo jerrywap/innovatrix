@@ -110,6 +110,24 @@ function storageOrigin(): string | null {
 const FRAME_SRC_DEFAULT = "frame-src https://www.youtube-nocookie.com";
 
 /**
+ * The country lookup behind first-visit currency detection.
+ *
+ * `components/shell/currency-detect.tsx` calls it from the browser exactly once
+ * per visitor, and without this entry the browser refuses the request before it
+ * leaves — see `storageOrigin()` above for what that failure looks like from the
+ * outside, which is nothing at all.
+ *
+ * Client-side rather than server-side on purpose, and this line is part of the
+ * reason it stays that way: the endpoint rate-limits per IP, so from the browser
+ * that is one allowance per visitor, and from this host it would be one allowance
+ * for every first visit the site ever gets.
+ *
+ * The origin only, as with the bucket. Nothing else on that host is called and
+ * nothing wider would be doing this directive's job.
+ */
+const COUNTRY_LOOKUP_ORIGIN = "https://api.country.is";
+
+/**
  * `/preview/[slug]` only, and only because it cannot be an allowlist.
  *
  * That page frames a vendor's demo, and the host is different for every product
@@ -140,15 +158,18 @@ function contentSecurityPolicy(frameSrc = FRAME_SRC_DEFAULT): string {
     "img-src 'self' blob: data: https:",
     "font-src 'self' data:",
     /*
-     * Us, and the storage host we upload to. See `storageOrigin()` for why the second one is not
-     * optional and what its absence broke.
+     * Us, the storage host we upload to, and the country lookup. See `storageOrigin()` for why
+     * the second one is not optional and what its absence broke, and `COUNTRY_LOOKUP_ORIGIN` for
+     * the third.
      *
-     * Payment providers are still called server-side; there is no client SDK to allowlist, and
-     * nothing else in the app talks to a third party from the browser.
+     * Payment providers are still called server-side; there is no client SDK to allowlist. The
+     * country lookup is the only third party the browser talks to, and it is called once per
+     * visitor and never with a credential.
      */
     [
       "connect-src 'self'",
       storageOrigin(),
+      COUNTRY_LOOKUP_ORIGIN,
       // The dev server's HMR socket.
       isDev ? "ws: wss:" : null,
     ]

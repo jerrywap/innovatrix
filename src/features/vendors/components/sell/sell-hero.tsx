@@ -70,7 +70,7 @@ export function SellHero() {
             */}
             <p className="text-muted-foreground mt-6 max-w-[54ch] text-[16.5px] leading-relaxed lg:text-[17.5px]">
               Sell your applications, scripts and templates through CoSetup. We handle the
-              checkout, the licence keys and the delivery — and when your customers need the
+              checkout, the licence keys and the delivery and when your customers need the
               product adapted, extended or set up, that work comes back to you as paid work.
             </p>
 

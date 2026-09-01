@@ -366,6 +366,25 @@
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
+  /*
+     The browser's own clear button on a search input, removed.
+
+     `search-box.tsx` draws its own — it has to, because clearing also has to
+     drop the `?q=` from the URL and cancel the debounce, which the native
+     control knows nothing about. Chrome and Safari were drawing theirs beside
+     it, so every search field in the app had two crosses: the hero, the two
+     marketplace listings, every category and industry landing, and `/search`.
+
+     `type="search"` stays. It is what gives a phone keyboard a Search key
+     instead of a return key, and dropping it to lose one pseudo-element would
+     trade a real affordance for a cosmetic one.
+  */
+  [type="search"]::-webkit-search-cancel-button,
+  [type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   @supports selector(::-webkit-scrollbar) {
     /*
        `auto`, or Chrome discards every rule below it. This is the one line that

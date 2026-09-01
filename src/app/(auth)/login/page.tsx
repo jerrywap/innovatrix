@@ -4,7 +4,7 @@ import { serverEnv } from "@/config/env";
 import { AuthCard } from "@/features/auth/components/auth-card";
 import { GoogleButton } from "@/features/auth/components/google-button";
 import { LoginForm } from "@/features/auth/components/login-form";
-import { optionalRedirectPath } from "@/features/auth/schemas";
+import { optionalRedirectPath } from "@/lib/return-path";
 
 // TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
 // See: https://nextjs.org/docs/app/guides/migrating-to-cache-components

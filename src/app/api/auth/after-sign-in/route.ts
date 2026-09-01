@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { serverEnv } from "@/config/env";
 import { adoptGuestStateFor } from "@/features/auth/adopt-guest-state";
-import { safeRedirectPath } from "@/features/auth/schemas";
+import { safeRedirectPath } from "@/lib/return-path";
 
 /**
  * Where an OAuth sign-in lands, so the cart and the conversation survive it.

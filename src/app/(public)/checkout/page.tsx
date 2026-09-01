@@ -50,11 +50,11 @@ export default function Page() {
 async function CheckoutBody() {
   const session = await getSession();
   // Same stale-cookie hazard as the dashboard: `/login` with a cookie the
-  // server rejects bounces back. `loginDestination()` clears it first.
-  if (!session) {
-    const destination = await loginDestination();
-    redirect(destination === "/login" ? "/login?next=/checkout" : destination);
-  }
+  // server rejects bounces back. `loginDestination()` clears it first, and now
+  // carries `?next=` on both of its branches — this used to append `/checkout`
+  // by hand and give up in the stale case, which is what made the gap in
+  // `loginDestination` visible in the first place.
+  if (!session) redirect(await loginDestination());
 
   const cart = await loadCart();
   if (!cart || cart.lines.length === 0) {
@@ -136,7 +136,8 @@ async function CheckoutBody() {
         <OrderSummary
           totals={cart.totals}
           {...(cart.discountCode ? { discountCode: cart.discountCode } : {})}
-          disabled
+          currency={cart.currency}
+          showCheckout={false}
         />
       </aside>
     </div>

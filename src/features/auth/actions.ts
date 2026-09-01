@@ -25,8 +25,15 @@ import {
   loginSchema,
   registerSchema,
   resetPasswordSchema,
-  safeRedirectPath,
 } from "./schemas";
+import { usesSecureCookies } from "@/config/env";
+import {
+  clearedReturnCookie,
+  loginPath,
+  RETURN_COOKIE,
+  safeRedirectPath,
+  storedReturnPath,
+} from "@/lib/return-path";
 
 /**
  * Authentication server actions — §75, §88.
@@ -113,7 +120,34 @@ export async function registerAction(
   if (!result.ok) return result;
   // Outside withAction: redirect() throws, and throwing inside would be caught
   // as control flow and rethrown anyway — clearer to do it here.
-  redirect(safeRedirectPath(formDataString(formData, "next"), "/dashboard"));
+  redirect(await destinationAfterAuth(formData));
+}
+
+/**
+ * Where to send somebody who has just authenticated.
+ *
+ * **The form wins, then the cookie, then the dashboard**, and the order is the
+ * whole point. A `next` on the form came from the URL of the page they are
+ * standing on, so it is the freshest thing we know. The cookie is the fallback
+ * for the hops that cannot carry a query string — the verification email,
+ * `?expired=1`, and the proxy's bounce off an auth page — and a stale one from an
+ * abandoned journey must never beat a fresh link.
+ *
+ * Consuming clears it. A destination that outlives its own journey teleports
+ * somebody on their next sign-in, which ten minutes of `maxAge` bounds rather
+ * than prevents.
+ *
+ * Re-validated here even though the proxy validated it before storing: this is
+ * the function that calls `redirect()`, and the proof belongs with the redirect.
+ */
+async function destinationAfterAuth(formData: FormData | null): Promise<Route> {
+  const fromForm = formData ? formDataString(formData, "next") : undefined;
+  const jar = await cookies();
+  const parked = storedReturnPath(jar.get(RETURN_COOKIE)?.value);
+
+  if (parked) jar.set(clearedReturnCookie(usesSecureCookies()));
+
+  return safeRedirectPath(fromForm ?? parked, "/dashboard");
 }
 
 /**
@@ -301,7 +335,7 @@ export async function signInAction(
   });
 
   if (!result.ok) return result;
-  redirect(safeRedirectPath(formDataString(formData, "next"), "/dashboard"));
+  redirect(await destinationAfterAuth(formData));
 }
 
 /* ────────────────────────────────────────────── sign in with google */
@@ -341,7 +375,18 @@ export async function signInWithGoogleAction(
       return fail("Google sign-in isn't available.", { code: "VALIDATION" });
     }
 
-    const next = safeRedirectPath(formDataString(formData, "next"), "/dashboard");
+    /*
+     * Read, but not consumed. Nothing has been authenticated yet — the browser
+     * is about to leave for Google's consent screen and may never come back.
+     * Clearing the cookie here would lose the destination for somebody who
+     * cancels and signs in with a password instead. `/api/auth/after-sign-in`
+     * consumes it on the way back.
+     */
+    const jar = await cookies();
+    const next = safeRedirectPath(
+      formDataString(formData, "next") ?? storedReturnPath(jar.get(RETURN_COOKIE)?.value),
+      "/dashboard",
+    );
 
     /*
      * `callbackURL` goes to `/api/auth/after-sign-in`, not straight to `next`.
@@ -361,7 +406,10 @@ export async function signInWithGoogleAction(
       body: {
         provider: "google",
         callbackURL: `/api/auth/after-sign-in?next=${encodeURIComponent(next)}`,
-        errorCallbackURL: "/login?error=google",
+        // The destination survives a refused consent screen too. Without this,
+        // cancelling Google and signing in with a password instead silently
+        // dropped them on the dashboard.
+        errorCallbackURL: `/login?error=google&next=${encodeURIComponent(next)}`,
       },
       headers: await headers(),
     });
@@ -392,6 +440,9 @@ export async function signInWithGoogleAction(
 
 export async function signOutAction(): Promise<never> {
   await getAuth().api.signOut({ headers: await headers() });
+  // Whatever they were part-way through is not somewhere to send the *next*
+  // person who signs in on this browser.
+  (await cookies()).set(clearedReturnCookie(usesSecureCookies()));
   redirect("/");
 }
 
@@ -460,7 +511,17 @@ export async function resetPasswordAction(
    * here rather than being discovered a request later.
    */
   clearSessionCookies(await cookies());
-  redirect("/login?reset=1");
+
+  /*
+   * `?reset=1` *and* the destination, if there is one.
+   *
+   * Somebody who was part-way through something, forgot their password and reset
+   * it should land where they were going, not on the dashboard. The cookie is
+   * left in place rather than consumed — they have not signed in yet, and the
+   * sign-in they are about to do is what should spend it.
+   */
+  const parked = storedReturnPath((await cookies()).get(RETURN_COOKIE)?.value);
+  redirect(loginPath(parked, "/login?reset=1"));
 }
 
 /* ────────────────────────────────────────────── verification */
@@ -528,7 +589,9 @@ export async function acceptInviteAction(
   });
 
   if (!result.ok) return result;
-  redirect("/dashboard");
+  // The invite screen puts its own `next` on the form, and an invitee who was
+  // mid-journey has one parked. Both beat the dashboard.
+  redirect(await destinationAfterAuth(formData));
 }
 
 /* ────────────────────────────────────────────── account setup repair */
@@ -588,7 +651,13 @@ export async function completeAccountSetupAction(): Promise<ActionResult<never>>
   });
 
   if (!result.ok) return result;
-  redirect("/dashboard");
+  /*
+   * The repair is reached *from* somewhere — a free product they could not claim,
+   * a checkout they could not start — so finishing it should return them there.
+   * `null`, because this action has no form: the parked destination is the only
+   * thing that knows where they came from.
+   */
+  redirect(await destinationAfterAuth(null));
 }
 
 /* ────────────────────────────────────────────── org switcher */

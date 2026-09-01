@@ -13,15 +13,25 @@ import {
  *
  * ## Resolution order: URL → cookie → default
  *
- * Explicitly **not** `Accept-Language` or geo-IP. Language is not currency — an
- * `en-GB` browser in Lagos is a normal case for this business rather than an edge
- * case — and both make the response vary on a request header, which poisons any
- * shared cache and makes "copy the URL" stop working.
+ * Three rungs, and still three: country detection did not add a fourth. It runs
+ * in the browser and writes the **cookie**, so a detected currency arrives here
+ * by the same route a chosen one does and this function cannot tell them apart —
+ * which is the property that keeps the order honest.
+ *
+ * Explicitly **not** `Accept-Language`, and explicitly not a header read of any
+ * kind. Language is not currency — an `en-GB` browser in Lagos is a normal case
+ * for this business rather than an edge case, and it is the case country gets
+ * right where language gets it exactly wrong — and a request header would make
+ * the response vary, which poisons any shared cache and makes "copy the URL" stop
+ * working. `components/shell/currency-detect.tsx` is how the country reaches us
+ * without any of that.
  *
  * The URL wins over the cookie so a link somebody shares shows the prices they
- * were looking at. The cookie is what carries the choice off the listing, and it
- * is written by `proxy.ts`, which is the only place that can: a Server Component
- * may not set a cookie.
+ * were looking at. That is also why the detector declines to run when the URL
+ * names a currency: it must never write a cookie underneath a shared link. The
+ * cookie is what carries the choice off the listing, and it is written by
+ * `proxy.ts`, `switchCurrencyAction` and the detector — never by a Server
+ * Component, which may not set one.
  *
  * ## Why this is one function and not a two-liner at each call site
  *

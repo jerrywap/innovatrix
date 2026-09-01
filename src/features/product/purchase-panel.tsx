@@ -9,6 +9,7 @@ import { MoneyDisplay } from "@/components/money-display";
 import { AddToCart } from "@/features/cart/components/add-to-cart";
 import { GetItFree } from "@/features/checkout/components/get-it-free";
 import { money } from "@/lib/money";
+import { PURCHASES_LABEL } from "@/lib/navigation";
 import type { StorefrontCurrency } from "@/config/storefront";
 
 /** What the CTA needs. Deliberately not a credential in sight. */
@@ -72,7 +73,7 @@ export function PurchasePanel({
   customisable,
   typicalTurnaround,
   demo,
-  signedIn,
+  viewer,
   owned,
   saveButton,
 }: {
@@ -84,7 +85,12 @@ export function PurchasePanel({
   customisable: boolean;
   typicalTurnaround?: string;
   /** Whether there is a session — a free claim needs one, adding to the basket does not. */
-  signedIn: boolean;
+  /**
+   * Who is looking. Four kinds, because the free-download CTA renders four
+   * different things — see `GetItFree`. Resolved on the server, where the
+   * session's `activeOrganizationId` and `isStaff` are already in hand.
+   */
+  viewer: "signed-out" | "staff" | "no-organisation" | "customer";
   /** Whether this organisation already has an active entitlement for the product. */
   owned: boolean;
   /**
@@ -292,9 +298,10 @@ export function PurchasePanel({
           <GetItFree
             productId={productId}
             {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
-            signedIn={signedIn}
+            viewer={viewer}
             owned={owned}
             productPath={productHref(slug)}
+            destinationLabel={PURCHASES_LABEL}
             disabled={!selected}
           />
         ) : (

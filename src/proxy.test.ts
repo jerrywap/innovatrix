@@ -97,6 +97,78 @@ describe("currency preference", () => {
   });
 });
 
+/**
+ * The return path — "continue where you were" after signing in.
+ *
+ * The URL half of this already worked and was never asserted; the cookie half is
+ * new and exists for the three hops a query string cannot survive (a
+ * verification email, `?expired=1`, and the bounce below). Both halves fail the
+ * same invisible way: you end up on the dashboard, which is a perfectly normal
+ * place to be, so nobody reports it as a bug — they report that signing in
+ * "forgets" what they were doing.
+ */
+describe("the return path", () => {
+  it("sends a signed-out visitor to login with where they were going", () => {
+    const response = visit("/dashboard/selling/apply");
+
+    expect(response.headers.get("location")).toContain(
+      "/login?next=%2Fdashboard%2Fselling%2Fapply",
+    );
+  });
+
+  it("parks the destination in a cookie on a real visit to /login", () => {
+    // The cookie is stamped here rather than on the 307 above, because a
+    // `Set-Cookie` on a redirect the browser follows is a cookie set for a URL
+    // nobody looked at — the rule the whole file is arranged around.
+    const response = visit("/login?next=%2Fcart");
+
+    expect(response.cookies.get("cosetup_return")?.value).toBe("/cart");
+  });
+
+  it("does not park one for a prefetch", () => {
+    // Next prefetches links in the viewport. A "Sign in" link scrolling past
+    // must not decide where somebody ends up after they sign in.
+    const response = visit("/login?next=%2Fcart", { "sec-fetch-dest": "empty" });
+
+    expect(response.cookies.get("cosetup_return")).toBeUndefined();
+  });
+
+  it("refuses an off-site destination", () => {
+    // `//evil.example` is a protocol-relative URL and a working open redirect
+    // against a naive `startsWith("/")`. It must not reach the cookie either.
+    expect(
+      visit("/login?next=%2F%2Fevil.example").cookies.get("cosetup_return"),
+    ).toBeUndefined();
+    expect(
+      visit("/login?next=https%3A%2F%2Fevil.example").cookies.get("cosetup_return"),
+    ).toBeUndefined();
+  });
+
+  it("refuses to park an auth screen, which is how /login loops", () => {
+    expect(visit("/login?next=%2Flogin").cookies.get("cosetup_return")).toBeUndefined();
+  });
+
+  it("sends an already-signed-in visitor to the destination, not the dashboard", () => {
+    // This hardcoded `/dashboard` while reading a URL that said exactly where to
+    // go — the case is signing in in another tab and coming back to this one.
+    const response = visit("/login?next=%2Fcart", {
+      "sec-fetch-dest": "document",
+      cookie: "cosetup.session_token=x",
+    });
+
+    expect(response.headers.get("location")).toBe("http://localhost:3000/cart");
+  });
+
+  it("falls back to the parked cookie when that URL carries no next", () => {
+    const response = visit("/login", {
+      "sec-fetch-dest": "document",
+      cookie: "cosetup.session_token=x; cosetup_return=%2Fcart",
+    });
+
+    expect(response.headers.get("location")).toBe("http://localhost:3000/cart");
+  });
+});
+
 describe("two cookies on one response", () => {
   it("records a product view and the currency together", () => {
     /*

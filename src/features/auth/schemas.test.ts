@@ -1,41 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  loginSchema,
-  passwordSchema,
-  registerSchema,
-  resetPasswordSchema,
-  safeRedirectPath,
-} from "./schemas";
-
-describe("safeRedirectPath — open-redirect guard", () => {
-  it("keeps a same-origin path", () => {
-    expect(safeRedirectPath("/dashboard/orders")).toBe("/dashboard/orders");
-    expect(safeRedirectPath("/checkout?step=2")).toBe("/checkout?step=2");
-  });
-
-  /**
-   * Each of these is a working open redirect against a naive
-   * `startsWith("/")` check. The protocol-relative form is the one that gets
-   * missed: `//evil.com` is a valid URL that browsers resolve against the
-   * current scheme.
-   */
-  it.each([
-    ["absolute https", "https://evil.example/phish"],
-    ["absolute http", "http://evil.example"],
-    ["protocol-relative", "//evil.example/phish"],
-    ["backslash-relative", "/\\evil.example"],
-    ["scheme-ish", "javascript:alert(1)"],
-    ["bare host", "evil.example"],
-  ])("rejects %s", (_label, value) => {
-    expect(safeRedirectPath(value)).toBe("/dashboard");
-  });
-
-  it("falls back when absent or empty", () => {
-    expect(safeRedirectPath(undefined)).toBe("/dashboard");
-    expect(safeRedirectPath("")).toBe("/dashboard");
-    expect(safeRedirectPath(undefined, "/")).toBe("/");
-  });
-});
+import { loginSchema, passwordSchema, registerSchema, resetPasswordSchema } from "./schemas";
 
 describe("password policy", () => {
   it("requires length rather than character classes", () => {

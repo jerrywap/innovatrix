@@ -16,6 +16,8 @@ import { Vendor, VendorMember, type VendorDoc } from "@/lib/db/models/vendors";
 import type { OrganizationRole, StaffRole, VendorRole } from "@/lib/db/enums";
 import { getAuth } from "./auth";
 import { hasSessionCookie } from "./session-cookies";
+import { CURRENT_PATH_HEADER } from "@/config/request-context";
+import { loginPath, RETURN_COOKIE, storedReturnPath } from "@/lib/return-path";
 import {
   hasAllPermissions,
   hasAnyPermission,
@@ -147,15 +149,53 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
  * `redirect(...)` as its last statement — TypeScript narrows on `never` from a
  * direct call and not through an awaited one, and losing that narrowing means
  * every caller below needs a null check for a branch that cannot be reached.
+ *
+ * ## It carries where they were, and did not
+ *
+ * The line below `requireUser` has always said "redirected to login with a
+ * return path", and for a long time that was not true of anything this returned.
+ * Every one of the seven guards in this file dropped the destination, so signing
+ * in from a guarded page landed on `/dashboard` — and `(public)/checkout/page.tsx`
+ * grew its own hand-patch to work around it, which is how the gap was noticed.
+ *
+ * The path comes from `CURRENT_PATH_HEADER`, which `proxy.ts` `set`s on every
+ * request. That header is untrusted by construction — a client can send one — so
+ * `loginPath` runs it through the same open-redirect guard a `?next=` from a
+ * query string gets. It is also the header `header-currency.tsx` already reads
+ * for the same reason: a layout Server Component has no other way to know the URL.
+ *
+ * `loginPath` declines an auth path, which is what stops `/login` redirecting to
+ * itself, and it appends to `?expired=1` rather than replacing it — the stale
+ * case is the one hop where the destination used to be least recoverable and
+ * most wanted, because nobody chose to be there.
  */
 export async function loginDestination(): Promise<Route> {
   // A cookie is here but `getSession()` found nothing behind it ⇒ stale, and it
   // has to be expired or the proxy will keep asserting the user is signed in.
   const stale = hasSessionCookie(await cookies());
-  return (stale ? "/login?expired=1" : "/login") as Route;
+  const base = stale ? "/login?expired=1" : "/login";
+
+  return loginPath((await headers()).get(CURRENT_PATH_HEADER), base);
 }
 
-/** Signed in, or redirected to login with a return path. */
+/**
+ * The destination parked by the proxy, if there is a usable one.
+ *
+ * For the `(auth)` screens, which cannot use `loginDestination`'s trick: the
+ * forwarded path there is the auth screen itself, and nobody wants to come back
+ * to `/login`. The cookie is the only thing that still knows where the journey
+ * started, which is exactly why it exists — see `lib/return-path.ts`.
+ *
+ * A **read**, not a consume: a Server Component may not set a cookie, so it
+ * cannot clear it. That is fine here because these are the last hop — the
+ * verified-email screen, a "back to sign in" link — and whichever action runs
+ * next spends it. Ten minutes bounds anything that goes unspent.
+ */
+export async function parkedReturnPath(): Promise<Route | undefined> {
+  return storedReturnPath((await cookies()).get(RETURN_COOKIE)?.value);
+}
+
+/** Signed in, or redirected to login with a return path — see `loginDestination`. */
 export const requireUser = cache(async (): Promise<SessionUser> => {
   const session = await getSession();
   if (!session) redirect(await loginDestination());
@@ -202,9 +242,30 @@ export const requireOrg = cache(async (): Promise<OrgContext> => {
   if (!session) redirect(await loginDestination());
 
   if (!session.activeOrganizationId) {
-    // A signed-in user with no organization is a broken signup, not a normal
-    // state — every customer gets a personal org at registration.
-    throw new ForbiddenError("No active organization for this session.");
+    /*
+     * Customer-facing message, diagnostic in `context`.
+     *
+     * This threw "No active organization for this session." — a sentence written
+     * for whoever was debugging it — and `withAction` passes every `DomainError`'s
+     * `message` to the client verbatim, so it appeared in red under the "Download
+     * for Free" button on a public product page. `errors.ts` states the rule this
+     * broke in its first paragraph: the message is what a customer may read, and
+     * `context` is the half that is logged and never serialized.
+     *
+     * It is also not "a broken signup, not a normal state", which is what the
+     * comment here used to claim. **Staff correctly have no organization** —
+     * `auth.integration.test.ts` asserts it — and staff browse the public
+     * marketplace. The 60-second session cookie cache reaches it too, for a
+     * customer whose account is perfectly correct. `auth:orphan-probe` is the
+     * script that tells the cases apart.
+     *
+     * The screens that can reach this pre-empt it rather than relying on the
+     * wording; see `purchase-section.tsx`.
+     */
+    throw new ForbiddenError("Your account isn't set up for purchases yet.", {
+      reason: "session has no activeOrganizationId",
+      userId: session.user.id,
+    });
   }
 
   await connectToDatabase();

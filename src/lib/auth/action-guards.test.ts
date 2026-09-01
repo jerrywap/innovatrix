@@ -109,7 +109,15 @@ const ANONYMOUS_BY_DESIGN: Record<string, string> = {
   "cart/actions.ts:removeLineAction": "guest cart",
   "cart/actions.ts:setQuantityAction": "guest cart",
   "cart/actions.ts:applyDiscountAction": "guest cart",
-  "cart/actions.ts:switchCartCurrencyAction": "guest cart",
+  "cart/actions.ts:removeBlockedLinesAction": "guest cart",
+  // First-visit country detection, which by definition runs before anyone has
+  // signed in. It writes a display preference and re-prices whatever basket the
+  // owner key already points at — the same scoping as every row above.
+  "cart/actions.ts:adoptDetectedCurrencyAction": "guest cart",
+  // Also the header's switcher, so it runs for anyone browsing — including
+  // somebody with no basket at all, which is why it reads the owner key rather
+  // than minting one.
+  "cart/actions.ts:switchCurrencyAction": "guest cart",
   // `mergeCartAction` used to be listed here as "runs at sign-in, over both
   // keys". It never ran anywhere — it had no callers at all — so this entry was
   // an enforcement test documenting behaviour that did not exist. The merge is

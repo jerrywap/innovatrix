@@ -80,7 +80,7 @@ export interface EntitlementView {
 /* ────────────────────────────────────────────── list */
 
 /**
- * My Scripts — §29.
+ * My Purchases — §29.
  *
  * Four queries for the whole page rather than four per row: entitlements, then
  * their products, licences and versions in bulk. With fifty entitlements the

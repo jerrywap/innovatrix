@@ -9,18 +9,22 @@ import { BRAND } from "./brand";
  *
  * `process.env.NEXT_PUBLIC_*` must be referenced as a full literal — Next.js
  * replaces these statically, so `process.env[key]` would silently be undefined.
+ *
+ * `NEXT_PUBLIC_DEFAULT_CURRENCY` was here and is gone. Nothing in `src/` ever
+ * read it, it defaulted to `GBP` where the real default is `DEFAULT_CURRENCY` in
+ * `config/storefront.ts`, and its enum allowed `EUR`, which is not in
+ * `STOREFRONT_CURRENCIES`. Two defaults that disagree is how somebody later
+ * changes the one nothing reads — and the currency default has now moved once.
  */
 const publicSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.url().default("http://localhost:3000"),
   NEXT_PUBLIC_APP_NAME: z.string().default(BRAND.name),
-  NEXT_PUBLIC_DEFAULT_CURRENCY: z.enum(["GBP", "USD", "EUR", "NGN"]).default("GBP"),
   NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
 });
 
 const parsed = publicSchema.safeParse({
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
-  NEXT_PUBLIC_DEFAULT_CURRENCY: process.env.NEXT_PUBLIC_DEFAULT_CURRENCY,
   NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
 });
 

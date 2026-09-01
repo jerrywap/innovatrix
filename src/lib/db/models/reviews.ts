@@ -126,7 +126,7 @@ reviewSchema.index({ productId: 1, status: 1, createdAt: -1 });
 reviewSchema.index({ vendorId: 1, status: 1, createdAt: -1 });
 /** The moderation queue — most-reported first. */
 reviewSchema.index({ status: 1, reportCount: -1 });
-/** "Have I reviewed this?" on My Scripts, and the author's own edits. */
+/** "Have I reviewed this?" on My Purchases, and the author's own edits. */
 reviewSchema.index({ authorUserId: 1, productId: 1 });
 
 export const Review = defineModel<ReviewDoc>("Review", reviewSchema);

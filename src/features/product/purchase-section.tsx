@@ -34,6 +34,25 @@ export async function PurchaseSection({ product }: { product: ProductDetail }) {
    */
   const owned = await viewerOwnsProduct(session?.activeOrganizationId ?? undefined, product.id);
 
+  /*
+   * Which of four viewers this is, decided here because this is where the
+   * evidence is.
+   *
+   * `signedIn={Boolean(session)}` was the whole test, one line below a read of
+   * `activeOrganizationId` — so a viewer with a session and no organisation got
+   * the claim button, pressed it, and met `requireOrg`'s refusal in red. Staff
+   * legitimately have no organisation and browse the marketplace, so this is a
+   * standing state rather than a broken account, and the two need different
+   * answers: see `GetItFree`.
+   */
+  const viewer = !session
+    ? "signed-out"
+    : session.user.isStaff
+      ? "staff"
+      : session.activeOrganizationId
+        ? "customer"
+        : "no-organisation";
+
   return (
     <PurchasePanel
       productId={product.id}
@@ -42,7 +61,7 @@ export async function PurchaseSection({ product }: { product: ProductDetail }) {
       licencePackages={product.licencePackages}
       addons={product.addons}
       customisable={product.customization.available}
-      signedIn={Boolean(session)}
+      viewer={viewer}
       owned={owned}
       // From `publicDemoView`, which has no credentials field at all — so
       // there is nothing here that could cross into the client bundle.

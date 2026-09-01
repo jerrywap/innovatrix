@@ -9,6 +9,7 @@ import { loadCart } from "@/features/cart/load";
 import { CartLines } from "@/features/cart/components/cart-lines";
 import { OrderSummary } from "@/features/cart/components/order-summary";
 import { CurrencySwitcher } from "@/features/cart/components/currency-switcher";
+import { BlockedLines } from "@/features/cart/components/blocked-lines";
 
 export const metadata: Metadata = {
   title: "Basket",
@@ -39,7 +40,7 @@ export default function Page() {
 async function CartContents() {
   const cart = await loadCart();
 
-  if (!cart || cart.lines.length === 0) {
+  if (!cart || (cart.lines.length === 0 && cart.blocked.length === 0)) {
     return (
       <EmptyState
         icon={ShoppingCart}
@@ -57,12 +58,11 @@ async function CartContents() {
     );
   }
 
-  // Notices without a line id are cart-level: a refused discount, a currency
-  // problem. Line-level ones render against their line instead.
+  // Notices without a line id are cart-level: a refused discount. Line-level
+  // ones render against their line instead, and the blocking ones render as
+  // rows of their own — `cart.blocked` is the same set, with the picture and the
+  // controls attached.
   const cartNotices = cart.notices.filter((notice) => !notice.lineId);
-  const blocked = cart.notices.some(
-    (notice) => notice.kind === "no_price_in_currency" || notice.kind === "item_unavailable",
-  );
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
@@ -80,7 +80,15 @@ async function CartContents() {
           </p>
         ))}
 
-        <CartLines lines={cart.lines} notices={cart.notices} currency={cart.currency} />
+        <BlockedLines
+          lines={cart.blocked}
+          currency={cart.currency}
+          priceableCurrencies={cart.priceableCurrencies}
+        />
+
+        {cart.lines.length > 0 && (
+          <CartLines lines={cart.lines} notices={cart.notices} currency={cart.currency} />
+        )}
         <CurrencySwitcher current={cart.currency} />
       </div>
 
@@ -88,7 +96,8 @@ async function CartContents() {
         <OrderSummary
           totals={cart.totals}
           {...(cart.discountCode ? { discountCode: cart.discountCode } : {})}
-          disabled={blocked}
+          blocked={cart.blocked}
+          currency={cart.currency}
         />
       </aside>
     </div>

@@ -202,17 +202,18 @@ export async function createOrder(
  * A price change is *not* in here: `recalculate` already surfaced it and the
  * order is built from the new price. Refusing would mean a customer who left a
  * tab open cannot buy at all.
+ *
+ * `priced.blocked` rather than a filter over notice kinds. It is the same set,
+ * and it is the set the basket page draws its rows and its disabled Checkout
+ * from — so the refusal here cannot come to disagree with what the customer was
+ * shown a moment earlier.
  */
 function assertOrderable(priced: CartView): void {
-  const blocking = priced.notices.filter(
-    (notice) => notice.kind === "item_unavailable" || notice.kind === "no_price_in_currency",
-  );
-
-  if (blocking.length > 0) {
-    throw new ValidationError(
-      `Your basket has changed: ${blocking.map((n) => n.message).join(" ")}`,
-      { cart: blocking.map((n) => n.message) },
-    );
+  if (priced.blocked.length > 0) {
+    const messages = priced.blocked.map((line) => line.message);
+    throw new ValidationError(`Your basket has changed: ${messages.join(" ")}`, {
+      cart: messages,
+    });
   }
 
   if (priced.lines.length === 0) {
