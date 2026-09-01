@@ -10,7 +10,9 @@ import { getSession } from "@/lib/auth/dal";
 import { objectIdSchema } from "@/validators/common";
 import { usesSecureCookies } from "@/config/env";
 import {
+  CURRENCY_COOKIE,
   currencyCookieOptions,
+  isStorefrontCurrency,
   STOREFRONT_CURRENCIES,
   type StorefrontCurrency,
 } from "@/config/storefront";
@@ -58,6 +60,9 @@ const switchCurrencySchema = z.object({
   currency: z.enum(STOREFRONT_CURRENCIES),
   returnTo: z.string().trim().max(2048).optional(),
 });
+
+/** The detector needs no `returnTo`: it declines to run when the URL names a currency. */
+const detectedCurrencySchema = z.object({ currency: z.enum(STOREFRONT_CURRENCIES) });
 
 function refreshCart() {
   // The cart appears in the header on every page, so the whole layout is what
@@ -220,14 +225,7 @@ export async function switchCurrencyAction(
     const parsed = parseInput(switchCurrencySchema, input);
     const currency = parsed.currency;
 
-    const jar = await cookies();
-    jar.set(currencyCookieOptions(currency, usesSecureCookies()));
-
-    const session = await getSession();
-    const ownerKey = await readOwnerKey(session?.user.id);
-    // No basket is not a failure here — the cookie is the whole job.
-    if (ownerKey) await cartService.switchCurrency(ownerKey, currency);
-
+    await applyCurrency(currency);
     refreshCart();
 
     if (parsed.returnTo && namesCurrency(parsed.returnTo)) {
@@ -238,6 +236,81 @@ export async function switchCurrencyAction(
 
     return ok({ currency });
   });
+}
+
+/**
+ * The currency detected from the visitor's country, on their first visit.
+ *
+ * ## Why this is not just a `document.cookie` write in the detector
+ *
+ * That is what it was, on the reasoning that detection only runs when no currency
+ * cookie exists — so a brand-new browser, so no basket to re-price. **That is
+ * false for a signed-in customer**, whose basket is a database row and outlives
+ * any cookie, and false for anyone whose thirty-day currency cookie expires while
+ * their guest-cart cookie has not. Both end with a header quoting one currency
+ * over a basket priced in another, which is the exact defect COS-33 fixed one
+ * layer up. Caught by clearing the cookie on a browser that had a basket.
+ *
+ * So the write happens here, where `cartService.switchCurrency` is reachable.
+ *
+ * ## Why it is not `switchCurrencyAction`
+ *
+ * Only one line differs, and it is the expensive one: that action calls
+ * `refreshCart()` → `revalidatePath("/", "layout")`, a **site-wide** cache
+ * invalidation. On a switcher that is fine — somebody clicked. Here it would fire
+ * on every first-time visitor, which is a different order of frequency
+ * altogether. This writes and returns; the detector then calls
+ * `router.refresh()`, which refetches that one route for that one client and
+ * invalidates nothing shared.
+ *
+ * Everything else is shared through `applyCurrency`, so the two cannot drift.
+ *
+ * ## The stored-preference check is repeated here on purpose
+ *
+ * The detector already skips when a cookie is present. Re-checking server-side
+ * makes "detected once, never again" a property of the system rather than a
+ * promise the client keeps — and it costs one cookie read. Nothing is at stake if
+ * it were called twice, which is precisely why it should not be enforced only in
+ * the place that is easiest to bypass.
+ */
+export async function adoptDetectedCurrencyAction(
+  input: unknown,
+): Promise<ActionResult<{ currency: StorefrontCurrency; adopted: boolean }>> {
+  return withAction<{ currency: StorefrontCurrency; adopted: boolean }>(async () => {
+    const { currency } = parseInput(detectedCurrencySchema, input);
+
+    const jar = await cookies();
+    const existing = jar.get(CURRENCY_COOKIE)?.value;
+    if (isStorefrontCurrency(existing)) {
+      // Already chosen or already detected. A detection must never overwrite it.
+      return ok({ currency: existing, adopted: false });
+    }
+
+    await applyCurrency(currency);
+
+    return ok({ currency, adopted: true });
+  });
+}
+
+/**
+ * Write the preference, and re-price the basket if there is one.
+ *
+ * Both halves, always, because they are one fact stored twice: the cookie is what
+ * the storefront reads and `cart.currency` is what `recalculate` prices from.
+ * Writing one without the other is how the header and the basket come to quote
+ * different currencies.
+ *
+ * `readOwnerKey`, not `ensureOwnerKey`: somebody whose currency is being set
+ * while they browse has no basket and should not be given a guest-cart cookie for
+ * the privilege.
+ */
+async function applyCurrency(currency: StorefrontCurrency): Promise<void> {
+  const jar = await cookies();
+  jar.set(currencyCookieOptions(currency, usesSecureCookies()));
+
+  const session = await getSession();
+  const ownerKey = await readOwnerKey(session?.user.id);
+  if (ownerKey) await cartService.switchCurrency(ownerKey, currency);
 }
 
 /** Does this path already carry a `currency` parameter we would be leaving stale? */

@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { publicEnv } from "@/config/public-env";
 import { SiteJsonLd } from "@/components/json-ld";
+import { CurrencyDetect } from "@/components/shell/currency-detect";
 import { PublicFooter } from "@/components/shell/public-footer";
 import {
   HeaderAccount,
@@ -51,6 +52,17 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       />
       <main className="flex-1">{children}</main>
       <PublicFooter />
+
+      {/*
+        First-visit currency detection. Renders nothing, reads nothing on the
+        server, and so does not make this layout dynamic — the same property
+        `SiteJsonLd` above is chosen for.
+
+        Here rather than in the root layout because this group is exactly the
+        storefront: every page that quotes a price, and no admin or staff screen.
+        Last in the tree because it has no visual output and nothing waits on it.
+      */}
+      <CurrencyDetect />
     </>
   );
 }
