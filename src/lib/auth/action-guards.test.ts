@@ -109,7 +109,11 @@ const ANONYMOUS_BY_DESIGN: Record<string, string> = {
   "cart/actions.ts:removeLineAction": "guest cart",
   "cart/actions.ts:setQuantityAction": "guest cart",
   "cart/actions.ts:applyDiscountAction": "guest cart",
-  "cart/actions.ts:switchCartCurrencyAction": "guest cart",
+  "cart/actions.ts:removeBlockedLinesAction": "guest cart",
+  // Also the header's switcher, so it runs for anyone browsing — including
+  // somebody with no basket at all, which is why it reads the owner key rather
+  // than minting one.
+  "cart/actions.ts:switchCurrencyAction": "guest cart",
   // `mergeCartAction` used to be listed here as "runs at sign-in, over both
   // keys". It never ran anywhere — it had no callers at all — so this entry was
   // an enforcement test documenting behaviour that did not exist. The merge is

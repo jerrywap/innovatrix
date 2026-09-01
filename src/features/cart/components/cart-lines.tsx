@@ -198,7 +198,12 @@ function QuantityStepper({ lineId, quantity }: { lineId: string; quantity: numbe
   );
 }
 
-function RemoveButton({ lineId, label }: { lineId: string; label: string }) {
+/**
+ * Exported so `blocked-lines.tsx` uses this button rather than a second copy of
+ * it. A blocked row's whole purpose is to carry the control the old copy told
+ * people to press, and two removal idioms would be two things to keep in step.
+ */
+export function RemoveButton({ lineId, label }: { lineId: string; label: string }) {
   const [, formAction] = useActionState(removeLineAction, null);
 
   return (

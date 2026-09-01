@@ -85,7 +85,7 @@ export function PublicFooter() {
           <div>
             <Brand />
             <p className="text-muted-foreground mt-4 max-w-[34ch] text-[13.5px] leading-relaxed">
-              Find, customise, build, deploy and maintain software — in one place.
+              Find, customise, build, deploy and maintain software in one place.
             </p>
             <ThemeToggle className="mt-6 sm:hidden" />
           </div>

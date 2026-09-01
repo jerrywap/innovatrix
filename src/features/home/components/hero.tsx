@@ -202,7 +202,7 @@ export function Hero() {
             </h1>
 
             <p className="text-muted-foreground mt-6 max-w-[42ch] text-[16px] leading-[1.6] lg:text-[17px]">
-              Ready-made applications, scripts and website templates — including free ones. Use
+              Ready-made applications, scripts and website templates including free ones. Use
               them as they are, have them adapted, or tell us what to build.
             </p>
 

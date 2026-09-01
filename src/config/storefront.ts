@@ -40,8 +40,9 @@ export const CURRENCY_COOKIE = "cosetup_currency";
 /**
  * How that cookie is written — in one place, because two things write it.
  *
- * `proxy.ts` writes it when a `?currency=` navigation arrives, and
- * `switchCartCurrencyAction` writes it when the basket's own switcher is used.
+ * `proxy.ts` writes it when a `?currency=` navigation arrives — the filter
+ * rail's chips — and `switchCurrencyAction` writes it for both of the switchers
+ * people actually use, the header's and the basket's.
  * Those are the same preference, and they were not both writing it: for a long
  * while **nothing** did, which is why the currency switch never survived leaving
  * the listing. Two independent option literals is how they would come to disagree

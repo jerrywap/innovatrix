@@ -6,9 +6,11 @@ import Link from "next/link";
 import type { Route } from "next";
 import { Tag, X } from "lucide-react";
 import { MoneyDisplay } from "@/components/money-display";
+import { CURRENCIES } from "@/lib/money";
 import { Input } from "@/components/ui/input";
 import { applyDiscountAction } from "../actions";
 import type { CartTotals } from "@/services/cart/calculate";
+import type { CartBlockedLine } from "@/services/cart/cart-service";
 
 /**
  * Subtotal, discount, tax, total — §12.
@@ -22,13 +24,32 @@ export function OrderSummary({
   totals,
   discountCode,
   checkoutHref = "/checkout",
-  disabled,
+  blocked = [],
+  currency,
+  showCheckout = true,
 }: {
   totals: CartTotals;
   discountCode?: string;
   checkoutHref?: string;
-  disabled?: boolean;
+  /**
+   * The lines that cannot be bought — `CartView.blocked`, the same array the
+   * rows above come from and the same one `assertOrderable` refuses on. The
+   * lines rather than a boolean, so the reason here can be specific about which
+   * of the two problems it is.
+   */
+  blocked?: readonly CartBlockedLine[];
+  currency: string;
+  /**
+   * `false` on `/checkout`, which renders this panel for its figures and has its
+   * own submit button.
+   *
+   * It used to pass `disabled` for that, which is a different thing: the panel
+   * dutifully rendered "Resolve the items above to continue." on a page with
+   * nothing wrong with it, permanently.
+   */
+  showCheckout?: boolean;
 }) {
+  const allCurrency = blocked.every((line) => line.reason === "no_price_in_currency");
   return (
     <div className="border-border bg-surface flex flex-col gap-4 rounded-xl border p-5">
       <h2 className="font-display text-[16px] tracking-[-0.02em]">Summary</h2>
@@ -71,10 +92,31 @@ export function OrderSummary({
         </p>
       )}
 
-      {disabled ? (
-        <p className="text-subtle text-center text-[12.5px]">
-          Resolve the items above to continue.
-        </p>
+      {/*
+        Blocked, Checkout stays where it is and goes grey.
+
+        It used to be replaced by the sentence "Resolve the items above to
+        continue." — in this column, about items in the other one, which had in
+        any case been dropped from the page. `publish-panel.tsx` states the rule:
+        hiding the control entirely leaves somebody hunting for where it went.
+        The objection to a disabled button — that it explains nothing — is
+        answered by `aria-describedby` and by the rows carrying the fix.
+      */}
+      {!showCheckout ? null : blocked.length > 0 ? (
+        <>
+          <button
+            type="button"
+            disabled
+            aria-describedby="checkout-blocked"
+            className="bg-foreground text-background rounded-full px-5 py-3 text-center text-[14px] font-medium opacity-40"
+          >
+            Checkout
+          </button>
+          <p id="checkout-blocked" className="text-subtle text-center text-[12.5px]">
+            {blocked.length === 1 ? "1 item" : `${blocked.length} items`}{" "}
+            {allCurrency ? `not sold in ${symbolOf(currency)}.` : "you can't buy right now."}
+          </p>
+        </>
       ) : (
         <Link
           href={checkoutHref as Route}
@@ -85,6 +127,14 @@ export function OrderSummary({
       )}
     </div>
   );
+}
+
+/**
+ * The symbol, not the code. "isn't sold in ₦" reads as a sentence where "isn't
+ * sold in NGN" reads as a field value — and ₦ is what every price beside it uses.
+ */
+function symbolOf(code: string): string {
+  return CURRENCIES[code as keyof typeof CURRENCIES]?.symbol ?? code;
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {

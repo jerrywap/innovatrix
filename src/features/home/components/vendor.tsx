@@ -42,7 +42,7 @@ export function Vendor() {
             You build software. We help you sell it.
           </h2>
           <p className="mt-5 max-w-[52ch] text-[15.5px] leading-relaxed opacity-75">
-            List what you have already built and we handle the commercial half — checkout,
+            List what you have already built and we handle the commercial half checkout,
             licensing, delivery and the customer relationship. You keep building.
           </p>
 

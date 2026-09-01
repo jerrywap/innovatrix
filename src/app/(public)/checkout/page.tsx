@@ -136,7 +136,8 @@ async function CheckoutBody() {
         <OrderSummary
           totals={cart.totals}
           {...(cart.discountCode ? { discountCode: cart.discountCode } : {})}
-          disabled
+          currency={cart.currency}
+          showCheckout={false}
         />
       </aside>
     </div>

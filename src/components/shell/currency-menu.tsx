@@ -1,5 +1,7 @@
 "use client";
 
+import { useTransition } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Check, ChevronDown } from "lucide-react";
 import {
   DropdownMenu,
@@ -9,40 +11,46 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { switchCurrencyAction } from "@/features/cart/actions";
 
 /**
  * The currency switcher, in the public header.
  *
- * ## Every option is a plain `<a href>`, and that is the whole mechanism
+ * ## It is a Server Action, and it used to be a plain `<a href>`
  *
- * The preference is persisted by `proxy.ts`, which can only tell a real
- * navigation from a speculative one by `sec-fetch-dest`. A `<Link>` **click**
- * sends `empty` — byte for byte the same as the prefetch Next fires when an href
- * scrolls into view — so a gate that accepted the click would also accept merely
- * looking at the menu. A document navigation sends `document`, which is
- * unambiguous. The filter rail's currency chips are plain `<a>` for exactly this
- * reason, and `proxy.test.ts` holds the line.
+ * The old mechanism was `?currency=` plus `proxy.ts`, which persists the
+ * preference only on a real document navigation because `sec-fetch-dest` is the
+ * only thing distinguishing a `<Link>` click from the prefetch Next fires when an
+ * href scrolls into view. That constraint is real and still governs the filter
+ * rail's currency chips, which stay plain anchors — `proxy.test.ts` holds that
+ * line. **It does not apply here any more:** an action runs on submit and is
+ * never prefetched, so there is nothing to gate.
  *
- * Three rules follow, and each one silently breaks the feature:
+ * Two bugs went with it, and neither was visible from this file:
  *
- * 1. **Never `next/link`.** The failure is nasty rather than obvious: the URL
- *    updates, so the current page renders in the new currency and the control
- *    *looks* like it worked — and the preference is gone on the next navigation.
- * 2. **No `onSelect` + `preventDefault()`, no `router.push`.** `AccountMenu` and
- *    `OrgSwitcher` both do that; copying the idiom here would break it.
- * 3. **No prefetch**, which a plain `<a>` gets by not being a `<Link>`.
+ * 1. The hrefs were built in a *layout* Server Component from the proxy-forwarded
+ *    path, and App Router does not re-render a shared layout on a client-side
+ *    navigation. So on `/cart`, reached by clicking the basket badge, the menu
+ *    still pointed at the page you came from — and switching currency navigated
+ *    there. That is COS-33's "it redirects to homepage".
+ * 2. The cookie was the only thing written, and `recalculate` prices the basket
+ *    from the cart document, so the switch could not re-price a basket at all.
  *
- * The cost is one full page load on an action taken about once a session. That is
- * the trade the rail already made and recorded.
+ * `switchCurrencyAction` writes both and calls `revalidatePath`, so the current
+ * page re-renders in place with no navigation — and the path it may need comes
+ * from `usePathname()`/`useSearchParams()`, which are live across a soft
+ * navigation. The full page load the old approach cost is gone with it.
+ *
+ * `useSearchParams()` is why this component must stay inside a Suspense boundary;
+ * `HeaderAccount`'s is the one it is already in.
  *
  * ## `DropdownMenuItem asChild`, not `DropdownMenuRadioItem`
  *
  * A radio item is the semantically ideal fit and **cannot be used here**: this
  * repo's wrapper renders the indicator `<span>` *and* `{children}` inside the
  * primitive, so `asChild` hands Radix's Slot two children and
- * `React.Children.only` throws. `DropdownMenuItem` renders no children of its
- * own, which is why `AccountMenu` can wrap an anchor with it. Do not "fix" the
- * primitive — `shadcn init` merges in place.
+ * `React.Children.only` throws. Do not "fix" the primitive — `shadcn init`
+ * merges in place.
  *
  * So selection is expressed with `aria-current` and a tick we draw ourselves.
  *
@@ -57,9 +65,21 @@ export function CurrencyMenu({
   options,
 }: {
   current: string;
-  /** Hrefs are precomputed on the server — a function cannot cross the RSC boundary. */
-  options: ReadonlyArray<{ code: string; symbol: string; name: string; href: string }>;
+  options: ReadonlyArray<{ code: string; symbol: string; name: string }>;
 }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  const query = searchParams.toString();
+  const returnTo = query ? `${pathname}?${query}` : pathname;
+
+  const switchTo = (code: string) => {
+    startTransition(async () => {
+      await switchCurrencyAction({ currency: code, returnTo });
+    });
+  };
+
   return (
     <DropdownMenu>
       {/*
@@ -79,14 +99,12 @@ export function CurrencyMenu({
         <DropdownMenuLabel>Show prices in</DropdownMenuLabel>
         <DropdownMenuSeparator />
 
-        {options.map(({ code, symbol, name, href }) =>
+        {options.map(({ code, symbol, name }) =>
           code === current ? (
             /*
-              A `<span>`, not a link — the rail's reasoning. Currency has no "off"
-              state, and an href to the currency you are already in is a full page
-              load that changes nothing: `proxy.ts` declines it at the
-              "different from what is stored" condition, so the control would cost
-              a reload and appear to do nothing.
+              A `<span>`, not a control. Currency has no "off" state, and
+              switching to the one you are in would re-price a basket for no
+              reason.
 
               Deliberately **not** `disabled`: Radix skips disabled items in
               keyboard navigation, so the one row carrying `aria-current` would be
@@ -104,15 +122,23 @@ export function CurrencyMenu({
               </span>
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem key={code} asChild>
-              <a href={href}>
-                <span className="font-mono text-[11.5px]">{code}</span>
-                <span className="text-muted-foreground ml-auto text-[12px]">
-                  {symbol} {name}
-                </span>
-                {/* Reserves the tick's column so the rows do not jag. */}
-                <span className="size-3.5 shrink-0" aria-hidden />
-              </a>
+            /*
+              Not `disabled` while the switch is in flight, for the reason the
+              active row gives: Radix drops a disabled item out of keyboard
+              navigation. The menu closes on select anyway, so there is no second
+              click to guard against.
+            */
+            <DropdownMenuItem
+              key={code}
+              onSelect={() => switchTo(code)}
+              className="cursor-pointer"
+            >
+              <span className="font-mono text-[11.5px]">{code}</span>
+              <span className="text-muted-foreground ml-auto text-[12px]">
+                {symbol} {name}
+              </span>
+              {/* Reserves the tick's column so the rows do not jag. */}
+              <span className="size-3.5 shrink-0" aria-hidden />
             </DropdownMenuItem>
           ),
         )}

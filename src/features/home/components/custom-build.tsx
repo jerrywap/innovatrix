@@ -35,7 +35,7 @@ export function CustomBuild() {
             Can&rsquo;t find exactly what you need?
           </h2>
           <p className="text-muted-foreground mt-5 max-w-[48ch] text-[16px] leading-relaxed">
-            Tell us what your business needs to do — in your words, not ours. No technical
+            Tell us what your business needs to do in your words, not ours. No technical
             specification, no stack decisions, no forty-field brief. We work out what it needs
             to be, then scope and quote it.
           </p>

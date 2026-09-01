@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   ...pageMetadata({
     title: "CoSetup",
     description:
-      "Ready-made applications, scripts and website templates — including free ones. Use them as they are, have them adapted, or commission exactly what you need, then have it installed, supported and maintained.",
+      "Ready-made applications, scripts and website templates including free ones. Use them as they are, have them adapted, or commission exactly what you need, then have it installed, supported and maintained.",
     path: "/",
   }),
   // Absolute, because the root template would otherwise render "CoSetup · CoSetup".

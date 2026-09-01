@@ -10,7 +10,7 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { money, type CurrencyCode, type Money } from "@/lib/money";
 import { products } from "@/repositories/product.repository";
 import { carts } from "@/repositories/cart.repository";
-import type { StorefrontCurrency } from "@/config/storefront";
+import { STOREFRONT_CURRENCIES, type StorefrontCurrency } from "@/config/storefront";
 import { calculateTotals, type CartTotals } from "./calculate";
 import { evaluateDiscount, type DiscountRefusal } from "./discount";
 import { resolveTaxRule } from "./tax";
@@ -30,12 +30,21 @@ import { resolveTaxRule } from "./tax";
  * - A price change between adding and checking out is surfaced *before*
  *   payment, which is the acceptance criterion.
  *
- * ## A product that vanished is dropped, loudly
+ * ## A product that cannot be bought is kept, in `blocked`
  *
- * Unpublished, deleted, or no longer priced in the cart's currency — the line
- * cannot be bought, so it is removed from the totals and named in the notices.
- * Silently charging for it would be worse; silently hiding it would be worse
- * still, because the customer would wonder where it went.
+ * Unpublished, deleted, or not priced in the cart's currency — the line cannot
+ * be bought, so it is out of the totals. It is **not** out of the view: it moves
+ * to `blocked`, which the basket renders as a row of its own with a Remove
+ * button on it.
+ *
+ * That used to be a `continue` and nothing else, and the failure was quiet and
+ * complete. The line vanished from `lines`, so there was no row and no way to
+ * remove it; its notice carried a `lineId`, so the cart page filtered it out of
+ * the cart-level list and the line-level renderer had no line to match it
+ * against. The one sentence naming the problem was computed on every render and
+ * displayed nowhere, under copy telling the customer to remove an item they
+ * could not see. Hence a separate array rather than a flag on `CartLineView`:
+ * a blocked line has no price, and every consumer of `lines` assumes one.
  */
 
 export interface CartNotice {
@@ -74,12 +83,43 @@ export interface CartLineView {
   lineTotal: Money;
 }
 
+/**
+ * A line in the basket that cannot be bought as things stand.
+ *
+ * Carries its own customer-facing `message` for the same reason `ReadinessGap`
+ * does: the list and the gate have to come from one call, or the version that
+ * says "ready" while the button says otherwise is the one people trust.
+ */
+export interface CartBlockedLine {
+  lineId: string;
+  displayName: string;
+  imageUrl?: string;
+  reason: "no_price_in_currency" | "item_unavailable";
+  /** Customer-facing. The only copy the UI renders for this line. */
+  message: string;
+}
+
 export interface CartView {
   id: string;
   currency: StorefrontCurrency;
   lines: CartLineView[];
+  /**
+   * Lines that cannot be bought — out of `lines` and out of `totals`, but on
+   * screen. `blocked.length > 0` is the single checkout gate; `page.tsx` and
+   * `assertOrderable` both read it rather than re-deriving it from notice kinds.
+   */
+  blocked: CartBlockedLine[];
   totals: CartTotals;
   notices: CartNotice[];
+  /**
+   * Currencies **every** line in the basket has a price in — the remedy's
+   * options when one of them does not.
+   *
+   * Not "the currency you came from": the cart has no record of that, and
+   * offering it would be a guess that can block the basket a second time.
+   * Empty is a real answer, and means removing is the only move.
+   */
+  priceableCurrencies: StorefrontCurrency[];
   itemCount: number;
   discountCode?: string;
 }
@@ -105,6 +145,7 @@ export async function recalculate(
 
   const currency = cart.currency as StorefrontCurrency;
   const notices: CartNotice[] = [];
+  const blocked: CartBlockedLine[] = [];
 
   const productIds = [...new Set(cart.items.map((item) => String(item.productId)))];
   const live = await products.findManyByIds(productIds);
@@ -115,35 +156,33 @@ export async function recalculate(
   for (const item of cart.items) {
     const product = byId.get(String(item.productId));
 
-    /*
-     * `listingSuppressed` is checked here too — vendor ticket 12.
-     *
-     * A suspended vendor's product keeps `status: "published"` on purpose (its URL, its
-     * reviews and its publish date all survive), so the status check alone would happily sell
-     * it. This is the line that makes "new sales stopped" true rather than only true of the
-     * listing, and it covers checkout as well because `createOrder` refuses on the same
-     * notices.
-     */
-    if (
-      !product ||
-      product.status !== "published" ||
-      product.deletedAt ||
-      product.listingSuppressed
-    ) {
-      notices.push({
+    if (!isSellable(product)) {
+      const message = `${item.displayName} is no longer available.`;
+      notices.push({ lineId: item.lineId, kind: "item_unavailable", message });
+      // No `imageUrl`: the product document is gone or suppressed, and the only
+      // thing we still know about it is the name the line was added under.
+      blocked.push({
         lineId: item.lineId,
-        kind: "item_unavailable",
-        message: `${item.displayName} is no longer available and has been removed.`,
+        displayName: item.displayName,
+        reason: "item_unavailable",
+        message,
       });
       continue;
     }
 
     const priced = priceOf(product, item, currency);
     if (priced === undefined) {
-      notices.push({
+      // No remedy in the sentence — the row carries the buttons, so spelling out
+      // "remove it or switch currency" beside them would be a caption on a
+      // control the customer is already looking at.
+      const message = `${item.displayName} isn't sold in ${currency}.`;
+      notices.push({ lineId: item.lineId, kind: "no_price_in_currency", message });
+      blocked.push({
         lineId: item.lineId,
-        kind: "no_price_in_currency",
-        message: `${item.displayName} isn't sold in ${currency}. Remove it or switch currency.`,
+        displayName: item.displayName,
+        ...(imageOf(product) ? { imageUrl: imageOf(product)! } : {}),
+        reason: "no_price_in_currency",
+        message,
       });
       continue;
     }
@@ -229,11 +268,63 @@ export async function recalculate(
     id: String(cart._id),
     currency,
     lines,
+    blocked,
     totals,
     notices,
-    itemCount: lines.reduce((count, line) => count + line.quantity, 0),
+    priceableCurrencies: priceableCurrencies(cart.items, byId),
+    /*
+     * Blocked lines count.
+     *
+     * They used to be dropped here too, so a basket of three showed a badge of
+     * two — the customer's own count silently disagreeing with their basket. A
+     * blocked line is still in the basket; it is only unbuyable.
+     */
+    itemCount: lines.reduce((count, line) => count + line.quantity, 0) + blocked.length,
     ...(cart.discountCode && discount ? { discountCode: cart.discountCode } : {}),
   };
+}
+
+/**
+ * The currencies this whole basket prices in.
+ *
+ * An intersection, not a union: a currency that fixes one line and breaks
+ * another is not a remedy. Free, because `recalculate` and `switchCurrency`
+ * have already loaded every product — three passes over what is in memory.
+ *
+ * `isSellable` as well as a price, and that is the point rather than belt and
+ * braces: a withdrawn product still has a GBP row on it, so pricing alone would
+ * offer "show my basket in £" for a line no currency can unblock. A currency is
+ * only worth suggesting if switching to it clears the basket.
+ */
+function priceableCurrencies(
+  items: readonly CartItem[],
+  byId: Map<string, ProductDoc>,
+): StorefrontCurrency[] {
+  return STOREFRONT_CURRENCIES.filter((currency) =>
+    items.every((item) => {
+      const product = byId.get(String(item.productId));
+      return isSellable(product) && priceOf(product, item, currency) !== undefined;
+    }),
+  );
+}
+
+/**
+ * Can this product be sold at all, whatever the currency?
+ *
+ * `listingSuppressed` is in here — vendor ticket 12. A suspended vendor's
+ * product keeps `status: "published"` on purpose (its URL, its reviews and its
+ * publish date all survive), so the status check alone would happily sell it.
+ * This is the predicate that makes "new sales stopped" true rather than only
+ * true of the listing, and it covers checkout as well because `createOrder`
+ * refuses on the same notices.
+ */
+function isSellable(product: ProductDoc | undefined): product is ProductDoc {
+  return Boolean(
+    product &&
+    product.status === "published" &&
+    !product.deletedAt &&
+    !product.listingSuppressed,
+  );
 }
 
 async function applyDiscount(
@@ -519,7 +610,15 @@ export async function switchCurrency(
 
     if (next === undefined) {
       unpriceable.push(item.displayName);
-      return { ...item, unitPrice: { amount: item.unitPrice.amount, currency } };
+      /*
+       * Left exactly as it was, currency included.
+       *
+       * This used to relabel the old amount with the new currency — 29999 GBP
+       * stored as 29999 NGN — a figure no later reader can tell is fabricated.
+       * Nothing displays `item.unitPrice` (`recalculate` prices from the live
+       * product), so keeping the last real price is both honest and free.
+       */
+      return item;
     }
 
     if (next !== item.unitPrice.amount) repriced += 1;

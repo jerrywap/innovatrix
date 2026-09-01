@@ -248,6 +248,37 @@ describe("one currency per cart", () => {
     const result = await view();
     expect(result.notices.map((n) => n.kind)).toContain("no_price_in_currency");
     expect(result.totals.total.amount).toBe(38_099);
+
+    /*
+     * "Visible" is what this test's name has claimed since it was written, and
+     * for as long as the view dropped the line it was not true of anything the
+     * customer could see: `lines` did not contain it, and its notice carried a
+     * `lineId` no rendered line could match. `blocked` is the row the basket
+     * draws, so it is the assertion that means what the name says.
+     */
+    expect(result.blocked).toHaveLength(1);
+    expect(result.blocked[0]!.reason).toBe("no_price_in_currency");
+    expect(result.blocked[0]!.message).toMatch(/isn't sold in USD/);
+    // In `blocked` *and* in the count — the header badge used to disagree with
+    // the basket by exactly this line.
+    expect(result.itemCount).toBe(2);
+
+    // The remedy's options: GBP prices both, USD only one of them. An
+    // intersection, so a suggestion cannot fix one line and break the other.
+    expect(result.priceableCurrencies).toEqual(["GBP"]);
+  });
+
+  it("offers no currency at all when a line's product has gone", async () => {
+    // `priceableCurrencies` is an intersection over every line, and a product
+    // that no longer exists prices in nothing. Removing is the only move, and
+    // the basket must not offer a switch that cannot work.
+    const atlas = await product();
+    await cartService.addItem(OWNER, { productId: String(atlas._id) }, { currency: "GBP" });
+    await models.Product.updateOne({ _id: atlas._id }, { $set: { status: "draft" } });
+
+    const result = await view();
+    expect(result.blocked.map((line) => line.reason)).toEqual(["item_unavailable"]);
+    expect(result.priceableCurrencies).toEqual([]);
   });
 });
 
