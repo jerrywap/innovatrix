@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { Search } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Brand } from "./brand";
 import { MobileNav } from "./mobile-nav";
 import { PUBLIC_NAV } from "@/lib/navigation";
 import { getSession } from "@/lib/auth/dal";
+import { CURRENT_PATH_HEADER } from "@/config/request-context";
+import { loginPath } from "@/lib/return-path";
 import { CartBadge } from "@/features/cart/components/cart-badge";
 import { HeaderCurrency } from "./header-currency";
 
@@ -111,6 +114,21 @@ export async function HeaderAccount() {
   const signedIn = Boolean(session);
   const isStaff = session?.user.isStaff ?? false;
 
+  /*
+   * Sign in returns you to the page you were reading.
+   *
+   * This was a bare `/login`, on every public page, and it is the door most
+   * people actually use — so signing in from a product page, `/sell` or a
+   * half-finished basket dropped them on the dashboard. `?next=` existed and
+   * only the proxy-guarded routes attached it.
+   *
+   * `x-pathname` is the same forwarded header `HeaderCurrency` reads two lines
+   * below, and for the same reason: a layout Server Component has no other way
+   * to know the URL. It is already inside this boundary's dynamic read, so it
+   * costs nothing extra and cannot make the layout dynamic.
+   */
+  const signInHref = loginPath((await headers()).get(CURRENT_PATH_HEADER));
+
   return (
     <>
       {/* Inside the same boundary as the session, because both are dynamic and
@@ -162,7 +180,7 @@ export async function HeaderAccount() {
           account from the header at all.
         */}
           <Link
-            href="/login"
+            href={signInHref}
             className="text-muted-foreground hover:text-foreground rounded-full px-3.5 py-2 text-[13.5px] font-medium transition"
           >
             Sign in

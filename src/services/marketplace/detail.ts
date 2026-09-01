@@ -215,7 +215,7 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
     status: "published",
     deletedAt: null,
     // Vendor ticket 12. A suspended vendor's product keeps its URL — for the customer who
-    // already bought it and follows a link from My Scripts — but it is not *sold* here, and
+    // already bought it and follows a link from My Purchases — but it is not *sold* here, and
     // the purchase panel is what enforces that. See `cart-service`, which refuses the line.
   })
     // Excluded at the query, not at the mapping. Belt and braces: even a future

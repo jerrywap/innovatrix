@@ -4,7 +4,7 @@ import { serverEnv } from "@/config/env";
 import { AuthCard } from "@/features/auth/components/auth-card";
 import { GoogleButton } from "@/features/auth/components/google-button";
 import { RegisterForm } from "@/features/auth/components/register-form";
-import { optionalRedirectPath } from "@/features/auth/schemas";
+import { loginPath, optionalRedirectPath } from "@/lib/return-path";
 
 // TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
 // See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
@@ -23,7 +23,13 @@ export default async function RegisterPage({ searchParams }: PageProps<"/registe
       footer={
         <>
           Already have an account?{" "}
-          <Link href="/login" className="text-signal-text hover:underline">
+          {/*
+            `next`, in both directions. The login page has always carried it into
+            here; this link threw it away, so somebody who was bounced to
+            `/login?next=…`, clicked "Create an account", realised they already
+            had one and clicked back landed on the dashboard.
+          */}
+          <Link href={loginPath(next)} className="text-signal-text hover:underline">
             Sign in
           </Link>
         </>

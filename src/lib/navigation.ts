@@ -92,6 +92,21 @@ export interface NavSection {
  * the billing contact sees money and not deliverables, the technical contact
  * sees deliverables and not money.
  */
+/**
+ * What the list of things somebody has bought is called.
+ *
+ * Named once because it is named in six places — this nav entry, the page's own
+ * title and heading, the order confirmation, a notification template and the
+ * free-download panel — and it was "My Scripts" in all of them while the list
+ * itself holds **both** catalogues. A website template landing in "My Scripts"
+ * is the page contradicting itself, and the panel that sends you there
+ * contradicting it twice.
+ *
+ * The route stays `/dashboard/software`. Renaming it would cost a redirect and a
+ * `typedRoutes` sweep to change a word nobody reads in the address bar.
+ */
+export const PURCHASES_LABEL = "My Purchases";
+
 export const CUSTOMER_NAV: readonly NavSection[] = [
   {
     items: [
@@ -113,7 +128,7 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
     title: "Your software",
     items: [
       {
-        label: "My Scripts",
+        label: PURCHASES_LABEL,
         href: "/dashboard/software",
         icon: "package",
         matchNested: true,

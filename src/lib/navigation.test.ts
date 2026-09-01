@@ -3,6 +3,7 @@ import { ORGANIZATION_ROLES, STAFF_ROLES } from "@/lib/db/enums";
 import { permissionsForRoles, type Permission } from "@/lib/auth/permissions";
 import { NAV_ICONS } from "@/components/shell/nav-icons";
 import {
+  PURCHASES_LABEL,
   ADMIN_NAV,
   ADMIN_PERMISSIONS,
   CUSTOMER_NAV,
@@ -57,9 +58,9 @@ describe("navigation is filtered, not decorative", () => {
     );
 
     expect(billingLabels).toContain("Invoices");
-    expect(billingLabels).not.toContain("My Scripts");
+    expect(billingLabels).not.toContain(PURCHASES_LABEL);
 
-    expect(technicalLabels).toContain("My Scripts");
+    expect(technicalLabels).toContain(PURCHASES_LABEL);
     expect(technicalLabels).not.toContain("Invoices");
   });
 

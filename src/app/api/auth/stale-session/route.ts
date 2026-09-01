@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { serverEnv } from "@/config/env";
 import { log } from "@/lib/logger";
-import { safeRedirectPath } from "@/features/auth/schemas";
+import { safeRedirectPath } from "@/lib/return-path";
 import { clearSessionCookies } from "@/lib/auth/session-cookies";
 
 /**

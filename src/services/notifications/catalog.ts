@@ -4,6 +4,7 @@ import type { DomainEventMap, DomainEventName } from "@/lib/events";
 import type { EmailContent } from "@/emails/layout";
 import { BRAND } from "@/config/brand";
 import { productHref } from "@/config/catalogue";
+import { PURCHASES_LABEL } from "@/lib/navigation";
 
 /**
  * §69's event → notification table, as data.
@@ -321,7 +322,7 @@ export const CATALOG: Catalog = {
       audience: { kind: "entitled_owners" },
       category: "products",
       title: (p) => `${p.productName} ${p.version} is available`,
-      body: () => "You can download it from My Scripts.",
+      body: () => `You can download it from ${PURCHASES_LABEL}.`,
       href: () => `/dashboard/software`,
     },
   ],

@@ -7,6 +7,7 @@ import { AcceptInviteForm } from "@/features/auth/components/accept-invite-form"
 import { AcceptVendorInviteForm } from "@/features/vendors/components/accept-invite-form";
 import { getAuth } from "@/lib/auth/auth";
 import { getSession } from "@/lib/auth/dal";
+import { loginPath } from "@/lib/return-path";
 import { findOpenInvitation } from "@/services/vendors/member-service";
 
 // TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
@@ -94,8 +95,13 @@ export default async function AcceptInvitePage({ searchParams }: PageProps<"/acc
       <AuthCard
         title="This invitation is for someone else"
         description={`It was sent to ${invitation.email}, and you're signed in as ${session.user.email}.`}
+        // Back to *this* invitation, not the dashboard: signing in as the
+        // invited address is the whole point of the link.
         footer={
-          <Link href="/login" className="text-signal-text hover:underline">
+          <Link
+            href={loginPath(`/accept-invite?id=${invitationId}`)}
+            className="text-signal-text hover:underline"
+          >
             Sign in as someone else
           </Link>
         }
@@ -159,7 +165,10 @@ async function VendorInvite({ invitationId }: { invitationId: string }) {
         title="This invitation is for someone else"
         description={`It was sent to ${invitation.email}, and you're signed in as ${session.user.email}.`}
         footer={
-          <Link href="/login" className="text-signal-text hover:underline">
+          <Link
+            href={loginPath(`/accept-invite?vendorInvite=${invitationId}`)}
+            className="text-signal-text hover:underline"
+          >
             Sign in as someone else
           </Link>
         }

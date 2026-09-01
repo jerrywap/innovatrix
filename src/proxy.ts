@@ -8,7 +8,14 @@ import {
   RECENTLY_VIEWED_COOKIE,
   type StorefrontCurrency,
 } from "@/config/storefront";
+import type { Route } from "next";
 import { REQUEST_ID_HEADER } from "@/config/observability";
+import {
+  optionalRedirectPath,
+  RETURN_COOKIE,
+  returnCookieOptions,
+  storedReturnPath,
+} from "@/lib/return-path";
 import { CURRENT_PATH_HEADER, CURRENT_PATH_MAX_LENGTH } from "@/config/request-context";
 import {
   COOKIE_PREFIX,
@@ -222,6 +229,51 @@ function currencyToPersist(request: NextRequest): StorefrontCurrency | null {
 }
 
 /**
+ * A destination worth parking for the length of a sign-in, or `null`.
+ *
+ * ## Why a cookie at all, when the URL already carries `?next=`
+ *
+ * Because three hops in this flow cannot carry a query string, and they are the
+ * ones that were losing it:
+ *
+ * - **The verification email.** `confirmationLanding()` in `auth.ts` rewrites its
+ *   callback to a constant `/verify-email`, on purpose — the mail is written
+ *   before anyone knows where the reader was going.
+ * - **`/login?expired=1`**, the handshake this file and the DAL use to break a
+ *   redirect loop.
+ * - **The bounce above**, for a visitor who signed in elsewhere.
+ *
+ * So the URL carries it where it can and this carries it where it cannot. The
+ * URL wins wherever both exist — see `destinationAfterAuth` in the auth actions.
+ *
+ * ## Here, and not on the 307 that created the `?next=`
+ *
+ * The rule this file already states: cookies are applied past the redirects,
+ * because "a `Set-Cookie` on a 307 the browser follows is a cookie set for a URL
+ * nobody looked at". The browser follows to `/login?next=…` and it is *that*
+ * request — a real document request for a page that will render — which stamps it.
+ *
+ * `isRealVisit` for the reason the currency cookie has it: Next prefetches links
+ * in the viewport, and a "Sign in" link scrolling past should not decide where
+ * somebody ends up after signing in.
+ */
+function returnPathToPark(request: NextRequest): Route | null {
+  const { pathname } = request.nextUrl;
+  if (pathname !== "/login" && pathname !== "/register") return null;
+  if (!isRealVisit(request)) return null;
+
+  const next = storedReturnPath(request.nextUrl.searchParams.get("next") ?? undefined);
+  if (!next) return null;
+
+  // Already parked and unchanged: writing it again would put `Set-Cookie` on a
+  // response a shared cache could otherwise keep, which is the condition
+  // `currencyToPersist` is careful about for the same reason.
+  if (request.cookies.get(RETURN_COOKIE)?.value === next) return null;
+
+  return next;
+}
+
+/**
  * Is this the DAL telling us the cookie it just saw is dead?
  *
  * `loginDestination()` sends a visitor whose session cookie exists but no longer
@@ -282,7 +334,20 @@ export function proxy(request: NextRequest): NextResponse {
   // `!clearStale`, so the one URL that exists to escape a dead cookie is not
   // bounced back into the area that dead cookie cannot render.
   if (hasSessionCookie && !clearStale && AUTH_PAGES.some((p) => pathname === p)) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    /*
+     * Where they were going, not the dashboard.
+     *
+     * This hardcoded `/dashboard` while reading a URL that often said exactly
+     * where to go: somebody sitting on `/login?next=/cart` who signs in **in
+     * another tab** and comes back was sent to the dashboard, discarding a
+     * destination in the very URL being matched. The parked cookie is the
+     * fallback for the same bounce arriving without one.
+     */
+    const requested =
+      optionalRedirectPath(request.nextUrl.searchParams.get("next") ?? undefined) ??
+      storedReturnPath(request.cookies.get(RETURN_COOKIE)?.value);
+
+    return NextResponse.redirect(new URL(requested ?? "/dashboard", request.url));
   }
 
   // Past the redirects, so everything below is decorating a response that will
@@ -299,6 +364,9 @@ export function proxy(request: NextRequest): NextResponse {
     // request rather than the one after it.
     forwardCookie(headers, CURRENCY_COOKIE, currency);
   }
+
+  const parked = returnPathToPark(request);
+  if (parked) pending.push(returnCookieOptions(parked, secure));
 
   const productSlug = PRODUCT_PATH.exec(pathname)?.[1];
   if (productSlug && isRealVisit(request)) {

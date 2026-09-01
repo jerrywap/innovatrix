@@ -13,6 +13,7 @@ import { requireOrg, requireUser } from "@/lib/auth/dal";
 import { connectToDatabase } from "@/lib/db/client";
 import { toObjectId } from "@/lib/db/base";
 import { Order, type OrderDoc } from "@/lib/db/models/commerce";
+import { PURCHASES_LABEL } from "@/lib/navigation";
 
 export const metadata: Metadata = {
   title: "Order confirmed",
@@ -95,9 +96,9 @@ export default async function Page({ params }: PageProps<"/orders/[reference]/co
 
         <p className="text-muted-foreground max-w-[52ch] text-[14px] leading-relaxed">
           {free
-            ? "Nothing to pay. Your download and licence key are in My Scripts, ready now."
+            ? `Nothing to pay. Your download and licence key are in ${PURCHASES_LABEL}, ready now.`
             : paid
-              ? "We've emailed you a receipt. Your downloads and licence keys are in My Scripts."
+              ? `We've emailed you a receipt. Your downloads and licence keys are in ${PURCHASES_LABEL}.`
               : awaitingTransfer
                 ? "Send the payment using the details below and we'll release your software as soon as it lands."
                 : "We're still waiting for your payment provider to confirm. Nothing more is needed from you — we'll email you the moment it clears."}
@@ -186,12 +187,12 @@ export default async function Page({ params }: PageProps<"/orders/[reference]/co
             <>
               <li>1. You send the transfer, quoting {order.reference}.</li>
               <li>2. We match it against your order — usually the next working day.</li>
-              <li>3. Your licence keys and downloads appear in My Scripts.</li>
+              <li>3. Your licence keys and downloads appear in {PURCHASES_LABEL}.</li>
             </>
           ) : (
             <>
               <li>1. We confirm your payment with the provider — usually seconds.</li>
-              <li>2. Your licence keys and downloads appear in My Scripts.</li>
+              <li>2. Your licence keys and downloads appear in {PURCHASES_LABEL}.</li>
               <li>3. A receipt lands in your inbox.</li>
             </>
           )}
@@ -201,7 +202,7 @@ export default async function Page({ params }: PageProps<"/orders/[reference]/co
       {/*
         The primary action follows what actually happened.
 
-        It used to be an unconditional "Go to My Scripts", which for an unpaid
+        It used to be an unconditional "Go to the purchases list", which for an unpaid
         transfer is a guaranteed empty page: there is no entitlement until the
         money arrives. The order is the only screen with anything on it — and it
         is the one that carries the bank details.
@@ -213,7 +214,7 @@ export default async function Page({ params }: PageProps<"/orders/[reference]/co
               href="/dashboard/software"
               className="bg-foreground text-background rounded-full px-5 py-2.5 text-[13.5px] font-medium"
             >
-              Go to My Scripts
+              Go to {PURCHASES_LABEL}
             </Link>
             <Link
               href={`/dashboard/orders/${order.reference}` as Route}

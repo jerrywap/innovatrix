@@ -11,7 +11,7 @@ import { alert, ALERTS } from "@/lib/alerts";
  * process is running, which the load balancer already knew because it got a
  * response. The useful version answers "can this instance actually serve a
  * request", and for this app that means MongoDB and the object store — a
- * marketplace with no database serves nothing, and My Scripts with no bucket
+ * marketplace with no database serves nothing, and My Purchases with no bucket
  * serves a broken download button.
  *
  * ## Unauthenticated, and therefore says nothing

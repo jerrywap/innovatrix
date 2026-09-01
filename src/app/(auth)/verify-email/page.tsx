@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AuthCard } from "@/features/auth/components/auth-card";
 import { ResendVerification } from "@/features/auth/components/resend-verification";
-import { getSession } from "@/lib/auth/dal";
+import { getSession, parkedReturnPath } from "@/lib/auth/dal";
+import { loginPath } from "@/lib/return-path";
 
 // TODO: Cache Components adoption. Refactor this route so this opt-out can be removed.
 // See: https://nextjs.org/docs/app/guides/migrating-to-cache-components
@@ -33,7 +34,11 @@ export const metadata: Metadata = { title: "Confirm your email" };
  * the deliberate resend is one button away.
  */
 export default async function VerifyEmailPage({ searchParams }: PageProps<"/verify-email">) {
-  const [session, params] = await Promise.all([getSession(), searchParams]);
+  const [session, params, parked] = await Promise.all([
+    getSession(),
+    searchParams,
+    parkedReturnPath(),
+  ]);
 
   /*
    * Better Auth redirects here with `?error=…` when a token is rejected, and an
@@ -55,8 +60,18 @@ export default async function VerifyEmailPage({ searchParams }: PageProps<"/veri
         title="You're all set"
         description="Your email address is confirmed."
         footer={
-          <Link href="/dashboard" className="text-signal-text hover:underline">
-            Go to your dashboard
+          /*
+            **The hop the return cookie exists for.**
+            
+            The confirmation email's `callbackURL` is a constant `/verify-email`
+            by design — `confirmationLanding()` argues that a destination baked
+            into a link that sits in an inbox for an hour is worse than one that
+            expires with the journey. So this screen is where a signup that began
+            on `/sell` or a product page used to end, unconditionally, at the
+            dashboard. The parked path is what carries it the rest of the way.
+          */
+          <Link href={parked ?? "/dashboard"} className="text-signal-text hover:underline">
+            {parked ? "Continue where you left off" : "Go to your dashboard"}
           </Link>
         }
       >
@@ -110,7 +125,7 @@ export default async function VerifyEmailPage({ searchParams }: PageProps<"/veri
               from where the button above is one page away.
             */
             <p className="text-muted-foreground text-[13.5px]">
-              <Link href="/login" className="text-signal-text hover:underline">
+              <Link href={loginPath(parked)} className="text-signal-text hover:underline">
                 Sign in
               </Link>{" "}
               and we&rsquo;ll offer you a fresh link.

@@ -5,6 +5,8 @@ import {
   type StorefrontCurrency,
 } from "@/config/storefront";
 import type { CatalogueScope } from "@/config/catalogue";
+import type { Route } from "next";
+import { safeRedirectPath } from "@/lib/return-path";
 import {
   MAX_LIMIT,
   MAX_PAGE,
@@ -250,7 +252,10 @@ export function currencySwitchHref(
   rawPathAndSearch: string | null | undefined,
   currency: StorefrontCurrency,
 ): string {
-  const here = safePath(rawPathAndSearch);
+  // `safeRedirectPath`, not a private copy of its three checks. This was one —
+  // same rule, `/` fallback — and a second spelling of an open-redirect guard is
+  // the kind of duplicate that survives until the two disagree.
+  const here = safeRedirectPath(rawPathAndSearch ?? undefined, "/" as Route);
   const [pathname, search = ""] = splitOnce(here, "?");
 
   const params = new URLSearchParams(search);
@@ -261,16 +266,6 @@ export function currencySwitchHref(
 
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
-}
-
-/** A same-origin path, or `/`. */
-function safePath(value: string | null | undefined): string {
-  if (!value) return "/";
-  if (!value.startsWith("/")) return "/";
-  // `//host` is protocol-relative and `/\host` is treated as such by some
-  // parsers — both are off-site, and both start with a single slash.
-  if (value.startsWith("//") || value.startsWith("/\\")) return "/";
-  return value;
 }
 
 function splitOnce(value: string, separator: string): [string, string?] {

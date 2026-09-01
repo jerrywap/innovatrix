@@ -8,11 +8,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { requireOrg } from "@/lib/auth/dal";
 import { listOwnedSoftware } from "@/services/entitlements/entitlement-service";
 import { SoftwareCard } from "@/features/software/components/software-card";
+import { PURCHASES_LABEL } from "@/lib/navigation";
 
-export const metadata: Metadata = { title: "My Scripts" };
+export const metadata: Metadata = { title: PURCHASES_LABEL };
 
 /**
- * My Scripts — §29.
+ * My Purchases — §29.
  *
  * The long-term relationship between a customer and what they bought, and the
  * anchor for every §105 upsell. Scoped to the **active organisation** through
@@ -24,7 +25,7 @@ export default function Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="My Scripts"
+        title={PURCHASES_LABEL}
         description="What you own, what's included, and what's new since you bought it."
       />
       <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
