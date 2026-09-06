@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { z } from "zod";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { parseNestedFormData } from "@/lib/form-data";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { ForbiddenError } from "@/lib/errors";
 import { objectIdSchema } from "@/validators/common";
 import {
@@ -51,7 +51,7 @@ import {
  *
  * ## What differs from the staff surface, and only this
  *
- * 1. **The guard.** `requireVendorOrForbid()` rather than `requirePermission()`.
+ * 1. **The guard.** `requireVerifiedVendorOrForbid()` rather than `requirePermission()`.
  *    A vendor holds no staff permissions and never will; what authorises them is
  *    *ownership*.
  * 2. **The scope.** Every write carries `{ vendorId }` into the filter, so a
@@ -69,7 +69,7 @@ import {
  * `transition` refuses the edge for a vendor scope too (vendor ticket 05). A
  * missing action is a missing button; the service is what makes it a rule.
  *
- * Every exported function calls `save()` or `requireVendorOrForbid()` in its own
+ * Every exported function calls `save()` or `requireVerifiedVendorOrForbid()` in its own
  * body, which is what `action-guards.test.ts` walks. A factory that closed over the
  * guard in another module would pass this file's actions off as guarded without the
  * test being able to see it.
@@ -127,7 +127,7 @@ async function save<S extends z.ZodType>(
   let target: Route | undefined;
 
   const result = await withAction<{ saved: true }>(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
 
     // A vendor whose account is not verified may not author. The listing gate is
     // identity verification (vendor ticket 02), and the workspace is only reachable
@@ -232,7 +232,7 @@ export async function saveVendorClassificationAction(
   let target: Route | undefined;
 
   const result = await withAction<{ saved: true }>(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
     }
@@ -278,7 +278,7 @@ export async function saveVendorDemoAction(
   let target: Route | undefined;
 
   const result = await withAction<{ saved: true }>(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
     }
@@ -321,7 +321,7 @@ export async function submitForReviewAction(
   formData: FormData,
 ): Promise<ActionResult<{ submitted: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
     }
@@ -356,7 +356,7 @@ export async function withdrawSubmissionAction(
   formData: FormData,
 ): Promise<ActionResult<{ withdrawn: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
 
     const raw = parseNestedFormData(formData);
     const { productId } = parseInput(productIdSchema, raw);
@@ -391,7 +391,7 @@ export async function createVendorProductAction(
   let createdId: string | undefined;
 
   const result = await withAction<never>(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
     }
@@ -431,7 +431,7 @@ export async function createVendorProductAction(
  * the differences are the two that always differ on this surface: the `verified`
  * gate (an unverified vendor may not add to the catalogue — copied from
  * `createVendorProductAction` above, same reason) and the **scope**, which comes
- * from `requireVendorOrForbid()` and never from the form. A `productId` in the body
+ * from `requireVerifiedVendorOrForbid()` and never from the form. A `productId` in the body
  * is a claim, and `findScoped` is what turns it into a 404 rather than someone
  * else's product.
  *
@@ -443,7 +443,7 @@ export async function createVendorTemplateSiblingAction(
   formData: FormData,
 ): Promise<ActionResult<{ templateId: string; href: string }>> {
   const result = await withAction<{ templateId: string; href: string }>(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
     }
@@ -483,7 +483,7 @@ export async function createVendorTemplateSiblingAction(
 /**
  * Also list the backend as a full script — the template's review step (COS-9).
  *
- * Same guard as its twin: `requireVendorOrForbid()` for the identity, the verified
+ * Same guard as its twin: `requireVerifiedVendorOrForbid()` for the identity, the verified
  * check because an unverified vendor may draft but not extend their catalogue, and
  * the **scope** from the session rather than the form — `findScoped` turns a
  * `productId` someone else owns into a 404.
@@ -493,7 +493,7 @@ export async function createVendorScriptSiblingAction(
   formData: FormData,
 ): Promise<ActionResult<{ scriptId: string; href: string }>> {
   return withAction<{ scriptId: string; href: string }>(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
     }
@@ -529,7 +529,7 @@ export async function unlinkVendorTemplateSiblingAction(
   formData: FormData,
 ): Promise<ActionResult<{ unlinked: true }>> {
   return withAction<{ unlinked: true }>(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
 
     const raw = parseNestedFormData(formData);
     const { productId } = parseInput(productIdSchema, raw);
@@ -576,7 +576,7 @@ export async function createVendorMediaUploadAction(input: unknown): Promise<
   }>
 > {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
 
     const parsed = parseInput(
       z.object({
@@ -645,7 +645,7 @@ export async function enhanceVendorProseAction(
   input: unknown,
 ): Promise<ActionResult<{ text: string }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
     }
@@ -690,7 +690,7 @@ export async function proposeVendorFeaturesAction(
   input: unknown,
 ): Promise<ActionResult<{ features: Array<{ title: string; detail?: string }> }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     if (context.vendor.status !== "verified") {
       throw new ForbiddenError("Your vendor account is not active.");
     }

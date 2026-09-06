@@ -45,6 +45,17 @@ export interface NavItem {
    * roles doing different jobs at the same table.
    */
   permission?: Permission | readonly Permission[];
+  /**
+   * Extra path prefixes that should light this item up, beyond its own `href`.
+   *
+   * For the case where an item's `href` is deliberately **not** the segment its
+   * screens live under. `Requests` points at `/staff/queue/unassigned` — because
+   * `/staff/requests` exists only to redirect, and a link into a redirect-only
+   * route is silently dead on a client-side navigation (see `STAFF_NAV`) — but a
+   * staff member reading `/staff/requests/{reference}` is still "in Requests"
+   * and the nav has to say so.
+   */
+  matchPrefixes?: readonly string[];
   /** Customer only. Absent ⇒ visible to every member of the organization. */
   organizationRoles?: readonly OrganizationRole[];
   /**
@@ -65,6 +76,18 @@ export interface NavItem {
    * to help with products must not be shown a link to the payout account.
    */
   requiresVendorOwner?: true;
+  /**
+   * A vendor who is **trading** — vendor status `verified`.
+   *
+   * A fifth predicate rather than a stricter `requiresVendor`, because the two mark different
+   * halves of the same group: an application under review must still reach its dashboard, its
+   * verification checklist and its settings, and must not be shown Products, Payouts or a
+   * Storefront it cannot use yet.
+   *
+   * The matching server-side half is `requireVerifiedVendorOrForbid` — this only decides what is
+   * *drawn*, and on its own it would be decoration.
+   */
+  requiresVerifiedVendor?: true;
   /**
    * Drawn only for somebody who is **not** a vendor.
    *
@@ -210,7 +233,7 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         href: "/dashboard/selling/products",
         icon: "package",
         matchNested: true,
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         // Vendor ticket 14 — customization work a vendor has been asked to price. Above Earnings
@@ -219,7 +242,7 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         href: "/dashboard/selling/requests",
         icon: "clipboard",
         matchNested: true,
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         // Paid plugins the vendor still owes somebody a key for. Directly after
@@ -228,20 +251,20 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         label: "Plugins",
         href: "/dashboard/selling/plugins",
         icon: "checklist",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Earnings",
         href: "/dashboard/selling/earnings",
         icon: "banknote",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Payouts",
         href: "/dashboard/selling/payouts",
         icon: "card",
         matchNested: true,
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         // A preview, and the only storefront link a vendor can always follow — the public
@@ -250,19 +273,19 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         label: "Storefront",
         href: "/dashboard/selling/storefront",
         icon: "globe",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Reviews",
         href: "/dashboard/selling/reviews",
         icon: "star",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Support",
         href: "/dashboard/selling/support",
         icon: "messages",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Verification",
@@ -367,6 +390,23 @@ const TO_STAFF: NavSection = {
 /* ────────────────────────────────────────────── staff (§77) */
 
 /**
+ * Where "Requests" goes, and where `/staff/requests` redirects to.
+ *
+ * One constant because it is the same destination stated in two files, and the
+ * whole point of the nav change is that those two must not drift: if the page's
+ * `redirect()` target and this href ever disagree, the nav lights up for a
+ * screen it does not lead to.
+ *
+ * `as Route` because `/staff/queue/[key]` is a **dynamic** route and
+ * `typedRoutes` cannot express a concrete instance of one in a plain `Route`
+ * field — the same cast `staff/page.tsx` and `staff/dashboard/page.tsx` already
+ * use for exactly this URL shape. The cast is on the *route*, not on the key:
+ * an unknown key would render the queue page's own empty state rather than a
+ * broken link.
+ */
+export const UNASSIGNED_QUEUE = "/staff/queue/unassigned" as Route;
+
+/**
  * Queues first, because that is the job. A staff member opens this to find out
  * what is waiting for them, not to browse.
  */
@@ -377,12 +417,28 @@ export const STAFF_NAV: readonly NavSection[] = [
       // No permission, like `/staff` itself: every figure on it aggregates what
       // the queues already show a staff member one page over.
       { label: "Analytics", href: "/staff/dashboard", icon: "chart" },
+      /*
+       * Points at the queue, **not** at `/staff/requests`.
+       *
+       * `/staff/requests` exists only to `redirect()` to this exact URL, and a
+       * `<Link>` into a redirect-only route is silently dead in production: the
+       * route has a prerendered shell, a prefetch is answered from that shell
+       * with the guard never run — so the payload the router caches contains no
+       * redirect — and the click then resolves from cache, issuing no request
+       * and changing nothing. Measured on cosetup.net: `defaultPrevented: true`,
+       * zero network requests, URL unchanged. Typing the URL still worked,
+       * because a document navigation has no prefetch cache to consult.
+       *
+       * So the link goes where the redirect was going to send it anyway. The
+       * page stays for typed URLs and old links, and `matchPrefixes` keeps the
+       * item lit while reading `/staff/requests/{reference}`.
+       */
       {
         label: "Requests",
-        href: "/staff/requests",
+        href: UNASSIGNED_QUEUE,
         icon: "clipboard",
         permission: "request.view_all",
-        matchNested: true,
+        matchPrefixes: ["/staff/requests"],
       },
       {
         label: "Quotes",
@@ -716,7 +772,7 @@ function permitted(item: NavItem, held: ReadonlySet<Permission>): boolean {
  */
 export function customerNavFor(
   role: OrganizationRole,
-  options: { isVendor?: boolean; isVendorOwner?: boolean } = {},
+  options: { isVendor?: boolean; isVendorOwner?: boolean; isVerifiedVendor?: boolean } = {},
 ): NavSection[] {
   return prune(
     CUSTOMER_NAV,
@@ -724,6 +780,9 @@ export function customerNavFor(
       (!item.organizationRoles || item.organizationRoles.includes(role)) &&
       (!item.requiresVendor || options.isVendor === true) &&
       (!item.requiresVendorOwner || options.isVendorOwner === true) &&
+      // Trading rights, not merely being a vendor. Absent ⇒ refused, so an
+      // application still under review keeps only the three screens it needs.
+      (!item.requiresVerifiedVendor || options.isVerifiedVendor === true) &&
       // The way in, hidden once you are through it.
       (!item.hiddenForVendor || options.isVendor !== true),
   );
@@ -771,10 +830,19 @@ export const ADMIN_PERMISSIONS: readonly Permission[] = [
  * Exact match by default. `matchNested` extends it to children, with the
  * trailing slash mattering: without it `/dashboard/orders` would also light up
  * for `/dashboard/orders-archive`, a different screen.
+ *
+ * `matchPrefixes` covers the item whose href is not the root of its own screens
+ * — the same trailing-slash rule applies, plus the bare prefix itself so that
+ * landing on `/staff/requests` by a typed URL still highlights the item that
+ * owns it.
  */
 export function isActive(item: NavItem, pathname: string): boolean {
   if (pathname === item.href) return true;
-  return Boolean(item.matchNested) && pathname.startsWith(`${item.href}/`);
+  if (item.matchNested && pathname.startsWith(`${item.href}/`)) return true;
+
+  return (item.matchPrefixes ?? []).some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 /* ────────────────────────────────────────────── the deferred list */

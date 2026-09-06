@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { parseNestedFormData } from "@/lib/form-data";
-import { requirePermission, requireVendorOrForbid } from "@/lib/auth/dal";
+import { requirePermission, requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { objectIdSchema } from "@/validators/common";
 import { fromDecimal, type CurrencyCode } from "@/lib/money";
 import { staffActor, vendorActor } from "@/services/audit";
@@ -156,7 +156,7 @@ export async function replyOnBriefAction(
 /**
  * The vendor replies.
  *
- * `requireVendorOrForbid()` gives the scope, and the scope goes into the service's query — a vendor
+ * `requireVerifiedVendorOrForbid()` gives the scope, and the scope goes into the service's query — a vendor
  * cannot reply on a brief that is not theirs because `threadScopeForVendor` refuses to hand back an
  * organisation for one, with a 404 rather than a 403.
  *
@@ -169,7 +169,7 @@ export async function replyAsVendorOnBriefAction(
   formData: FormData,
 ): Promise<ActionResult<{ posted: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     const { briefId, body } = parseInput(replySchema, parseNestedFormData(formData));
 
     const organizationId = await briefs.threadScopeForVendor(briefId, {
@@ -198,7 +198,7 @@ export async function submitProposalAction(
   formData: FormData,
 ): Promise<ActionResult<{ priced: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     const input = parseInput(proposalSchema, parseNestedFormData(formData));
 
     await briefs.submitProposal(
@@ -219,7 +219,7 @@ export async function declineBriefAction(
   formData: FormData,
 ): Promise<ActionResult<{ declined: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     const input = parseInput(declineSchema, parseNestedFormData(formData));
 
     await briefs.decline(

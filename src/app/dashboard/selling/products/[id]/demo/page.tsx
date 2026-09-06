@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { Suspense } from "react";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { loadVendorWizardProduct } from "@/features/products/wizard";
 import { stepHref } from "@/features/products/steps";
 import { DemoForm } from "@/features/products/components/demo-form";
 import { StepHeading } from "@/features/products/components/step-heading";
+import { FrameabilityNotice } from "@/features/products/components/frameability-notice";
 import { saveVendorDemoAction } from "@/features/vendors/product-actions";
 
 export const metadata: Metadata = { title: "Demo" };
@@ -19,7 +21,7 @@ export const metadata: Metadata = { title: "Demo" };
 export default async function Page({
   params,
 }: PageProps<"/dashboard/selling/products/[id]/demo">) {
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
 
   const { id } = await params;
   const { product } = await loadVendorWizardProduct(id, vendorId);
@@ -27,6 +29,16 @@ export default async function Page({
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="demo" />
+
+      {/*
+        Suspended because it reaches out to the vendor's own server — ticket 31.
+        The form is the reason this page exists and must not wait three seconds on
+        someone else's host to appear; the notice slots in above it when it lands,
+        and renders nothing at all when every address checks out.
+      */}
+      <Suspense fallback={null}>
+        <FrameabilityNotice product={product} />
+      </Suspense>
       <DemoForm
         product={product}
         nextHref={stepHref(product.id, "options", "vendor")}

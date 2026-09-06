@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime } from "@/lib/dates";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { listForVendor } from "@/services/vendors/brief-service";
 
 export const metadata: Metadata = { title: "Requests" };
@@ -33,13 +33,13 @@ export const instant = false;
  * Nothing appears here at submission (decision W3). A staff member reads the request and sends it,
  * so junk, abuse and off-topic asks never reach a vendor's inbox.
  *
- * `requireVendorOrForbid()` is awaited in this component's own body, before any JSX, so the refusal
+ * `requireVerifiedVendorOrForbid()` is awaited in this component's own body, before any JSX, so the refusal
  * is decided before the first flush; the list itself is inside `<Suspense>`. No `loading.tsx` at or
  * above this segment — that would put a boundary over a refusing page and render the 403 under
  * `200 OK`, which `loading-boundaries.test.ts` enforces.
  */
 export default async function Page() {
-  const context = await requireVendorOrForbid();
+  const context = await requireVerifiedVendorOrForbid();
 
   return (
     <div className="flex flex-col gap-6">

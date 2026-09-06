@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { loadVendorWizardProduct } from "@/features/products/wizard";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { ReadinessGaps } from "@/features/products/components/readiness-gaps";
@@ -43,7 +43,7 @@ export const metadata: Metadata = { title: "Review" };
 export default async function Page({
   params,
 }: PageProps<"/dashboard/selling/products/[id]/review">) {
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
 
   const { id } = await params;
   const { product, readiness } = await loadVendorWizardProduct(id, vendorId);

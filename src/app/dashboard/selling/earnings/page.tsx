@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime, formatDay } from "@/lib/dates";
 import { money } from "@/lib/money";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { cn } from "@/lib/utils";
 import { LEDGER_ENTRY_KINDS, type LedgerEntryKind } from "@/lib/db/enums";
 import { loadEarnings, parseKind } from "@/features/vendors/earnings-view";
@@ -26,7 +26,7 @@ export const instant = false;
  *
  * ## Guard first, stream second
  *
- * `requireVendorOrForbid()` is awaited in this component's own body, before any JSX, so
+ * `requireVerifiedVendorOrForbid()` is awaited in this component's own body, before any JSX, so
  * the refusal is decided before the first flush and the 403 carries a 403. The ledger
  * read is inside a `<Suspense>` so the shell still streams. No `loading.tsx` anywhere
  * under `/dashboard/selling` — a boundary above a refusing page renders the refusal
@@ -45,7 +45,7 @@ export const instant = false;
  */
 export default async function Page({ searchParams }: PageProps<"/dashboard/selling/earnings">) {
   // Guard before anything, including before the search params are read.
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
 
   const raw = await searchParams;
   const kind = parseKind(typeof raw.kind === "string" ? raw.kind : undefined);

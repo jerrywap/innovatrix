@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { fail, ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
 import { parseNestedFormData } from "@/lib/form-data";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { ForbiddenError } from "@/lib/errors";
 import { objectIdSchema } from "@/validators/common";
 import {
@@ -66,7 +66,7 @@ function refresh(productId: string) {
  * half of that — because a layout is not a permission check.
  */
 async function activeVendor() {
-  const context = await requireVendorOrForbid();
+  const context = await requireVerifiedVendorOrForbid();
   if (context.vendor.status !== "verified") {
     throw new ForbiddenError("Your vendor account is not active.");
   }

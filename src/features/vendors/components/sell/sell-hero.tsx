@@ -101,7 +101,18 @@ export function SellHero() {
                 than a second application form that only exists to be signed out.
               */}
               <Link
+                /*
+                `prefetch={false}`: this href redirects an existing vendor to
+                `/dashboard/selling`, and a prefetched redirect is a dead link.
+                Measured on production, same URL, the prefetch header the only
+                difference: with `Next-Router-Prefetch: 1` the response is a 200
+                shell carrying no redirect, which the router caches and then
+                resolves the click against without issuing a request; without it
+                the response is a real HTTP redirect. This page cannot know
+                whether the visitor has already applied, so it must not prefetch.
+                */
                 href="/dashboard/selling/apply"
+                prefetch={false}
                 className="bg-signal text-signal-contrast rounded-full px-6 py-3 text-[14px] font-medium transition hover:opacity-90"
               >
                 Apply to sell

@@ -78,11 +78,74 @@ describe("navigation is filtered, not decorative", () => {
         s.items.map((i) => i.href),
       );
       expect(asVendor, `role: ${role}`).toContain("/dashboard/selling");
-      // And the screens below it, which is the change: nine items behind one link was a second
-      // navigation nobody could see until they were already inside the section.
-      expect(asVendor, `role: ${role}`).toContain("/dashboard/selling/earnings");
-      expect(asVendor, `role: ${role}`).toContain("/dashboard/selling/support");
+
+      /*
+       * The trading screens need `isVerifiedVendor` as well, and that is the
+       * point of this pair rather than an inconvenience: being a vendor and being
+       * an *approved* vendor are different questions, and neither is an
+       * organisation role. Nine items behind one link was a second navigation
+       * nobody could see until they were already inside the section — but they
+       * only appear once there is something to sell with.
+       */
+      const asTradingVendor = customerNavFor(role, {
+        isVendor: true,
+        isVerifiedVendor: true,
+      }).flatMap((s) => s.items.map((i) => i.href));
+      expect(asTradingVendor, `role: ${role}`).toContain("/dashboard/selling/earnings");
+      expect(asTradingVendor, `role: ${role}`).toContain("/dashboard/selling/support");
     }
+  });
+
+  /**
+   * An application nobody has approved yet gets three screens and no more.
+   *
+   * `requireVendorOrForbid` never read `vendor.status`, so every selling screen
+   * was reachable by anyone who had merely *applied* — and the sidebar advertised
+   * all of them. The nav half is this; the half that matters is
+   * `requireVerifiedVendorOrForbid`, which no unit test here can demonstrate
+   * because it needs a request.
+   *
+   * Listed by href rather than counted, so adding a tenth trading screen without
+   * deciding which side of the line it falls on fails here.
+   */
+  it("gives an unapproved vendor only the dashboard, verification and settings", () => {
+    const pending = customerNavFor("owner", { isVendor: true, isVendorOwner: true })
+      .find((s) => s.title === "Vendor")!
+      .items.map((i) => i.href);
+
+    expect(pending).toEqual([
+      "/dashboard/selling",
+      "/dashboard/selling/verification",
+      "/dashboard/selling/settings",
+    ]);
+  });
+
+  it("hands the trading screens over once the application is approved", () => {
+    const trading = customerNavFor("owner", {
+      isVendor: true,
+      isVendorOwner: true,
+      isVerifiedVendor: true,
+    })
+      .find((s) => s.title === "Vendor")!
+      .items.map((i) => i.href);
+
+    for (const href of [
+      "/dashboard/selling/products",
+      "/dashboard/selling/requests",
+      "/dashboard/selling/plugins",
+      "/dashboard/selling/earnings",
+      "/dashboard/selling/payouts",
+      "/dashboard/selling/storefront",
+      "/dashboard/selling/reviews",
+      "/dashboard/selling/support",
+    ]) {
+      expect(trading, href).toContain(href);
+    }
+
+    // And it never costs them the three they already had.
+    expect(trading).toContain("/dashboard/selling");
+    expect(trading).toContain("/dashboard/selling/verification");
+    expect(trading).toContain("/dashboard/selling/settings");
   });
 
   /**
@@ -321,6 +384,37 @@ describe("isActive", () => {
   /** The trailing slash is what stops a sibling route lighting up. */
   it("does not match a sibling route with a shared prefix", () => {
     expect(isActive(orders, "/dashboard/orders-archive")).toBe(false);
+  });
+
+  /**
+   * `matchPrefixes` exists for the item whose href is deliberately not the root
+   * of its own screens. Staff "Requests" points at `/staff/queue/unassigned`,
+   * because `/staff/requests` exists only to redirect and a `<Link>` into a
+   * redirect-only route is silently dead on a client-side navigation — but a
+   * staff member reading a request is still "in Requests".
+   *
+   * Without this the item would go dark on every request detail page, which is
+   * the sort of thing nothing fails on and everybody notices.
+   */
+  describe("matchPrefixes", () => {
+    const requests = STAFF_NAV.flatMap((s) => s.items).find((i) => i.label === "Requests")!;
+
+    it("lights up for its own href", () => {
+      expect(isActive(requests, "/staff/queue/unassigned")).toBe(true);
+    });
+
+    it("lights up for the segment its screens actually live under", () => {
+      expect(isActive(requests, "/staff/requests")).toBe(true);
+      expect(isActive(requests, "/staff/requests/REQ-2026-0031")).toBe(true);
+    });
+
+    it("still respects the trailing-slash rule on a listed prefix", () => {
+      expect(isActive(requests, "/staff/requests-archive")).toBe(false);
+    });
+
+    it("does not light up for an unrelated queue", () => {
+      expect(isActive(requests, "/staff/queue/new-custom-build")).toBe(false);
+    });
   });
 });
 

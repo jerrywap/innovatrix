@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { FileText } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { findByReference } from "@/services/payouts/payout-service";
 import { buildStatement } from "@/services/payouts/statement";
 import { StatementDocument } from "@/features/payouts/components/statement-document";
@@ -25,7 +25,7 @@ export const instant = false;
  *
  * ## Scoped by the session, and 404 for somebody else's
  *
- * `findByReference` takes the vendor scope from `requireVendorOrForbid()`, never from the URL.
+ * `findByReference` takes the vendor scope from `requireVerifiedVendorOrForbid()`, never from the URL.
  * A reference is a short, guessable string — `POU-2026-0007` — so a 403 would confirm which
  * ones exist and roughly how many vendors are being paid.
  *
@@ -36,7 +36,7 @@ export const instant = false;
 export default async function Page({
   params,
 }: PageProps<"/dashboard/selling/payouts/[reference]">) {
-  const context = await requireVendorOrForbid();
+  const context = await requireVerifiedVendorOrForbid();
   const { reference } = await params;
 
   const payout = await findByReference(reference, { vendorId: context.vendorId });

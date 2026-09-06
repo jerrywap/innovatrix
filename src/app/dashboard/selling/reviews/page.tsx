@@ -7,7 +7,7 @@ import { StarRating } from "@/components/star-rating";
 import { StatusBadge } from "@/components/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDay } from "@/lib/dates";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { averageRating, listForVendor } from "@/services/reviews/review-service";
 import { Vendor } from "@/lib/db/models/vendors";
 import { VendorReviewPanel } from "@/features/reviews/components/vendor-review-panel";
@@ -36,7 +36,7 @@ export const instant = false;
  * keep asking us about a review the public can no longer read.
  */
 export default async function Page() {
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
 
   return (
     <div className="flex flex-col gap-6">

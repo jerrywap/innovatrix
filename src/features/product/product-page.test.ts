@@ -167,11 +167,31 @@ describe("§8's four primary CTAs", () => {
   it("sends the preview to our own page, not off-site", () => {
     const cta = panel.slice(panel.indexOf("function PreviewDemo"));
     // It was a `target="_blank"` anchor at the vendor's demo. `/preview/{slug}`
-    // frames it instead, so the visitor keeps our chrome and a way back — and
-    // an internal route is a `<Link>` like any other.
+    // frames it instead, so the visitor keeps our chrome and a way back.
     expect(cta).toContain("/preview/${slug}");
-    expect(cta).toContain("<Link");
     expect(cta).not.toContain('target="_blank"');
+  });
+
+  /**
+   * This assertion used to be `toContain("<Link")`, on the reasoning that an
+   * internal route is an internal route. It held the wrong contract, and the
+   * bug it protected was "the demo is blank the first time and fine after a
+   * refresh".
+   *
+   * `next.config.ts` scopes the relaxed `frame-src https:` to `/preview/:slug*`,
+   * and a `<Link>` fetches an RSC payload rather than a document — so no new
+   * headers apply and the demo is refused by the *product page's* CSP. Measured
+   * in Chrome: `frame-src <- https://videohq.ai`, with
+   * `getEntriesByType("navigation")[0].name` still reading `/details/{slug}`.
+   *
+   * So the direction is now pinned the other way. Nothing else in the app links
+   * to `/preview`, and the ✕ inside `PreviewBar` is already a plain anchor for
+   * the same reason — this makes both ends of the route agree.
+   */
+  it("enters the preview by loading a document, not by a client transition", () => {
+    const cta = panel.slice(panel.indexOf("function PreviewDemo"));
+    expect(cta).not.toContain("<Link");
+    expect(cta).toContain("<a");
   });
 
   it("renders no preview CTA when there is nothing to preview", () => {

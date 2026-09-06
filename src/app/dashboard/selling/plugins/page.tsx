@@ -4,7 +4,7 @@ import { ListChecks } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { listPending } from "@/services/checkout/provisioning-service";
 import { PluginQueue } from "@/features/vendors/components/plugin-queue";
 
@@ -40,7 +40,7 @@ export const instant = false;
 export default async function Page() {
   // Guard first, before any JSX — the refusal has to be decided before the
   // first flush or the shell commits a 200.
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
 
   return (
     <div className="flex flex-col gap-6">

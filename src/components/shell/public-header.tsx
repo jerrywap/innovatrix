@@ -156,14 +156,35 @@ export async function HeaderAccount() {
         </Link>
       )}
 
-      {signedIn ? (
+      {/*
+        Not for staff, and that is a fix rather than a tidy-up.
+
+        A staff account with no organisation is bounced from `/dashboard` to
+        `/staff` by `dashboard/layout.tsx`. That redirect is **invisible to a
+        client-side navigation**: the route has a prerendered shell, a prefetch is
+        answered from it without running the guard, and the click then resolves
+        from the cached payload — which contains no redirect — making no request
+        and changing nothing. Measured on production: `defaultPrevented: true`,
+        zero network requests, URL unchanged. So the button did nothing at all,
+        while typing the URL worked.
+
+        Hiding it for staff removes the dead path rather than papering over it,
+        and settles a standing oddity: the `Staff` link directly above already
+        leads exactly where that redirect was going, so staff were being shown
+        two adjacent controls with one destination.
+
+        The cost, accepted deliberately: a staff member who *does* have an
+        organisation can still use the customer dashboard — the bounce only fires
+        for org-less accounts — and loses this shortcut to it.
+      */}
+      {signedIn && !isStaff ? (
         <Link
           href="/dashboard"
           className="bg-foreground text-background rounded-full px-5 py-2.5 text-[13.5px] font-medium transition hover:opacity-90"
         >
           Dashboard
         </Link>
-      ) : (
+      ) : signedIn ? null : (
         <>
           {/*
           One control, not two.
