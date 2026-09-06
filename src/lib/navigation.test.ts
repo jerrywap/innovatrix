@@ -322,6 +322,37 @@ describe("isActive", () => {
   it("does not match a sibling route with a shared prefix", () => {
     expect(isActive(orders, "/dashboard/orders-archive")).toBe(false);
   });
+
+  /**
+   * `matchPrefixes` exists for the item whose href is deliberately not the root
+   * of its own screens. Staff "Requests" points at `/staff/queue/unassigned`,
+   * because `/staff/requests` exists only to redirect and a `<Link>` into a
+   * redirect-only route is silently dead on a client-side navigation — but a
+   * staff member reading a request is still "in Requests".
+   *
+   * Without this the item would go dark on every request detail page, which is
+   * the sort of thing nothing fails on and everybody notices.
+   */
+  describe("matchPrefixes", () => {
+    const requests = STAFF_NAV.flatMap((s) => s.items).find((i) => i.label === "Requests")!;
+
+    it("lights up for its own href", () => {
+      expect(isActive(requests, "/staff/queue/unassigned")).toBe(true);
+    });
+
+    it("lights up for the segment its screens actually live under", () => {
+      expect(isActive(requests, "/staff/requests")).toBe(true);
+      expect(isActive(requests, "/staff/requests/REQ-2026-0031")).toBe(true);
+    });
+
+    it("still respects the trailing-slash rule on a listed prefix", () => {
+      expect(isActive(requests, "/staff/requests-archive")).toBe(false);
+    });
+
+    it("does not light up for an unrelated queue", () => {
+      expect(isActive(requests, "/staff/queue/new-custom-build")).toBe(false);
+    });
+  });
 });
 
 describe("nav shape", () => {

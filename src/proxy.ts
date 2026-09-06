@@ -77,8 +77,34 @@ import {
  * be written in. A product page reached with `?currency=NGN` is exactly that URL.
  */
 
-/** Prefixes that need a session. Everything else is public. */
-const PROTECTED_PREFIXES = ["/dashboard", "/staff", "/admin"] as const;
+/**
+ * Prefixes that need a session. Everything else is public.
+ *
+ * ## Why `/checkout` is here, and not left to its own guard
+ *
+ * `checkout/page.tsx` already calls `redirect(await loginDestination())` for a
+ * signed-out visitor, and that guard **did not work from a click**. The route has
+ * a prerendered shell; a prefetch is answered from that shell without running the
+ * page body, so the payload the router caches contains no redirect; the click
+ * then resolves from that cache, issues no request and changes nothing. The
+ * Checkout button on `/cart` silently did nothing for anyone not signed in.
+ *
+ * Measured against production, and the contrast is the whole argument: a
+ * signed-out prefetch of `/checkout` came back **200 with a partial shell and no
+ * `NEXT_REDIRECT`**, while the same prefetch of `/dashboard` came back as a real
+ * HTTP redirect — because `/dashboard` was already in this list and the proxy
+ * had answered it before any shell existed.
+ *
+ * This file's own docblock states the principle: the proxy "is the only thing
+ * that runs *before the response starts*", which is why the stale-session bounce
+ * moved here. A session requirement that must redirect belongs here for the same
+ * reason.
+ *
+ * The page keeps its `redirect()`. The proxy guards on cookie *presence*, so a
+ * stale-but-present cookie still reaches the page, and `loginDestination()` is
+ * what handles that case correctly.
+ */
+const PROTECTED_PREFIXES = ["/dashboard", "/staff", "/admin", "/checkout"] as const;
 
 /** Auth pages a signed-in user has no reason to see. */
 const AUTH_PAGES = ["/login", "/register", "/forgot-password"] as const;
