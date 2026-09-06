@@ -77,6 +77,18 @@ export interface NavItem {
    */
   requiresVendorOwner?: true;
   /**
+   * A vendor who is **trading** — vendor status `verified`.
+   *
+   * A fifth predicate rather than a stricter `requiresVendor`, because the two mark different
+   * halves of the same group: an application under review must still reach its dashboard, its
+   * verification checklist and its settings, and must not be shown Products, Payouts or a
+   * Storefront it cannot use yet.
+   *
+   * The matching server-side half is `requireVerifiedVendorOrForbid` — this only decides what is
+   * *drawn*, and on its own it would be decoration.
+   */
+  requiresVerifiedVendor?: true;
+  /**
    * Drawn only for somebody who is **not** a vendor.
    *
    * Exactly one item uses this: the way in. "Sell Apps & Templates" has to be visible to a customer
@@ -221,7 +233,7 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         href: "/dashboard/selling/products",
         icon: "package",
         matchNested: true,
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         // Vendor ticket 14 — customization work a vendor has been asked to price. Above Earnings
@@ -230,7 +242,7 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         href: "/dashboard/selling/requests",
         icon: "clipboard",
         matchNested: true,
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         // Paid plugins the vendor still owes somebody a key for. Directly after
@@ -239,20 +251,20 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         label: "Plugins",
         href: "/dashboard/selling/plugins",
         icon: "checklist",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Earnings",
         href: "/dashboard/selling/earnings",
         icon: "banknote",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Payouts",
         href: "/dashboard/selling/payouts",
         icon: "card",
         matchNested: true,
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         // A preview, and the only storefront link a vendor can always follow — the public
@@ -261,19 +273,19 @@ export const CUSTOMER_NAV: readonly NavSection[] = [
         label: "Storefront",
         href: "/dashboard/selling/storefront",
         icon: "globe",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Reviews",
         href: "/dashboard/selling/reviews",
         icon: "star",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Support",
         href: "/dashboard/selling/support",
         icon: "messages",
-        requiresVendor: true,
+        requiresVerifiedVendor: true,
       },
       {
         label: "Verification",
@@ -760,7 +772,7 @@ function permitted(item: NavItem, held: ReadonlySet<Permission>): boolean {
  */
 export function customerNavFor(
   role: OrganizationRole,
-  options: { isVendor?: boolean; isVendorOwner?: boolean } = {},
+  options: { isVendor?: boolean; isVendorOwner?: boolean; isVerifiedVendor?: boolean } = {},
 ): NavSection[] {
   return prune(
     CUSTOMER_NAV,
@@ -768,6 +780,9 @@ export function customerNavFor(
       (!item.organizationRoles || item.organizationRoles.includes(role)) &&
       (!item.requiresVendor || options.isVendor === true) &&
       (!item.requiresVendorOwner || options.isVendorOwner === true) &&
+      // Trading rights, not merely being a vendor. Absent ⇒ refused, so an
+      // application still under review keeps only the three screens it needs.
+      (!item.requiresVerifiedVendor || options.isVerifiedVendor === true) &&
       // The way in, hidden once you are through it.
       (!item.hiddenForVendor || options.isVendor !== true),
   );

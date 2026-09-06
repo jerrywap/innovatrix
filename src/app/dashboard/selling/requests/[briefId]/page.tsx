@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDateTime } from "@/lib/dates";
 import { NotFoundError } from "@/lib/errors";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { vendorThread } from "@/services/messaging/messaging-service";
 import { briefForVendor, threadScopeForVendor } from "@/services/vendors/brief-service";
 import { objectIdSchema } from "@/validators/common";
@@ -43,7 +43,7 @@ export const instant = false;
 export default async function Page({
   params,
 }: PageProps<"/dashboard/selling/requests/[briefId]">) {
-  const context = await requireVendorOrForbid();
+  const context = await requireVerifiedVendorOrForbid();
 
   const { briefId } = await params;
   // Before the scoped read, so a malformed id is not an error page — and so the shape of the

@@ -451,6 +451,58 @@ export async function requireVendorOwner(): Promise<VendorContext> {
 }
 
 /**
+ * A vendor who is actually **trading** — vendor ticket 01's `verified` status.
+ *
+ * ## Why the plain vendor guards are not enough
+ *
+ * `requireVendor*` asks two questions: is there an active membership, and does
+ * the vendor record exist. It has never asked whether the application was
+ * *approved* — so `applied`, `in_review`, `rejected`, `suspended` and
+ * `offboarded` all passed, and every selling screen and every action behind one
+ * was reachable by someone whose application nobody had looked at yet.
+ *
+ * The sidebar stopped drawing those links at the same time as this landed, and
+ * that half is cosmetic: §"Authorization" is explicit that navigation filtering
+ * decides what is *drawn* while the DAL decides what is *allowed*, and the first
+ * without the second is the vulnerability rather than the untidiness. This is
+ * the second.
+ *
+ * ## `verified`, not "not pending"
+ *
+ * One equality rather than a list of excluded states, so a status added to
+ * `VENDOR_STATUSES` later is refused by default instead of silently inheriting
+ * trading rights. It also gives suspension its plain meaning: a suspended vendor
+ * stops selling, which a `!== "applied"` test would not have done.
+ *
+ * ## Two flavours, because a page and an action fail differently
+ *
+ * The §"Authorization" table: a page renders a server-side 403, an action throws
+ * `ForbiddenError`. Both compose on the existing guards rather than repeating the
+ * membership lookup — `requireVendor` is `cache()`d, so the second call is free.
+ *
+ * Deliberately **not** applied to the vendor dashboard, `verification`,
+ * `settings`, `apply` or `team`: those are the screens an unapproved vendor is
+ * *supposed* to use, which is the whole reason this is a separate guard rather
+ * than a status check inside `requireVendorOrForbid`.
+ */
+export async function requireVerifiedVendorOrForbid(): Promise<VendorContext> {
+  const context = await requireVendorOrForbid();
+  if (context.vendor.status !== "verified") forbidden();
+  return context;
+}
+
+/** The server-action flavour of `requireVerifiedVendorOrForbid`. */
+export async function requireVerifiedVendor(): Promise<VendorContext> {
+  const context = await requireVendor();
+  if (context.vendor.status !== "verified") {
+    throw new ForbiddenError(
+      "Your vendor application is still being reviewed. You can sell once it is approved.",
+    );
+  }
+  return context;
+}
+
+/**
  * Check a **client-supplied** organization id against the session.
  *
  * Note what this does not do: it does not return the id for use as scope. If a

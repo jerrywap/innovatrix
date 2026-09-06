@@ -7,7 +7,7 @@ import {
   requireOrg,
   requirePermission,
   requireUser,
-  requireVendorOrForbid,
+  requireVerifiedVendorOrForbid,
 } from "@/lib/auth/dal";
 import { staffActor, vendorActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
@@ -29,7 +29,7 @@ import {
  * | Who | Guard | May |
  * |---|---|---|
  * | customer | `requireOrg()` | write and edit **their own** |
- * | vendor | `requireVendorOrForbid()` | respond, report |
+ * | vendor | `requireVerifiedVendorOrForbid()` | respond, report |
  * | staff | `requirePermission("review.moderate")` | hide, remove, restore |
  * | anybody signed in | `requireUser()` | report |
  *
@@ -145,7 +145,7 @@ export async function respondToReviewAction(
   formData: FormData,
 ): Promise<ActionResult<{ saved: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     const input = parseInput(vendorResponseSchema, formDataToObject(formData));
 
     await reviews.respond(input.reviewId, input.body, context.vendorId, {
@@ -169,7 +169,7 @@ export async function reportReviewAsVendorAction(
   formData: FormData,
 ): Promise<ActionResult<{ reported: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     const input = parseInput(reviewReportSchema, formDataToObject(formData));
 
     await reviews.report(

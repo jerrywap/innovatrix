@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { loadTaxonomyOptions, loadVendorWizardProduct } from "@/features/products/wizard";
 import { stepHref } from "@/features/products/steps";
 import { ClassificationForm } from "@/features/products/components/classification-form";
@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: "Classification" };
 export default async function Page({
   params,
 }: PageProps<"/dashboard/selling/products/[id]/classification">) {
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
 
   const { id } = await params;
   const [{ product }, options] = await Promise.all([

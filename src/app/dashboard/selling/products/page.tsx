@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/dates";
 import { PRODUCT_STATUSES, type ProductStatus } from "@/lib/db/enums";
 import { parseListParams } from "@/lib/list-params";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { listForVendor, readinessForMany } from "@/services/catalog/product-service";
 import { toAdminProductRow, type AdminProductRow } from "@/services/catalog/product-view";
 import type { Readiness } from "@/services/catalog/readiness";
@@ -28,7 +28,7 @@ const PATHNAME = "/dashboard/selling/products";
  * `parseListParams` declares `filterable: ["status"]` and **not** `vendorId`. That is
  * the load-bearing line: everything from a query string is untrusted, and a
  * `filterable` entry for the owner would let anybody type another vendor's id into
- * the URL. The scope comes from `requireVendorOrForbid()`, from the session, every
+ * the URL. The scope comes from `requireVerifiedVendorOrForbid()`, from the session, every
  * time — and `vendorFilter` throws on a blank one rather than widening to every
  * vendor.
  *
@@ -38,7 +38,7 @@ const PATHNAME = "/dashboard/selling/products";
  * decided.
  */
 export default async function Page({ searchParams }: PageProps<"/dashboard/selling/products">) {
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
   const raw = await searchParams;
 
   const params = parseListParams(raw, {

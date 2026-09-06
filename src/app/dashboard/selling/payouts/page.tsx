@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDay } from "@/lib/dates";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { latestSkipFor, listForVendor } from "@/services/payouts/payout-service";
 import {
   PAYOUT_STATUS_COPY,
@@ -35,7 +35,7 @@ export const instant = false;
  * skip is shown with what would change it.
  */
 export default async function Page() {
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
 
   return (
     <div className="flex flex-col gap-6">

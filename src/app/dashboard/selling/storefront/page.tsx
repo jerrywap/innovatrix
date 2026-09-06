@@ -5,7 +5,7 @@ import { ExternalLink, EyeOff, EyeClosed } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_CURRENCY } from "@/config/storefront";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { loadVendorProfile } from "@/services/marketplace/storefront";
 import { searchMarketplace } from "@/services/marketplace";
 import { MAX_LIMIT } from "@/services/marketplace/pipeline";
@@ -51,12 +51,12 @@ export const metadata: Metadata = { title: "Your storefront" };
  * reason to look — so it reads the uncached loader directly. It also means a profile edit shows
  * here immediately, which is what a preview is for; the public page's cache tag is untouched.
  *
- * `requireVendorOrForbid` runs in this component's own body before any JSX, so the refusal is
+ * `requireVerifiedVendorOrForbid` runs in this component's own body before any JSX, so the refusal is
  * decided before the first flush. The whole page is one vendor-scoped read, so there is nothing
  * worth streaming ahead of it and no `<Suspense>` pretending otherwise.
  */
 export default async function Page() {
-  const { vendor } = await requireVendorOrForbid();
+  const { vendor } = await requireVerifiedVendorOrForbid();
 
   const [profile, listing, storefrontDefaults] = await Promise.all([
     loadVendorProfile(vendor.slug),
@@ -77,14 +77,14 @@ export default async function Page() {
      * keeps the public page free of any hint that a moderation decision was
      * taken. The consequence is that a vendor would otherwise watch their own
      * website link vanish from their preview with no explanation and file a bug.
-     * `requireVendorOrForbid` already returned the whole record, so naming what
+     * `requireVerifiedVendorOrForbid` already returned the whole record, so naming what
      * was hidden costs one more read and only on this page.
      */
     platformStorefrontDefaults(),
   ]);
 
   /*
-   * `loadVendorProfile` reads the same collection `requireVendorOrForbid` just returned, so a
+   * `loadVendorProfile` reads the same collection `requireVerifiedVendorOrForbid` just returned, so a
    * null here means the vendor was deleted between two awaits of one request. Nothing useful to
    * say about that, and it is not an error page's job — the notice below covers "not live yet",
    * which is the case a vendor will actually meet.

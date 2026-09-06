@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime } from "@/lib/dates";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { Product } from "@/lib/db/models/catalog";
 import { vendorThread } from "@/services/messaging/messaging-service";
 import { listForVendor, responsiveness, slaHoursFor } from "@/services/vendors/support-service";
@@ -38,7 +38,7 @@ export const instant = false;
  * Any active member reads and answers, not just the owner (vendor ticket 03).
  */
 export default async function Page() {
-  const context = await requireVendorOrForbid();
+  const context = await requireVerifiedVendorOrForbid();
 
   return (
     <div className="flex flex-col gap-6">

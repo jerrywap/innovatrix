@@ -117,6 +117,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
         // Both, from the same context. A `member` sees the workspace and not the payout
         // account, which is the one capability the two-role model exists to separate.
         isVendorOwner: vendor?.role === "owner",
+        /*
+         * Trading rights, which is not the same question as "is a vendor".
+         *
+         * An application under review keeps its dashboard, its verification
+         * checklist and its settings, and loses Products, Earnings, Payouts,
+         * Storefront, Reviews, Support, Requests and Plugins — screens that
+         * cannot do anything useful until somebody approves them.
+         *
+         * Cosmetic on its own. `requireVerifiedVendorOrForbid` is what actually
+         * refuses those pages, and it is the half that matters.
+         */
+        isVerifiedVendor: vendor?.vendor.status === "verified",
       })}
       contextLabel={organization.isPersonal ? undefined : organization.name}
       banner={!user.emailVerified ? <VerifyEmailBanner /> : undefined}

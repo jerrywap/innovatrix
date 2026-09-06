@@ -77,6 +77,20 @@ const GUARDS = [
   "requireVendorOrNull",
   "requireVendorOrForbid",
   "requireVendorOwner",
+  /*
+   * The trading guards — a vendor whose application is actually approved.
+   *
+   * Longer name first: the alternation is followed by `\s*\(`, so
+   * `requireVerifiedVendor` would be tried against
+   * `requireVerifiedVendorOrForbid(` and rejected on the next character. Regex
+   * backtracking recovers either way, but reading order should not depend on it.
+   *
+   * These were added the same commit the guards were, and the test earned its
+   * keep on the way: swapping the action files over made **every** one of them
+   * read as unguarded until these two lines existed. Fail-closed, out loud.
+   */
+  "requireVerifiedVendorOrForbid",
+  "requireVerifiedVendor",
 ] as const;
 
 const GUARD_CALL = new RegExp(`\\b(${GUARDS.join("|")})\\s*\\(`);

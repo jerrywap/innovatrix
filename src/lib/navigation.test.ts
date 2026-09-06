@@ -78,11 +78,74 @@ describe("navigation is filtered, not decorative", () => {
         s.items.map((i) => i.href),
       );
       expect(asVendor, `role: ${role}`).toContain("/dashboard/selling");
-      // And the screens below it, which is the change: nine items behind one link was a second
-      // navigation nobody could see until they were already inside the section.
-      expect(asVendor, `role: ${role}`).toContain("/dashboard/selling/earnings");
-      expect(asVendor, `role: ${role}`).toContain("/dashboard/selling/support");
+
+      /*
+       * The trading screens need `isVerifiedVendor` as well, and that is the
+       * point of this pair rather than an inconvenience: being a vendor and being
+       * an *approved* vendor are different questions, and neither is an
+       * organisation role. Nine items behind one link was a second navigation
+       * nobody could see until they were already inside the section — but they
+       * only appear once there is something to sell with.
+       */
+      const asTradingVendor = customerNavFor(role, {
+        isVendor: true,
+        isVerifiedVendor: true,
+      }).flatMap((s) => s.items.map((i) => i.href));
+      expect(asTradingVendor, `role: ${role}`).toContain("/dashboard/selling/earnings");
+      expect(asTradingVendor, `role: ${role}`).toContain("/dashboard/selling/support");
     }
+  });
+
+  /**
+   * An application nobody has approved yet gets three screens and no more.
+   *
+   * `requireVendorOrForbid` never read `vendor.status`, so every selling screen
+   * was reachable by anyone who had merely *applied* — and the sidebar advertised
+   * all of them. The nav half is this; the half that matters is
+   * `requireVerifiedVendorOrForbid`, which no unit test here can demonstrate
+   * because it needs a request.
+   *
+   * Listed by href rather than counted, so adding a tenth trading screen without
+   * deciding which side of the line it falls on fails here.
+   */
+  it("gives an unapproved vendor only the dashboard, verification and settings", () => {
+    const pending = customerNavFor("owner", { isVendor: true, isVendorOwner: true })
+      .find((s) => s.title === "Vendor")!
+      .items.map((i) => i.href);
+
+    expect(pending).toEqual([
+      "/dashboard/selling",
+      "/dashboard/selling/verification",
+      "/dashboard/selling/settings",
+    ]);
+  });
+
+  it("hands the trading screens over once the application is approved", () => {
+    const trading = customerNavFor("owner", {
+      isVendor: true,
+      isVendorOwner: true,
+      isVerifiedVendor: true,
+    })
+      .find((s) => s.title === "Vendor")!
+      .items.map((i) => i.href);
+
+    for (const href of [
+      "/dashboard/selling/products",
+      "/dashboard/selling/requests",
+      "/dashboard/selling/plugins",
+      "/dashboard/selling/earnings",
+      "/dashboard/selling/payouts",
+      "/dashboard/selling/storefront",
+      "/dashboard/selling/reviews",
+      "/dashboard/selling/support",
+    ]) {
+      expect(trading, href).toContain(href);
+    }
+
+    // And it never costs them the three they already had.
+    expect(trading).toContain("/dashboard/selling");
+    expect(trading).toContain("/dashboard/selling/verification");
+    expect(trading).toContain("/dashboard/selling/settings");
   });
 
   /**

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { formDataToObject, ok, parseInput, withAction } from "@/lib/action-result";
 import type { ActionResult } from "@/lib/action-result";
-import { requireOrg, requirePermission, requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireOrg, requirePermission, requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { DISPUTE_OUTCOMES, DISPUTE_REASONS } from "@/lib/db/enums";
 import { objectIdSchema } from "@/validators/common";
 import { staffActor, vendorActor } from "@/services/audit";
@@ -133,7 +133,7 @@ export async function replyAsVendorAction(
   formData: FormData,
 ): Promise<ActionResult<{ sent: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     const input = parseInput(replySchema, formDataToObject(formData));
 
     // Scope: the thread must be this vendor's. `listForVendor` is the scoped read, and this is
@@ -189,7 +189,7 @@ export async function raiseDisputeAsVendorAction(
   formData: FormData,
 ): Promise<ActionResult<{ raised: true }>> {
   return withAction(async () => {
-    const context = await requireVendorOrForbid();
+    const context = await requireVerifiedVendorOrForbid();
     const input = parseInput(disputeSchema, formDataToObject(formData));
 
     await support.raiseDispute(

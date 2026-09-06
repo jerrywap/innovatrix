@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { loadVendorWizardProduct } from "@/features/products/wizard";
 import { ReadinessGaps } from "@/features/products/components/readiness-gaps";
 import { VendorWizardStepper } from "@/features/vendors/components/vendor-wizard-stepper";
@@ -24,7 +24,7 @@ export default async function VendorProductWizardLayout({
   children,
   params,
 }: LayoutProps<"/dashboard/selling/products/[id]">) {
-  const { vendorId } = await requireVendorOrForbid();
+  const { vendorId } = await requireVerifiedVendorOrForbid();
 
   const { id } = await params;
   const { product, readiness } = await loadVendorWizardProduct(id, vendorId);

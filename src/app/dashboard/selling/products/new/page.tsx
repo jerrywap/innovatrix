@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { forbidden } from "next/navigation";
 import { aiUnavailableReason } from "@/features/products/ai-availability";
 import { PageHeader } from "@/components/page-header";
-import { requireVendorOrForbid } from "@/lib/auth/dal";
+import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { NewProductForm } from "@/features/products/components/new-product-form";
 import {
   createVendorProductAction,
@@ -21,7 +21,7 @@ export const metadata: Metadata = { title: "New product" };
  * Ownership is stamped by the action from the session, not collected by this form.
  */
 export default async function Page() {
-  const { vendor } = await requireVendorOrForbid();
+  const { vendor } = await requireVerifiedVendorOrForbid();
 
   // Identity verification is the gate on listing a product (vendor ticket 02), and
   // reaching `verified` requires it. Checked here as well as in the action, because a

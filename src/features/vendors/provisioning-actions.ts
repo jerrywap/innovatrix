@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { ok, parseInput, withAction, type ActionResult } from "@/lib/action-result";
-import { requireVendor } from "@/lib/auth/dal";
+import { requireVerifiedVendor } from "@/lib/auth/dal";
 import { staffActor } from "@/services/audit";
 import { markProvided } from "@/services/checkout/provisioning-service";
 import { postMessage } from "@/services/messaging/messaging-service";
@@ -44,7 +44,7 @@ export async function markPluginProvidedAction(
   return withAction<never>(async () => {
     // A server action is a public POST. The vendor scope comes from the session
     // and never from the form — a `vendorId` field here would be a claim.
-    const { vendorId, user } = await requireVendor();
+    const { vendorId, user } = await requireVerifiedVendor();
 
     const input = parseInput(schema, {
       orderReference: formData.get("orderReference"),
