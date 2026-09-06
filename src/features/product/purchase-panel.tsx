@@ -350,8 +350,42 @@ export function PurchasePanel({
  * frames it instead, with our bar around it and a width switcher — and the
  * leaving still happens, one level in, from a control that page owns.
  *
- * So no `target="_blank"`, no `rel`, and no "(opens in a new tab)": a `<Link>`
- * to a route of ours, like every other internal navigation.
+ * So no `target="_blank"`, no `rel`, and no "(opens in a new tab)" — the visitor
+ * stays on CoSetup.
+ *
+ * ## A plain `<a>`, and it has to be
+ *
+ * This was a `<Link>`, on the reasoning that an internal route is an internal
+ * route. That was wrong, and the symptom was "the demo is blank the first time
+ * and fine after a refresh".
+ *
+ * A `<Link>` fetches an RSC payload; **no new document means no new response
+ * headers**. `next.config.ts` scopes `previewHeaders()` — the relaxed
+ * `frame-src https:` that lets a vendor's demo be framed at all — to
+ * `/preview/:slug*`, so arriving there by client-side transition leaves the
+ * browser running under *this* page's CSP, whose `frame-src` names only
+ * `youtube-nocookie.com`. The demo is refused with a `frame-src` violation and
+ * the visitor gets an empty rectangle; pressing reload does a real document
+ * load, the route's own headers finally apply, and it works. Measured, not
+ * reasoned: the violation is `frame-src <- https://videohq.ai` and
+ * `performance.getEntriesByType("navigation")[0].name` still reads
+ * `/details/{slug}` while the URL bar reads `/preview/{slug}`.
+ *
+ * So the way *in* to the preview is a document navigation, which is what the ✕
+ * in `PreviewBar` already argues for the way *out*: a full-screen mode with its
+ * own shell and its own headers should be entered and left by loading a
+ * document, not by swapping a subtree underneath one.
+ *
+ * The cost is the prefetch and the instant transition. The benefit is that the
+ * feature works.
+ *
+ * `typedRoutes` cannot check an `<a href>`, so the route is asserted through a
+ * `Route<...>`-typed constant instead. That is a **real** check and not a
+ * decoration — verified by pointing it at a route that does not exist and
+ * watching `tsc` refuse it. It is also stricter than what it replaced: the old
+ * `<Link href={... as Route}>` was a *cast*, which typedRoutes cannot see
+ * through, so this link has more compile-time safety as an anchor than it had
+ * as a `<Link>`.
  *
  * ## It renders far more often than it used to
  *
@@ -374,14 +408,16 @@ export function PurchasePanel({
 function PreviewDemo({ demo, slug }: { demo: DemoCta; slug: string }) {
   if (!demo.previewable) return null;
 
+  const href: Route<`/preview/${string}`> = `/preview/${slug}`;
+
   return (
-    <Link
-      href={`/preview/${slug}` as Route}
+    <a
+      href={href}
       className="border-border hover:bg-surface-muted flex items-center justify-center gap-2 rounded-full border px-5 py-3 text-[14px] font-medium transition"
     >
       <MonitorPlay className="size-4" aria-hidden />
       Preview Demo
-    </Link>
+    </a>
   );
 }
 

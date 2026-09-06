@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { Brand } from "@/components/shell/brand";
+import { PreviewBrand } from "@/features/preview/components/preview-brand";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getProductDetail, screenshots } from "@/services/marketplace/detail";
 import { PreviewTargets, embeddable } from "@/features/preview/targets";
@@ -51,6 +51,12 @@ export async function generateMetadata({
  * rather than 404ing, and that path reads no session at all — which is why the
  * overwhelming majority of these pages prerender completely.
  *
+ * Ticket 31 added a third case that is not a third stage: a product that *has* a
+ * demo whose host refuses to be framed. It stays on the live stage, because the
+ * refusal is **per target** — the public view may frame while the admin view
+ * does not — and only the stage knows which tab is selected. That is why
+ * `images` is handed to both branches rather than only to the fallback.
+ *
  * ## The guard is in this function's own body
  *
  * `loading-boundaries.test.ts` asserts exactly that: a `notFound()` inside a
@@ -69,6 +75,13 @@ export default async function Page({ params }: PageProps<"/preview/[slug]">) {
       : undefined;
 
   /*
+   * Resolved here rather than inside the suspended child so both stages read the
+   * same list, and so the screenshot path stays a single cached read with no
+   * session in it.
+   */
+  const images = screenshots(product.media).map(({ url, alt }) => ({ url, alt }));
+
+  /*
    * The live-demo stage is the only half that needs to know who is asking — the
    * customer and admin views are gated — so it is the only half behind a
    * boundary. Everything else here comes from one cached read.
@@ -80,17 +93,17 @@ export default async function Page({ params }: PageProps<"/preview/[slug]">) {
   if (publicUrl) {
     return (
       <Suspense fallback={<StageSkeleton />}>
-        <PreviewTargets product={product} publicUrl={publicUrl} />
+        <PreviewTargets product={product} publicUrl={publicUrl} images={images} />
       </Suspense>
     );
   }
 
   return (
     <ScreenshotStage
-      images={screenshots(product.media).map(({ url, alt }) => ({ url, alt }))}
+      images={images}
       productName={product.name}
       productHref={productHref(product.slug)}
-      brand={<Brand />}
+      brand={<PreviewBrand />}
     />
   );
 }

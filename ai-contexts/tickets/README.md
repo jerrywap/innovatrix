@@ -47,11 +47,21 @@ Two more sit outside that table because they are not implementation tickets:
 **29** [Human test checklist](29-human-checklist.md) — the coverage plan for what a test cannot assert — and
 **30** [User testing results v1](30-user-testing-results-v1.md), the raw notes from the first run against it.
 
+## Post-MVP implementation tickets
+
+The table above is closed: it is the *original* MVP, and its numbering is a record of what was
+planned before anything shipped. New implementation work continues the same sequence from **31**
+rather than being squeezed into it — same directory, same format, same meaning of "done".
+
+| # | Ticket | Depends on | Size |
+|---|--------|-----------|:----:|
+| 31 | [Demo frameability: detect, cache, degrade](31-demo-frameability.md) | 07, 09, 26 | M |
+
 ## Ticket sets
 
 | Set | What it covers |
 |---|---|
-| `NN-*.md` (this directory) | The MVP, tickets 00–28, plus the checklist and its results |
+| `NN-*.md` (this directory) | The original MVP implementation tickets 00–28, the checklist and its results (29–30), and post-MVP implementation work from 31 on |
 | [`user-smoke-tests/`](user-smoke-tests/README.md) | Ten follow-ups triaged from ticket 30 — four of them close a journey that currently cannot be completed |
 | [`vendor/`](vendor/README.md) | Third-party vendors. Post-MVP, and outside the spec |
 
