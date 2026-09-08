@@ -95,6 +95,32 @@ jobs:
             echo "==> Installing dependencies"
             npm ci
 
+            # Stale build output, not the build cache.
+            #
+            # `next build` writes into `.next` in place, and `git reset --hard`
+            # never touches it because it is gitignored — so the server carries
+            # every previous build's output forward while CI, on a fresh runner,
+            # never does. That difference is the whole bug: a deploy died on
+            #
+            #   ENOTEMPTY: rmdir '.next/server/app/marketplace/
+            #     logistics-mobility.segments/!KHB.../marketplace/$d$parent'
+            #
+            # when the taxonomy change altered which category pages exist. Next
+            # tried to remove a PPR segment directory that still held entries
+            # from a route shape that no longer exists, and a failed build left
+            # the old process serving old code.
+            #
+            # `! -name cache` is the point: `.next/cache` is what makes the
+            # rebuild quick, and it is the one thing CI *does* restore between
+            # runs — so keeping it is the configuration already proven green,
+            # while everything beside it is output this build is about to
+            # rewrite anyway. If a future failure implicates the cache itself,
+            # widen this to `rm -rf .next` and accept the cold build.
+            echo "==> Clearing stale build output"
+            if [ -d .next ]; then
+              find .next -mindepth 1 -maxdepth 1 ! -name cache -exec rm -rf {} +
+            fi
+
             echo "==> Building application"
             npm run build
 
