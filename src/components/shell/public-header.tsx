@@ -1,13 +1,10 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { Search } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Brand } from "./brand";
 import { MobileNav } from "./mobile-nav";
 import { PUBLIC_NAV } from "@/lib/navigation";
-import { getSession } from "@/lib/auth/dal";
-import { CURRENT_PATH_HEADER } from "@/config/request-context";
-import { loginPath } from "@/lib/return-path";
+import { getSession, loginDestination } from "@/lib/auth/dal";
 import { CartBadge } from "@/features/cart/components/cart-badge";
 import { HeaderCurrency } from "./header-currency";
 
@@ -115,19 +112,34 @@ export async function HeaderAccount() {
   const isStaff = session?.user.isStaff ?? false;
 
   /*
-   * Sign in returns you to the page you were reading.
+   * Sign in returns you to the page you were reading — and works when the
+   * cookie in the jar is dead.
    *
    * This was a bare `/login`, on every public page, and it is the door most
    * people actually use — so signing in from a product page, `/sell` or a
-   * half-finished basket dropped them on the dashboard. `?next=` existed and
-   * only the proxy-guarded routes attached it.
+   * half-finished basket dropped them on the dashboard. `?next=` fixed that.
    *
-   * `x-pathname` is the same forwarded header `HeaderCurrency` reads two lines
-   * below, and for the same reason: a layout Server Component has no other way
-   * to know the URL. It is already inside this boundary's dynamic read, so it
-   * costs nothing extra and cannot make the layout dynamic.
+   * Then it was `loginPath(x-pathname)` — a second, hand-rolled copy of
+   * `loginDestination()` that had the `?next=` half and was missing the other
+   * one. **That copy made this link dead on every public page for anyone
+   * holding an expired cookie**, and dead in the worst way: the browser shows
+   * the URL on hover and the click does nothing at all.
+   *
+   * The mechanism, measured on production: `proxy.ts` decides who is signed in
+   * from cookie **presence**, never validity, while this component decides from
+   * `getSession()`. For an expired cookie the two disagree — this renders "Sign
+   * in", and the proxy treats `/login` as a page a signed-in user has no reason
+   * to see and bounces them to `next`. `next` is the page they are standing on.
+   * The router is asked to navigate to where it already is, so nothing happens,
+   * and the only URL that breaks the deadlock — `/login?expired=1`, which the
+   * proxy lets through and which expires the cookie — is never reached.
+   *
+   * `loginDestination()` is that URL when the jar holds a stale cookie and the
+   * ordinary `?next=` link otherwise. It reads `x-pathname` itself, so this is
+   * strictly less code as well as the correct answer; `login-redirect.test.ts`
+   * exists because this exact convention keeps growing second copies.
    */
-  const signInHref = loginPath((await headers()).get(CURRENT_PATH_HEADER));
+  const signInHref = await loginDestination();
 
   return (
     <>

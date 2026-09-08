@@ -46,6 +46,19 @@ const EXEMPT = [
   join("src", "lib", "auth", "login-redirect.test.ts"),
 ];
 
+/**
+ * The file with its comments removed.
+ *
+ * Needed because the rule below is about what the code *calls*, and the files it
+ * governs now carry long comments explaining why they must not call it — which
+ * matched, and failed all four of them on their own docstrings. The two older
+ * rules match raw source and are left alone: their patterns (`redirect("/login`
+ * and `href="/login"`) do not appear in prose.
+ */
+function codeOnly(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
 function sourceFiles(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     if (entry === "node_modules" || entry === ".next") continue;
@@ -106,6 +119,51 @@ describe("no route sends a possibly-stale session to a bare /login", () => {
     expect(
       offenders,
       "use `loginPath(here)` — a bare /login link drops the page the visitor was on",
+    ).toEqual([]);
+  });
+
+  /**
+   * …and on a public surface, `loginPath()` is not enough either.
+   *
+   * The third copy of the same convention, caught the same way: by someone
+   * reporting that a link did nothing.
+   *
+   * `loginPath()` answers "where should they come back to". It cannot answer
+   * "is the cookie in the jar already dead", because that needs `cookies()`.
+   * `loginDestination()` answers both — it is `loginPath()` over a
+   * `/login?expired=1` base when the jar holds a stale session — and it is the
+   * *only* reason the deadlock at the top of this file has an exit.
+   *
+   * Two files had hand-rolled the first half without the second: the public
+   * header's "Sign in", on every public page, and "Sign in to download for
+   * free". For an expired cookie the proxy bounced `/login?next={here}` back to
+   * `{here}`, so both were **inert** — the browser showed the URL on hover and
+   * the click did nothing, which reads as a broken app rather than a stale
+   * login.
+   *
+   * So on the public surfaces the builder is `loginDestination()`, and a Client
+   * Component that needs the href takes it as a prop. Exemptions are the two
+   * places that legitimately hold a different base: the `(auth)` screens, whose
+   * own path is useless as a destination, and the password-reset redirect.
+   */
+  it("builds every public sign-in link with loginDestination(), not loginPath()", () => {
+    const BUILDS_ITS_OWN = /\bloginPath\s*\(/;
+    const SCOPES = [
+      join("src", "components"),
+      join("src", "app", "(public)"),
+      join("src", "features"),
+    ];
+    // Its own base (`/login?reset=1`), and already exempt from the rule above.
+    const ALLOWED = [join("src", "features", "auth", "actions.ts")];
+
+    const offenders = SCOPES.flatMap((scope) => sourceFiles(scope))
+      .map((file) => relative(process.cwd(), file))
+      .filter((rel) => !ALLOWED.some((allowed) => rel.endsWith(allowed)))
+      .filter((rel) => BUILDS_ITS_OWN.test(codeOnly(readFileSync(rel, "utf8"))));
+
+    expect(
+      offenders,
+      "use `await loginDestination()` — `loginPath()` alone is inert for an expired cookie",
     ).toEqual([]);
   });
 });

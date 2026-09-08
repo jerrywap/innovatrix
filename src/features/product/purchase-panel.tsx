@@ -33,7 +33,6 @@ import type {
   DetailLicencePackage,
   DetailPrice,
 } from "@/services/marketplace/detail";
-import { productHref } from "@/config/catalogue";
 
 /**
  * Licence, add-ons and the two doors — §5, §8.
@@ -75,6 +74,7 @@ export function PurchasePanel({
   demo,
   viewer,
   owned,
+  signInHref,
   saveButton,
 }: {
   productId: string;
@@ -93,6 +93,16 @@ export function PurchasePanel({
   viewer: "signed-out" | "staff" | "no-organisation" | "customer";
   /** Whether this organisation already has an active entitlement for the product. */
   owned: boolean;
+  /**
+   * Where "Sign in to download for free" points.
+   *
+   * A prop rather than `loginPath()` computed here, because
+   * this is a Client Component and the thing that decides the answer — whether
+   * the jar holds an expired session cookie — is only visible on the server.
+   * Getting that wrong made the button inert rather than wrong: see the comment
+   * at the call site in `purchase-section.tsx`.
+   */
+  signInHref: string;
   /**
    * Enough to decide whether there is anything to try, and where to send
    * somebody who wants to. **Never a credential** — the panel further down the
@@ -300,7 +310,7 @@ export function PurchasePanel({
             {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
             viewer={viewer}
             owned={owned}
-            productPath={productHref(slug)}
+            signInHref={signInHref}
             destinationLabel={PURCHASES_LABEL}
             disabled={!selected}
           />

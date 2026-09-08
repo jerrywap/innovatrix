@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import type { Route } from "next";
 import { Check, Download, Loader2 } from "lucide-react";
-import { loginPath } from "@/lib/return-path";
 import { claimFreeProductAction } from "../actions";
 
 /**
@@ -44,7 +44,7 @@ export function GetItFree({
   licencePackageKey,
   viewer,
   owned,
-  productPath,
+  signInHref,
   destinationLabel,
   disabled,
 }: {
@@ -61,7 +61,16 @@ export function GetItFree({
   viewer: "signed-out" | "staff" | "no-organisation" | "customer";
   owned: boolean;
   /** Where to come back to after signing in. */
-  productPath: string;
+  /**
+   * Where a signed-out visitor is sent to sign in — supplied by the server.
+   *
+   * This was `loginPath(productPath)`, built right here. That is correct for a
+   * visitor with no cookie and **inert** for one holding an expired cookie: the
+   * proxy reads cookie presence rather than validity, so it bounces
+   * `/login?next={this page}` back to this page and the click does nothing.
+   * Only the server can tell those two apart, so only the server may build this.
+   */
+  signInHref: string;
   /** What the destination list is called — one name, from `navigation.ts`. */
   destinationLabel: string;
   disabled?: boolean;
@@ -75,7 +84,7 @@ export function GetItFree({
 
   if (viewer === "signed-out") {
     return (
-      <Link href={loginPath(productPath)} className={className}>
+      <Link href={signInHref as Route} className={className}>
         <Download className="size-4" aria-hidden />
         Sign in to download for free
       </Link>

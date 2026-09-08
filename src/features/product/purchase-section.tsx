@@ -1,6 +1,6 @@
 import "server-only";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
-import { getSession } from "@/lib/auth/dal";
+import { getSession, loginDestination } from "@/lib/auth/dal";
 import { isSaved } from "@/services/marketplace/saved";
 import {
   screenshots,
@@ -63,6 +63,22 @@ export async function PurchaseSection({ product }: { product: ProductDetail }) {
       customisable={product.customization.available}
       viewer={viewer}
       owned={owned}
+      /*
+       * Built here, not in the button, because only the server can see the
+       * difference between "signed out" and "holding a dead cookie".
+       *
+       * `GetItFree` used to build its own with `loginPath(productPath)`, which
+       * is the same hand-rolled copy the public header carried: right about
+       * `?next=`, silent about a stale session. For an expired cookie the proxy
+       * bounces `/login?next={this page}` straight back to this page, so the
+       * button did nothing at all — see `public-header.tsx` for the full
+       * mechanism. `loginDestination()` returns `/login?expired=1` in that case,
+       * which is the one URL that clears the cookie.
+       *
+       * It reads the forwarded path itself, so it needs no argument: the page
+       * the visitor should come back to is the one they are on.
+       */
+      signInHref={await loginDestination()}
       // From `publicDemoView`, which has no credentials field at all — so
       // there is nothing here that could cross into the client bundle.
       demo={{
