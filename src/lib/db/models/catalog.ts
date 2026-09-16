@@ -15,6 +15,7 @@ import {
   DELIVERY_METHODS,
   REVIEW_REASON_CODES,
   PRODUCT_CATALOGUES,
+  COMPLETE_ON_REQUEST_STATUSES,
   TAXONOMY_CATALOGUES,
   TAXONOMY_KINDS,
   type AddonPricingType,
@@ -29,6 +30,7 @@ import {
   type DeliveryMethod,
   type ReviewReasonCode,
   type ProductCatalogue,
+  type CompleteOnRequestStatus,
   type TaxonomyCatalogue,
   type TaxonomyKind,
 } from "../enums";
@@ -596,6 +598,49 @@ export interface ProductDoc {
     instructions?: string;
     credentials: DemoCredential[];
   };
+  /**
+   * The vendor's offer to build the working application behind this template.
+   *
+   * ## Template-only, like `scriptListingId`
+   *
+   * A script has nothing to complete. The invariant is enforced in
+   * `completeOnRequest` in the catalog service rather than in the schema, for the
+   * same reason the sibling edge is: a Mongoose validator cannot see the rest of
+   * the document at the point it would need to.
+   *
+   * ## It lives here rather than on the offer's own collection
+   *
+   * There is at most one per product, it is read on every card and every detail
+   * render, and it has no life independent of the listing — a separate collection
+   * would be a join on the hottest read path to answer a question the product
+   * already knows.
+   *
+   * ## The approval is about the vendor, not the listing
+   *
+   * `PRODUCT_TRANSITIONS.published` is `["deprecated", "archived"]`, so a live
+   * listing cannot re-enter review, and re-reading the listing is not what staff
+   * are doing here anyway: they are satisfying themselves that **this vendor can
+   * deliver a backend**. So the offer carries its own status rather than riding the
+   * product's.
+   */
+  completeOnRequest?: {
+    status: CompleteOnRequestStatus;
+    /**
+     * The vendor's own words on how long it takes — "about 3 weeks".
+     *
+     * A rough expectation and not a commitment, worded the same way
+     * `customization.typicalTurnaround` is. Absent is normal, and the banner drops
+     * the clause rather than inventing a duration.
+     */
+    leadTime?: string;
+    /** What they would add, in their words. Shown under "What will be added?". */
+    scope?: string;
+    requestedAt?: Date;
+    decidedAt?: Date;
+    decidedByUserId?: Types.ObjectId;
+    /** Staff's reason on a refusal. The vendor reads it verbatim. */
+    note?: string;
+  };
   customization: {
     available: boolean;
     aiWorkflowEnabled: boolean;
@@ -693,6 +738,17 @@ const productSchema = new Schema<ProductDoc>(
       credentials: { type: [demoCredentialSchema], default: [] },
     },
 
+    completeOnRequest: {
+      // No `default`, so the whole block is absent on the products that will never
+      // have one — which is every script and most templates.
+      status: { type: String, enum: COMPLETE_ON_REQUEST_STATUSES },
+      leadTime: { type: String, trim: true },
+      scope: { type: String, trim: true },
+      requestedAt: Date,
+      decidedAt: Date,
+      decidedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
+      note: { type: String, trim: true },
+    },
     customization: {
       available: { type: Boolean, default: true },
       aiWorkflowEnabled: { type: Boolean, default: true },
@@ -798,6 +854,20 @@ productSchema.index(
  * `productCatalogueFilter` in `config/catalogue.ts`.
  */
 productSchema.index({ status: 1, catalogue: 1, facets: 1 });
+
+/**
+ * The second `$or` branch of `productCatalogueFilter` — COS-43.
+ *
+ * `/marketplace` now matches scripts **or** templates with an approved
+ * "complete on request" offer. MongoDB plans each branch of an `$or` separately and
+ * can use a different index for each, so the branch that cannot use
+ * `{status, catalogue, facets}` gets its own with the same shape: the two equality
+ * keys first, `facets` last so category and industry pages stay index-served.
+ *
+ * Without this the second branch is a collection scan on the busiest read in the
+ * app, and the `$or` would be a mistake rather than a feature.
+ */
+productSchema.index({ status: 1, "completeOnRequest.status": 1, facets: 1 });
 productSchema.index({ status: 1, isFeatured: -1, publishedAt: -1 });
 /**
  * Publishing activity over time.

@@ -256,10 +256,47 @@ export type CatalogueScope = ProductCatalogue | "all";
  * permanent state. The `null` is belt and braces for that window and for a process
  * holding a stale schema.)
  */
-export function productCatalogueFilter(scope: CatalogueScope): Record<string, unknown> {
+export function productCatalogueFilter(
+  scope: CatalogueScope,
+  options: {
+    /**
+     * Also return templates whose vendor has an **approved** offer to build the
+     * application behind them — COS-43.
+     *
+     * Opt-in, and passed by exactly one caller: `/marketplace`. Somebody shopping
+     * for a working application is the audience this was built for, and they are
+     * the only audience for whom a front-end-plus-an-offer is a candidate.
+     * `/templates`, the landing pages, the sitemap and `getCardsBySlug` all keep
+     * today's behaviour by saying nothing.
+     *
+     * Ignored unless `scope` is `script` — on `/templates` the listing is already
+     * there, and on `all` it already matches.
+     */
+    includeCompleteOnRequest?: boolean;
+  } = {},
+): Record<string, unknown> {
   if (scope === "all") return {};
   if (scope === "template") return { catalogue: "template" };
-  return { catalogue: { $in: ["script", null] } };
+
+  const scripts = { catalogue: { $in: ["script", null] } };
+  if (!options.includeCompleteOnRequest) return scripts;
+
+  /*
+   * An `$or`, which is the one shape this file's header warns about — so it is
+   * worth saying why it is safe here and what keeps it so.
+   *
+   * MongoDB plans each `$or` branch separately and may use a **different index per
+   * branch**, so this is not the "non-equality on the middle key" problem the
+   * header describes; that one degrades a single index scan, and this one is two
+   * of them unioned. The second branch is served by
+   * `{ status, "completeOnRequest.status", facets }`, added alongside this.
+   *
+   * Both branches keep `facets` reachable, which is the property that actually
+   * matters: every category and industry page filters on it.
+   */
+  return {
+    $or: [scripts, { catalogue: "template", "completeOnRequest.status": "approved" }],
+  };
 }
 
 /**

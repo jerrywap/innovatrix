@@ -3,6 +3,7 @@ import { requireVerifiedVendorOrForbid } from "@/lib/auth/dal";
 import { loadVendorWizardProduct } from "@/features/products/wizard";
 import { stepHref } from "@/features/products/steps";
 import { OptionsForm } from "@/features/products/components/options-form";
+import { CompleteOnRequestPanel } from "@/features/products/components/complete-on-request-panel";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { saveVendorOptionsAction } from "@/features/vendors/product-actions";
 
@@ -26,6 +27,12 @@ export default async function Page({
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="options" />
+      {/*
+        Above the form, because it is the thing a vendor came to this step to do
+        once the words are written — and because its status is the context for
+        everything in the "Complete on request" fieldset below.
+      */}
+      <CompleteOnRequestPanel product={product} />
       <OptionsForm
         product={product}
         nextHref={stepHref(product.id, "seo", "vendor")}

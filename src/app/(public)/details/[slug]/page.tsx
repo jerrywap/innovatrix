@@ -25,6 +25,7 @@ import { DEFAULT_CURRENCY } from "@/config/storefront";
 import { PurchaseSection } from "@/features/product/purchase-section";
 import { RelatedProducts } from "@/features/product/related";
 import { CompleteApplicationBanner } from "@/features/product/complete-application-banner";
+import { CompleteOnRequestBanner } from "@/features/product/complete-on-request-banner";
 import { ReviewsSection, reviewsForJsonLd } from "@/features/product/reviews-section";
 
 /**
@@ -240,10 +241,23 @@ export default async function Page({ params }: PageProps<"/details/[slug]">) {
             Suspended because it reads the currency cookie. Unsuspended, one cookie
             read here takes the whole route out of prerendering.
           */}
-          {product.catalogue === "template" && product.scriptListingId && (
+          {product.catalogue === "template" && product.scriptListingId ? (
             <Suspense fallback={<Skeleton className="h-[74px] w-full rounded-xl" />}>
               <CompleteApplicationBanner product={product} />
             </Suspense>
+          ) : (
+            /*
+              COS-43. The same offer one step earlier: nobody has built the
+              application yet, but the maker will if asked.
+
+              An `else`, not a second condition, because the two cannot both be
+              true: creating the sibling withdraws the offer, and a template with a
+              built application has nothing left to offer to build.
+
+              No `<Suspense>`: it reads nothing per-request. Everything it draws is
+              already on `product`.
+            */
+            <CompleteOnRequestBanner product={product} />
           )}
 
           {product.description && (

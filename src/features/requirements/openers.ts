@@ -294,3 +294,30 @@ export function customizationOpenersFor(
 function isKnownArea(area: string): area is CustomizationArea {
   return (CUSTOMIZATION_AREAS as readonly string[]).includes(area);
 }
+
+/**
+ * Openers for a template whose maker will build the application behind it — COS-43.
+ *
+ * ## Why not `customizationOpenersFor`
+ *
+ * That one asks what to *change* about something that already works: "could the
+ * reports show X". Here nothing works yet — the buyer is looking at a front-end and
+ * deciding whether to commission the rest — so an opener offering to adjust the
+ * dashboard describes a product that does not exist and invites requirements
+ * nobody can price.
+ *
+ * What the vendor needs from this conversation is different too: not a list of
+ * tweaks but the shape of the application. Who uses it, what it has to store, what
+ * it has to connect to.
+ *
+ * Phrased as the customer's own words, like every other opener here, and ending on
+ * the same escape hatch — the three below will be wrong for somebody.
+ */
+export function completeOnRequestOpeners(): string[] {
+  return [
+    "I need the working version of this, not just the front-end",
+    "It needs accounts and logins for my team",
+    "It has to connect to something we already use",
+    ESCAPE_HATCH,
+  ];
+}

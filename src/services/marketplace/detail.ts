@@ -112,6 +112,16 @@ export interface ProductDetail {
    * this currency-agnostic entry.
    */
   scriptListingId?: string;
+  /**
+   * COS-43 — the vendor's live offer to build the application behind this
+   * template, or absent.
+   *
+   * Only the approved case reaches here. A `pending` or `rejected` offer is the
+   * vendor's business and ours, and a public entry carrying it would be one
+   * conditional away from rendering "we are deciding about this seller" on a
+   * storefront.
+   */
+  completeOnRequest?: { scope?: string; leadTime?: string };
   slug: string;
   name: string;
   summary: string;
@@ -273,6 +283,18 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
     id: String(product._id),
     catalogue: product.catalogue ?? "script",
     ...(product.scriptListingId ? { scriptListingId: String(product.scriptListingId) } : {}),
+    ...(product.catalogue === "template" && product.completeOnRequest?.status === "approved"
+      ? {
+          completeOnRequest: {
+            ...(product.completeOnRequest.scope
+              ? { scope: product.completeOnRequest.scope }
+              : {}),
+            ...(product.completeOnRequest.leadTime
+              ? { leadTime: product.completeOnRequest.leadTime }
+              : {}),
+          },
+        }
+      : {}),
     slug: product.slug,
     name: product.name,
     summary: product.summary,

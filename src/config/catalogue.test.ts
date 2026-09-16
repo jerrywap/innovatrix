@@ -111,6 +111,39 @@ describe("the two scope filters", () => {
     expect(productCatalogueFilter("all")).toEqual({});
   });
 
+  /**
+   * COS-43 — the one place the two catalogues are allowed to meet.
+   *
+   * The opt-in matters as much as the widening: `/templates`, every landing page,
+   * the sitemap and `getCardsBySlug` all call this without the option and must keep
+   * the strict split, or a template starts appearing in places that have nothing to
+   * do with shopping for an application.
+   */
+  it("lets approved complete-on-request templates into the scripts grid, opt-in only", () => {
+    const scripts = { catalogue: { $in: ["script", null] } };
+
+    // Off by default — every existing caller keeps today's behaviour.
+    expect(productCatalogueFilter("script")).toEqual(scripts);
+    expect(productCatalogueFilter("script", {})).toEqual(scripts);
+    expect(productCatalogueFilter("script", { includeCompleteOnRequest: false })).toEqual(
+      scripts,
+    );
+
+    expect(productCatalogueFilter("script", { includeCompleteOnRequest: true })).toEqual({
+      $or: [scripts, { catalogue: "template", "completeOnRequest.status": "approved" }],
+    });
+  });
+
+  it("ignores the widening on the surfaces where it would mean nothing", () => {
+    // `/templates` already shows every template, approved offer or not, and `all`
+    // already matches both catalogues. Widening either would be a no-op at best and
+    // an `$or` Mongo has to plan at worst.
+    expect(productCatalogueFilter("template", { includeCompleteOnRequest: true })).toEqual({
+      catalogue: "template",
+    });
+    expect(productCatalogueFilter("all", { includeCompleteOnRequest: true })).toEqual({});
+  });
+
   it("gives a term's scope its own catalogue plus `both`", () => {
     // The reason a template-only industry is absent from a `script`-scoped index —
     // and why the page that reads it has to pass a scope rather than default to

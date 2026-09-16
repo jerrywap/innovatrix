@@ -321,6 +321,20 @@ export const productOptionsSchema = z.object({
         .transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v])),
     })
     .prefault({}),
+  /*
+   * COS-43. The vendor writes what they would build and roughly how long it takes;
+   * `status` is **not** here on purpose.
+   *
+   * A form that could post the status would let a vendor approve their own offer,
+   * which is the one thing the whole approval exists to prevent. It moves only
+   * through `complete-on-request-service.ts`.
+   */
+  completeOnRequest: z
+    .object({
+      scope: optionalText(600),
+      leadTime: optionalText(120),
+    })
+    .prefault({}),
 });
 
 /* ────────────────────────────────────────────── 7. SEO */

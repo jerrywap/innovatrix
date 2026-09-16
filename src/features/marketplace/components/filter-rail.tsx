@@ -451,6 +451,18 @@ export function FilterPanel({
           active={raw.customisable === "true"}
           label="Can be adapted"
         />
+        {/*
+          COS-43. Copies the `customisable` line and not the `free` one: `free` names
+          `currency` because it creates a price bound, and this is a plain document
+          predicate with nothing to say about money.
+        */}
+        <RailLink
+          href={hrefFor({
+            completeOnRequest: raw.completeOnRequest === "true" ? undefined : true,
+          })}
+          active={raw.completeOnRequest === "true"}
+          label="Complete on request"
+        />
       </Section>
 
       {/*

@@ -488,6 +488,19 @@ export const STAFF_NAV: readonly NavSection[] = [
       },
       {
         /*
+         * COS-43. Beside Submissions rather than inside it, because the judgement is
+         * a different one: a submission asks "is this listing ready", and this asks
+         * "can this vendor build a backend". Same permission, because it is the same
+         * party being assessed and the same people do both.
+         */
+        label: "Complete on request",
+        href: "/staff/complete-on-request",
+        icon: "checklist",
+        permission: "product.review",
+        matchNested: true,
+      },
+      {
+        /*
          * Vendor ticket 13. A dispute is the one thing where **both** parties are waiting
          * on us, so it gets its own queue rather than living inside the vendor screen —
          * a queue you have to open a vendor to find is a queue nobody works.

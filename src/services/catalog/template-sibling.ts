@@ -10,6 +10,8 @@ import { products } from "@/repositories/product.repository";
 import { writeAuditLog, type AuditActor } from "@/services/audit";
 import { createDraft, saveSection } from "./product-service";
 import { deriveFacets } from "./facets";
+import * as completeOnRequest from "./complete-on-request-service";
+import { log } from "@/lib/logger";
 
 /**
  * Publishing one application as **two listings**.
@@ -165,6 +167,11 @@ const EXCLUDED: Record<Excluded, string> = {
     "Points at a `ProductVersion` whose `productId` is the script. A copied pointer is the " +
     "cross-product artefact reference the whole storage model forbids.",
   publishedAt: "Nothing has been published. The sibling lands as a draft.",
+  completeOnRequest:
+    "An approval that staff gave to *this* listing, after satisfying themselves the vendor " +
+    "could deliver a backend for it. Copying it would hand a brand-new listing somebody " +
+    "else's clearance. It is also meaningless on a sibling in both directions: a script has " +
+    "nothing to complete, and a template created from a script already has its backend.",
   archivedFrom:
     "Where the *other* listing goes when unarchived. The sibling lands as a draft and has " +
     "never been archived, so a copied value would send its first unarchive somewhere it has " +
@@ -510,6 +517,29 @@ export async function createScriptSibling(
   }
   if (!linked) {
     throw new ConflictError("This template already has a backend script listing.");
+  }
+
+  /*
+   * The offer comes off — COS-43.
+   *
+   * A template that now has a script listing is not offering to build one: the
+   * work exists and is a product. Leaving the offer up would put the template in
+   * `/marketplace` **twice** — once advertising the work, once as the thing the
+   * work produced — and point buyers at a request the vendor has already answered.
+   *
+   * After the link and outside its guard, deliberately. The sibling is the thing
+   * that must not half-happen; a stale offer is untidy and recoverable, and failing
+   * the whole creation over it would strand a linked draft to fix a badge.
+   * `withdrawOffer` returns early on a template that never made one, which is
+   * almost all of them.
+   */
+  try {
+    await completeOnRequest.withdrawOffer({ productId: templateProductId, by: "staff" }, actor);
+  } catch (error) {
+    log.exception("Could not withdraw the complete-on-request offer", error, {
+      code: "catalog.offer_withdraw_failed",
+      productId: templateProductId,
+    });
   }
 
   await writeAuditLog({

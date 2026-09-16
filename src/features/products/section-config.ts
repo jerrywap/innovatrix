@@ -133,6 +133,13 @@ export const OPTIONS_SECTION: SectionConfig<typeof productOptionsSchema> = {
     "customization.technicalReviewRequired": input.customization.technicalReviewRequired,
     "customization.typicalTurnaround": input.customization.typicalTurnaround,
     "customization.suggestedAreas": input.customization.suggestedAreas,
+    /*
+     * Dotted, so clearing the box `$unset`s rather than storing an empty string —
+     * and so a vendor editing their lead time cannot touch `status`, which is not
+     * in this map and never will be.
+     */
+    "completeOnRequest.scope": input.completeOnRequest.scope,
+    "completeOnRequest.leadTime": input.completeOnRequest.leadTime,
   }),
 };
 

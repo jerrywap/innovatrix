@@ -2,6 +2,7 @@
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Field, FieldGroup, SectionForm, type SectionFormProps } from "./section-form";
 import { saveOptionsAction } from "../actions";
@@ -137,6 +138,53 @@ export function OptionsForm({
           </div>
         </Field>
       </FieldGroup>
+
+      {/*
+        COS-43 — template only. A full script has nothing left to complete, and
+        `submitOffer` refuses one, so drawing the fields on a script would be a form
+        whose submit button is guaranteed to fail.
+      */}
+      {product.catalogue === "template" && (
+        <FieldGroup
+          title="Complete on request"
+          description="Offer to build the working application behind this template. We check that you can deliver before it goes live."
+        >
+          <OfferStatusNotice
+            status={product.completeOnRequest.status}
+            note={product.completeOnRequest.note}
+          />
+
+          <Field
+            label="What would you build?"
+            htmlFor="cor-scope"
+            hint="The buyer reads this under “What will be added?”. Be specific about what the complete version includes."
+          >
+            <Textarea
+              id="cor-scope"
+              name="completeOnRequest[scope]"
+              defaultValue={product.completeOnRequest.scope ?? ""}
+              maxLength={600}
+              rows={3}
+              placeholder="The backend and functionality needed to turn this template into a complete application."
+            />
+          </Field>
+
+          <Field
+            label="How long, roughly?"
+            htmlFor="cor-lead"
+            hint="Shown as “usually within …”. A rough expectation, e.g. “3 weeks”. Not a commitment, and left blank we say nothing about timing."
+          >
+            <Input
+              id="cor-lead"
+              name="completeOnRequest[leadTime]"
+              defaultValue={product.completeOnRequest.leadTime ?? ""}
+              maxLength={120}
+              placeholder="3 weeks"
+              className="sm:w-[280px]"
+            />
+          </Field>
+        </FieldGroup>
+      )}
     </SectionForm>
   );
 }
@@ -161,4 +209,55 @@ function ToggleRow({
       </span>
     </label>
   );
+}
+
+/**
+ * Where the offer stands, and what to do about it.
+ *
+ * Saving the words and *sending* them are two actions on purpose: a vendor edits
+ * the scope here as often as they like, and asks for a decision once. The submit
+ * control is deliberately **not** in this form — `SectionForm` posts the whole
+ * section, and a button inside it would make "save my draft" and "send it to
+ * staff" the same click.
+ */
+function OfferStatusNotice({ status, note }: { status: string; note?: string }) {
+  if (status === "approved") {
+    return (
+      <p
+        role="status"
+        className="border-border bg-surface-muted/40 rounded-xl border px-3.5 py-2.5 text-[13px] leading-relaxed"
+      >
+        This offer is live. Buyers looking for a complete application can find this template and
+        ask you to build it.
+      </p>
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <p
+        role="status"
+        className="border-border bg-surface-muted/40 rounded-xl border px-3.5 py-2.5 text-[13px] leading-relaxed"
+      >
+        We&rsquo;re reviewing this offer. Your listing is unchanged in the meantime, and
+        we&rsquo;ll email you either way.
+      </p>
+    );
+  }
+
+  if (status === "rejected") {
+    return (
+      <div className="border-border bg-surface-muted/40 flex flex-col gap-1.5 rounded-xl border px-3.5 py-2.5">
+        <p className="text-[13px] font-medium">We couldn&rsquo;t approve this offer</p>
+        {/* The reviewer's own words, on the screen where the fix happens — the same
+            reasoning as the verification screen's rejection note. */}
+        {note && <p className="text-muted-foreground text-[13px] leading-relaxed">{note}</p>}
+        <p className="text-subtle text-[12.5px]">
+          Update what you would build, then send it again.
+        </p>
+      </div>
+    );
+  }
+
+  return null;
 }

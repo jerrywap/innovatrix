@@ -69,6 +69,21 @@ export interface MarketplaceQueryInput {
   featured?: boolean;
   customisable?: boolean;
   /**
+   * COS-43 — narrow to templates whose vendor will build the application behind
+   * them. A plain document predicate, like `customisable` and unlike `free`:
+   * `free` is a bound on a computed price and drags `currency` into every URL,
+   * which this has no reason to do.
+   */
+  completeOnRequest?: boolean;
+  /**
+   * Widen the catalogue match so approved "complete on request" templates appear
+   * among scripts — COS-43.
+   *
+   * Server-side only and never read from a URL, like `featured`: it belongs to the
+   * *surface*, not to the visitor. `/marketplace` passes it; nothing else does.
+   */
+  includeCompleteOnRequest?: boolean;
+  /**
    * Which catalogue's grid this is — **required**, with an explicit `"all"`.
    *
    * Not optional. Two callers legitimately want both (a vendor storefront, a
@@ -139,6 +154,8 @@ const CARD_PROJECTION = {
   },
   prices: 1,
   "customization.available": 1,
+  // COS-43 — the card draws a marker from it, so it has to come back.
+  "completeOnRequest.status": 1,
   installation: 1,
   isFeatured: 1,
   orderCount: 1,
@@ -230,6 +247,8 @@ const NORMALISE: Normaliser<MarketplaceQueryInput> = {
   free: keep,
   featured: keep,
   customisable: keep,
+  completeOnRequest: keep,
+  includeCompleteOnRequest: keep,
   catalogue: keep,
   sort: keep,
   page: keep,
@@ -336,7 +355,9 @@ function primaryMatch(input: MarketplaceQueryInput): Record<string, unknown> {
      * The catalogue split. `$in` rather than a negation, for an index reason the
      * predicate itself explains — see `productCatalogueFilter`.
      */
-    ...productCatalogueFilter(input.catalogue),
+    ...productCatalogueFilter(input.catalogue, {
+      ...(input.includeCompleteOnRequest ? { includeCompleteOnRequest: true } : {}),
+    }),
   };
 
   const facets = facetMatch({
@@ -355,6 +376,15 @@ function primaryMatch(input: MarketplaceQueryInput): Record<string, unknown> {
 
   if (input.customisable === true) match["customization.available"] = true;
   if (input.customisable === false) match["customization.available"] = { $ne: true };
+
+  /*
+   * Positive case only, like `featured`.
+   *
+   * `?completeOnRequest=false` would mean "everything except these", which on
+   * `/marketplace` is what the page already shows without the filter — a control
+   * whose off state is the default is a control that does nothing.
+   */
+  if (input.completeOnRequest === true) match["completeOnRequest.status"] = "approved";
 
   /*
    * Only the positive case. `featured: false` adds nothing, matching how

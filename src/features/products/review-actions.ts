@@ -10,6 +10,7 @@ import { objectIdSchema } from "@/validators/common";
 import { staffActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
 import * as reviewService from "@/services/catalog/review-service";
+import * as completeOnRequest from "@/services/catalog/complete-on-request-service";
 
 /**
  * Deciding a submission — vendor ticket 05.
@@ -139,5 +140,56 @@ export async function approveSubmissionAction(
     revalidatePath("/staff");
 
     return ok({ approved: true as const });
+  });
+}
+
+/* ────────────────────────────────────────────── complete on request */
+
+const offerDecisionSchema = z.object({
+  productId: objectIdSchema,
+  outcome: z.enum(["approved", "rejected"]),
+  /**
+   * The vendor reads this verbatim on a refusal, which is why the *service*
+   * requires it there rather than the schema requiring it always — an approval
+   * needs no explanation.
+   */
+  note: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * Decide a vendor's offer to build the backend — COS-43.
+ *
+ * `product.review`, the same permission that decides a submission, because it is
+ * the same judgement made about the same party: can this vendor deliver what they
+ * are claiming. Deliberately not `product.publish` — nothing goes on sale here.
+ *
+ * Approving does **not** touch the product's own status. The listing is already
+ * live; what changes is that it starts advertising the offer.
+ */
+export async function decideCompleteOnRequestAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ outcome: "approved" | "rejected" }>> {
+  return withAction(async () => {
+    const staff = await requirePermission("product.review");
+    const input = parseInput(offerDecisionSchema, parseNestedFormData(formData));
+
+    await completeOnRequest.decideOffer(
+      {
+        productId: input.productId,
+        outcome: input.outcome,
+        ...(input.note ? { note: input.note } : {}),
+        decidedByUserId: staff.user.id,
+      },
+      staffActor(staff.user),
+    );
+
+    // An approved offer changes what `/marketplace` returns, so the catalogue cache
+    // has to go — this is the one decision here that is publicly visible.
+    catalogChanged();
+    refresh(input.productId);
+    revalidatePath("/staff/complete-on-request");
+
+    return ok({ outcome: input.outcome });
   });
 }

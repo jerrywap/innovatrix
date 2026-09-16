@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { CUSTOMIZATION_AREAS } from "@/lib/db/enums";
-import { customizationOpenersFor, ESCAPE_HATCH, OPENERS, openersFor } from "./openers";
+import {
+  completeOnRequestOpeners,
+  customizationOpenersFor,
+  ESCAPE_HATCH,
+  OPENERS,
+  openersFor,
+} from "./openers";
 
 describe("the opener pool", () => {
   it("has no duplicates", () => {
@@ -134,5 +140,27 @@ describe("customizationOpenersFor", () => {
     // Unlike the discovery pool there is no variety to buy here, and a chip that
     // jumps position on reload just looks unstable.
     expect(customizationOpenersFor(["reports"])).toEqual(customizationOpenersFor(["reports"]));
+  });
+});
+
+describe("completeOnRequestOpeners", () => {
+  it("ends on the escape hatch, like every other set", () => {
+    expect(completeOnRequestOpeners().at(-1)).toBe(ESCAPE_HATCH);
+  });
+
+  it("asks about the application rather than about changes to one", () => {
+    // The distinction this set exists for: the buyer is looking at a front-end and
+    // deciding whether to commission the rest, so an opener offering to adjust the
+    // reports describes a product that does not exist yet.
+    const chips = completeOnRequestOpeners();
+    expect(chips.some((chip) => /working version/i.test(chip))).toBe(true);
+    expect(chips.join(" ")).not.toMatch(/\breports\b|\bdashboard\b/i);
+  });
+
+  it("renders every chip exactly once", () => {
+    // `conversation.tsx` keys on the string, so a duplicate collides in React's
+    // reconciliation — the same reason `customizationOpenersFor` deduplicates.
+    const chips = completeOnRequestOpeners();
+    expect(new Set(chips).size).toBe(chips.length);
   });
 });
