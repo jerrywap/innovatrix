@@ -752,6 +752,29 @@ export const CATALOG: Catalog = {
     },
   ],
 
+  /*
+   * A tip — vendor-facing, and the one notification that is purely good news.
+   *
+   * `billing` rather than `products`: it is money arriving in their balance, and
+   * a vendor who muted product notifications must still hear about that. The
+   * amount is the one they earn, matching what the payout will show.
+   */
+  VendorTipReceived: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "billing",
+      title: (p) => `Someone tipped you for ${p.productName}`,
+      // The note is the customer's own words, when they left any. Unedited: a
+      // paraphrase of a thank-you is worse than no thank-you.
+      body: (p) =>
+        p.note
+          ? `"${p.note}" — it clears with your other earnings.`
+          : "It clears with your other earnings and goes out on the next payout run.",
+      href: () => `/dashboard/selling/earnings`,
+      actionLabel: "View earnings",
+    },
+  ],
+
   VendorPayoutFailed: [
     {
       audience: { kind: "vendor_member" },

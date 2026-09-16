@@ -594,6 +594,42 @@ export interface EntitlementDoc {
    * they remember.
    */
   reviewPromptDismissedAt?: Date;
+  /**
+   * When the customer took this off their library shelf — and **only** that.
+   *
+   * Not a delete and not a revocation. An entitlement is the proof of purchase
+   * and `Download` above it is an append-only audit, so neither can be erased;
+   * what a person means by "remove this" is "stop showing it to me". So this is
+   * read by `listOwnedSoftware` and by nothing else — `authoriseDownload`,
+   * `findForProduct` and the licence page never consult it, and the download link
+   * they already have keeps working.
+   *
+   * Offered on free items only (see `acquiredFree`), because paid software
+   * disappearing from the one place that proves you own it is a support ticket.
+   * Claiming the product again clears this rather than creating a second row,
+   * which is what keeps one product to one card.
+   *
+   * Modelled on `reviewPromptDismissedAt` above: same shape, same reason — a
+   * per-row preference belonging to the person who owns the row.
+   */
+  hiddenAt?: Date;
+  /**
+   * Whether this cost nothing, decided once at fulfilment.
+   *
+   * Stored rather than derived. The order knows, and it is in hand when the
+   * entitlement is created; asking later would mean a fifth bulk read on the
+   * library page, and reading *today's* price would be wrong — a product that was
+   * free last year and costs £40 now was still free when this was taken.
+   */
+  acquiredFree?: boolean;
+  /**
+   * When they said "not this time" to the tip prompt.
+   *
+   * Permanent, and the argument is `reviewPromptDismissedAt`'s a few lines above:
+   * "ask me later" is a mechanism for asking four times. Tipping stays available
+   * from the product page — what stops is the unprompted ask after a download.
+   */
+  tipPromptDismissedAt?: Date;
 }
 
 const entitlementSchema = new Schema<EntitlementDoc>(
@@ -612,6 +648,9 @@ const entitlementSchema = new Schema<EntitlementDoc>(
     // (ticket 14).
     purchasedVersionId: { type: Schema.Types.ObjectId, ref: "ProductVersion" },
     reviewPromptDismissedAt: Date,
+    hiddenAt: Date,
+    acquiredFree: Boolean,
+    tipPromptDismissedAt: Date,
     updatesUntil: Date,
     supportUntil: Date,
     status: { type: String, enum: ENTITLEMENT_STATUSES, default: "active", index: true },
@@ -734,6 +773,79 @@ const downloadSchema = new Schema<DownloadDoc>(
 downloadSchema.index({ entitlementId: 1, createdAt: -1 });
 
 export const Download = defineModel<DownloadDoc>("Download", downloadSchema);
+
+/* ────────────────────────────────────────────── Tip */
+
+/**
+ * A voluntary payment to a vendor, after a download.
+ *
+ * ## Not an order
+ *
+ * Nothing is bought, delivered or licensed. Modelling it as a one-line order
+ * would have reused checkout and the earnings ledger for free, and would have put
+ * a gratuity in the customer's purchase history, given it an invoice and a tax
+ * treatment, and made the vendor's sales figures include money nobody sold
+ * anything for. So a tip is its own subject — `PAYMENT_SUBJECT_TYPES` carries
+ * `tip`, and `Payment.subjectId` has always been a bare `ObjectId` with no `ref`,
+ * which is to say already polymorphic.
+ *
+ * ## `paidAt` rather than a status
+ *
+ * A tip has exactly two states worth recording and the second is a moment, so the
+ * moment is the field. A `status` enum would have to be registered with tones and
+ * `ALL_STATUS_ENUMS` to avoid a vacuous badge (`AGENTS.md`), which is machinery
+ * for a question `paidAt == null` answers.
+ *
+ * The `Payment` beside it keeps the full state machine — failures, retries and
+ * the provider reference — so nothing is lost by this one being simple.
+ *
+ * ## The commission is snapshotted here
+ *
+ * Read once, when the tip is created, and never re-resolved — the rule every
+ * other earning follows (`ledger-service.ts`). A vendor whose rate changes next
+ * month must not have last month's tip recomputed.
+ */
+export interface TipDoc {
+  _id: Types.ObjectId;
+  vendorId: Types.ObjectId;
+  /** What was being used when they decided to tip. Not what they bought. */
+  productId: Types.ObjectId;
+  /** The tipper's organisation — a tip is taken from an account, like any payment. */
+  organizationId: Types.ObjectId;
+  fromUserId: Types.ObjectId;
+  amount: { amount: number; currency: string };
+  commissionBasisPoints: number;
+  /** A short public thank-you, shown to the vendor. Optional and often absent. */
+  note?: string;
+  paymentId?: Types.ObjectId;
+  /** Set by `settleTip` when the money actually arrived. Absent means unpaid. */
+  paidAt?: Date;
+}
+
+const tipSchema = new Schema<TipDoc>(
+  {
+    vendorId: { type: Schema.Types.ObjectId, ref: "Vendor", required: true, index: true },
+    productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
+    [ORG_SCOPE_FIELD]: {
+      type: Schema.Types.ObjectId,
+      ref: "Organization",
+      required: true,
+      index: true,
+    },
+    fromUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    amount: { type: MoneySchema, required: true },
+    commissionBasisPoints: { type: Number, required: true, min: 0, max: 10_000 },
+    note: { type: String, trim: true, maxlength: 280 },
+    paymentId: { type: Schema.Types.ObjectId, ref: "Payment" },
+    paidAt: Date,
+  },
+  schemaOptions({ collection: "tips" }),
+);
+
+/** The vendor's own list, newest first — and the only read that is not by id. */
+tipSchema.index({ vendorId: 1, paidAt: -1 });
+
+export const Tip = defineModel<TipDoc>("Tip", tipSchema);
 
 /* ────────────────────────────────────────────── PaymentSettings */
 

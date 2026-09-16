@@ -150,8 +150,29 @@ export default async function Page({ params }: PageProps<"/details/[slug]">) {
 
       <Breadcrumbs product={product} />
 
+      {/*
+        Three grid children, not two — so the purchase panel can sit *between* two
+        halves of the main column on a phone.
+
+        The panel used to be the last thing on the page below `lg`: one main column
+        followed by one `<aside>`, stacking in that order, which put the download
+        button after the reviews and the related products. A visitor on a phone had
+        to scroll the whole page to find the thing they came for.
+
+        CSS alone cannot fix that. `order-*` on the aside moves it before or after
+        the *entire* main column and never into the middle of it, so the column is
+        split at the point the panel should interrupt it — after "What you get",
+        before "Getting it running" — and the three children are placed explicitly
+        on desktop. Mobile then needs no rules at all: it is DOM order.
+
+        Rendering `<PurchaseSection>` twice and toggling with `hidden lg:block`
+        would have been the smaller diff and is wrong twice over: it is an async
+        Server Component that reads the session and the currency cookie, so the work
+        happens twice, and both copies are in the DOM, so its licence radios would
+        share a `name` with an invisible second set.
+      */}
       <div className="mt-6 grid gap-10 lg:grid-cols-[1fr_360px]">
-        <div className="flex min-w-0 flex-col gap-12">
+        <div className="flex min-w-0 flex-col gap-12 lg:col-start-1 lg:row-start-1">
           {/* ── hero ─────────────────────────────────────────── */}
           <header className="flex flex-col gap-4">
             <h1 className="font-display text-[32px] leading-[1.1] tracking-[-0.03em] lg:text-[40px]">
@@ -261,6 +282,23 @@ export default async function Page({ params }: PageProps<"/details/[slug]">) {
           )}
 
           <WhatYouGet product={product} />
+        </div>
+
+        {/*
+          Second in the DOM, so on a phone it lands here — directly before "Getting
+          it running" — and first in the reading order that matters.
+
+          `lg:row-span-2` is what lets it keep the full height of the right-hand
+          column on desktop while the left column is two rows; `lg:self-start` stops
+          the span stretching it, which is also what `lg:sticky` needs.
+        */}
+        <aside className="lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-start">
+          <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
+            <PurchaseSection product={product} />
+          </Suspense>
+        </aside>
+
+        <div className="flex min-w-0 flex-col gap-12 lg:col-start-1 lg:row-start-2">
           <Installation product={product} />
 
           <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
@@ -280,12 +318,6 @@ export default async function Page({ params }: PageProps<"/details/[slug]">) {
             <RelatedProducts product={product} />
           </Suspense>
         </div>
-
-        <aside className="lg:sticky lg:top-24 lg:self-start">
-          <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
-            <PurchaseSection product={product} />
-          </Suspense>
-        </aside>
       </div>
     </article>
   );

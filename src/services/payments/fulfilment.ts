@@ -136,6 +136,12 @@ export async function processPaymentSucceeded(input: {
     return settleInvoice(payment, verifiedAmount, input);
   }
 
+  /* ── a tip settles nothing; it credits somebody ────────── */
+
+  if (payment.subjectType === "tip") {
+    return settleTip(payment, verifiedAmount, input);
+  }
+
   const order = await Order.findById(payment.subjectId).lean<OrderDoc>();
   if (!order) {
     return { outcome: "not_found", reason: `Payment ${payment.reference} has no order.` };
@@ -345,6 +351,143 @@ function describeOrder(order: OrderDoc): string {
   return `${names[0]!} and ${names.length - 1} other item${names.length === 2 ? "" : "s"}`;
 }
 
+/* ────────────────────────────────────────────── tips */
+
+/**
+ * A tip succeeded — credit the vendor and tell them.
+ *
+ * ## Why it is a branch here rather than a service of its own
+ *
+ * Because this function's docblock already states the rule: *"A provider does not
+ * know what it charged for … which of our records that settles is ours to decide
+ * — so the decision is made here, once, off `payment.subjectType`."* A tip is a
+ * third record; putting the decision anywhere else would be a second place that
+ * has to agree with this one.
+ *
+ * ## The amount must match exactly, like an order
+ *
+ * Not like an invoice, where a part payment is ordinary. A tip is one amount
+ * chosen by one person; anything else arriving is the provider charging something
+ * we did not ask for, and that is held for review rather than credited.
+ *
+ * ## Idempotent twice over
+ *
+ * The payment claim (`setStatusIfCurrent`, pending → succeeded) turns away the
+ * second caller before any work happens, and `recordTipEarning`'s unique
+ * `{tipId, kind}` index refuses a duplicate ledger row even if it did not.
+ */
+async function settleTip(
+  payment: PaymentDoc,
+  verifiedAmount: { amount: number; currency: string },
+  input: { source: FulfilmentSource; actor: AuditActor },
+): Promise<FulfilmentResult> {
+  const { Tip } = await import("@/lib/db/models/commerce");
+
+  const tip = await Tip.findById(payment.subjectId).lean<
+    import("@/lib/db/models/commerce").TipDoc
+  >();
+  if (!tip) {
+    return { outcome: "not_found", reason: `Payment ${payment.reference} has no tip.` };
+  }
+
+  const matches =
+    verifiedAmount.amount === tip.amount.amount &&
+    verifiedAmount.currency.toUpperCase() === tip.amount.currency.toUpperCase();
+
+  if (!matches) {
+    const reason =
+      `Verified ${verifiedAmount.amount} ${verifiedAmount.currency} against a tip of ` +
+      `${tip.amount.amount} ${tip.amount.currency}.`;
+
+    await payments.setStatusIfCurrent(String(payment._id), payment.status, "requires_review", {
+      failureReason: reason,
+    });
+
+    return {
+      outcome: "requires_review",
+      paymentId: String(payment._id),
+      orderReference: payment.reference,
+      reason,
+    };
+  }
+
+  const claimed = await payments.setStatusIfCurrent(
+    String(payment._id),
+    payment.status,
+    "succeeded",
+    { verifiedAt: new Date(), paidAt: new Date() },
+  );
+  if (!claimed) return { outcome: "already_processed", paymentId: String(payment._id) };
+
+  const { recordTipEarning } = await import("@/services/vendors/ledger-service");
+
+  try {
+    await withTransaction(async (session) => {
+      await Tip.updateOne(
+        { _id: tip._id, paidAt: { $exists: false } },
+        { $set: { paidAt: new Date() } },
+        { session },
+      );
+      await recordTipEarning({ tipId: String(tip._id) }, session);
+    });
+  } catch (error) {
+    // Same recovery as the order path: put the payment back so the sweep retries.
+    // The money arrived and the vendor is not yet credited, which is the one state
+    // that must not be left alone.
+    await payments.setStatusIfCurrent(String(payment._id), "succeeded", "pending", {
+      failureReason: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+
+  await writeAuditLog({
+    action: "payment.succeeded",
+    actor: input.actor,
+    subject: { type: "tip", id: String(tip._id) },
+    organizationId: String(tip.organizationId),
+    before: { status: payment.status },
+    after: {
+      status: "succeeded",
+      amount: tip.amount.amount,
+      currency: tip.amount.currency,
+      vendorId: String(tip.vendorId),
+    },
+    source: input.source,
+  });
+
+  /*
+   * After the commit, like every other dispatch in this file.
+   *
+   * The vendor is told the **net** figure, which is what `recordTipEarning` wrote
+   * to their balance — an email announcing the gross would be contradicted by the
+   * first payout that settles it.
+   */
+  const { products } = await import("@/repositories/product.repository");
+  const product = await products.findById(String(tip.productId));
+
+  const { splitLineTotal } = await import("@/services/vendors/commission-service");
+  const { money } = await import("@/lib/money");
+  const { earning } = splitLineTotal(
+    money(tip.amount.amount, tip.amount.currency as never),
+    tip.commissionBasisPoints,
+  );
+
+  await emit("VendorTipReceived", {
+    tipId: String(tip._id),
+    vendorId: String(tip.vendorId),
+    productName: product?.name ?? "your software",
+    amount: earning.amount,
+    currency: earning.currency,
+    ...(tip.note ? { note: tip.note } : {}),
+  });
+
+  return {
+    outcome: "fulfilled",
+    paymentId: String(payment._id),
+    orderReference: payment.reference,
+  };
+}
+
 /* ────────────────────────────────────────────── invoices */
 
 /**
@@ -482,6 +625,17 @@ async function createEntitlements(order: OrderDoc, session: ClientSession): Prom
           ...(line.versionId ? { purchasedVersionId: line.versionId } : {}),
           ...(line.updateMonths ? { updatesUntil: addMonths(now, line.updateMonths) } : {}),
           ...(line.supportMonths ? { supportUntil: addMonths(now, line.supportMonths) } : {}),
+          /*
+           * Decided here because here is where the order is in hand.
+           *
+           * Off the *order total*, not the line: a free claim is a whole
+           * zero-total order (`free-claim.ts`), and that is the thing a customer
+           * means when they say "I downloaded this for free". It is what decides
+           * whether they may later take it off their library shelf, so it has to
+           * mean what it says a year from now — which a lookup of today's price
+           * would not.
+           */
+          acquiredFree: order.total.amount === 0,
           status: "active",
         },
       ],

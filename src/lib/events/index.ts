@@ -396,6 +396,24 @@ export interface DomainEventMap {
     hasDownloads: boolean;
   };
 
+  /**
+   * A customer tipped a vendor after a download.
+   *
+   * Carries the amount the **vendor earns**, not the amount the customer paid.
+   * The notification says "you received £4.25" and that has to be the figure that
+   * reaches their balance, or the first payout will contradict the email that
+   * announced it. The gross is on the `Tip` for anybody who needs it.
+   */
+  VendorTipReceived: {
+    tipId: string;
+    vendorId: string;
+    productName: string;
+    /** Minor units, after commission — see above. */
+    amount: number;
+    currency: string;
+    note?: string;
+  };
+
   /** Ticket 23. The customer's "payment required" notice (§69). */
   InvoiceIssued: {
     invoiceId: string;
@@ -579,6 +597,7 @@ const EVENT_NAME_SET: Record<DomainEventName, true> = {
   AddonProvisioningRequested: true,
   AddonProvisioned: true,
   OrderCompleted: true,
+  VendorTipReceived: true,
   InvoiceIssued: true,
   MessagePosted: true,
   InvoicePaid: true,

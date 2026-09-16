@@ -221,6 +221,76 @@ export async function recordCustomWorkEarning(
 }
 
 /**
+ * A tip's earning — the third provenance.
+ *
+ * ## Why it is not `recordEarnings`
+ *
+ * That one takes an `OrderDoc` and reads `order.items`. A tip has no order and no
+ * line, for the reasons `TipDoc` gives, so it needs its own writer exactly as
+ * custom work did above. The row it writes is an ordinary `earning`: it clears on
+ * the same sweep, pays out in the same run and appears in the same balance, which
+ * is the point of not inventing a fourth `kind` for it.
+ *
+ * ## The rate comes off the tip, never from the vendor
+ *
+ * `commissionBasisPoints` was snapshotted when the tip was created. Re-resolving
+ * it here would let a rate change next month rewrite what a vendor earned on a
+ * gesture somebody made today — the rule stated at the top of this file and the
+ * reason `recordEarnings` reads it off the line.
+ *
+ * ## Idempotent through the index, not through a read
+ *
+ * A retried webhook calls this again; the unique partial `{tipId, kind}` refuses
+ * the second write and it is reported as `written: false`, which is the outcome
+ * the caller wanted. A read-then-write would leave the race open.
+ */
+export async function recordTipEarning(
+  input: { tipId: string },
+  session?: ClientSession,
+): Promise<{ written: boolean }> {
+  await connectToDatabase();
+
+  const { Tip } = await import("@/lib/db/models/commerce");
+
+  const tip = await Tip.findById(toObjectId(input.tipId))
+    .select({ vendorId: 1, amount: 1, commissionBasisPoints: 1 })
+    .session(session ?? null)
+    .lean<{
+      vendorId: Types.ObjectId;
+      amount: { amount: number; currency: string };
+      commissionBasisPoints: number;
+    }>();
+
+  if (!tip) return { written: false };
+
+  const { earning } = splitLineTotal(fromDocument(tip.amount)!, tip.commissionBasisPoints);
+
+  try {
+    await LedgerEntry.create(
+      [
+        {
+          vendorId: tip.vendorId,
+          kind: "earning" as const,
+          amount: toDocument(earning),
+          status: "pending" as const,
+          // The same clearance as a sale. A tip is refundable in practice — a
+          // chargeback is a chargeback — so paying it out sooner than a purchase
+          // would be the one case where money leaves before it is safe.
+          clearsAt: clearanceDate(),
+          tipId: toObjectId(input.tipId),
+        },
+      ],
+      session ? { session, ordered: true } : { ordered: true },
+    );
+  } catch (error) {
+    if (isDuplicateKeyError(error)) return { written: false };
+    throw error;
+  }
+
+  return { written: true };
+}
+
+/**
  * How much of the vendor's price one invoice collects.
  *
  * `full` terms make this the whole figure and the multiplication a no-op. On deposit terms it is the

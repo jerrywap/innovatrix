@@ -171,7 +171,17 @@ export interface ProductDetail {
    * — attribution that a buyer cannot follow answers "who made this" without answering "what
    * else have they made".
    */
-  vendor?: { slug: string; name: string };
+  vendor?: {
+    slug: string;
+    name: string;
+    /**
+     * The id, for the one thing a slug cannot answer: this vendor's commission
+     * rate, which the tip prompt shows before somebody commits. Public already —
+     * the slug resolves to the same vendor — and present on the same all-or-nothing
+     * terms as the two beside it.
+     */
+    id: string;
+  };
   /**
    * The rating, derived — vendor ticket 10.
    *
@@ -280,8 +290,14 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
         url: item.url!,
         alt: item.alt ?? product.name,
       })),
-    ...(product.vendorSlug && product.vendorName
-      ? { vendor: { slug: product.vendorSlug, name: product.vendorName } }
+    ...(product.vendorSlug && product.vendorName && product.vendorId
+      ? {
+          vendor: {
+            slug: product.vendorSlug,
+            name: product.vendorName,
+            id: String(product.vendorId),
+          },
+        }
       : {}),
     // Derived here rather than stored: `ratingSum / ratingCount` is exact integer
     // arithmetic, and a stored average is a float that can disagree with its own reviews.

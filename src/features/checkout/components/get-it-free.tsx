@@ -1,10 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Check, Download, Loader2 } from "lucide-react";
 import { claimFreeProductAction } from "../actions";
+import { TipDialog } from "@/features/tips/components/tip-dialog";
+
+/**
+ * Set on a successful claim, read after the refresh it causes.
+ *
+ * `sessionStorage` rather than component state because the claim revalidates the
+ * route, which remounts this component — see the click handler.
+ */
+const TIP_PENDING = "cosetup:tip-after-download";
 
 /**
  * "Download for Free" — COS-12's one click.
@@ -47,6 +56,7 @@ export function GetItFree({
   signInHref,
   destinationLabel,
   disabled,
+  tip,
 }: {
   productId: string;
   licencePackageKey?: string;
@@ -60,6 +70,19 @@ export function GetItFree({
    */
   viewer: "signed-out" | "staff" | "no-organisation" | "customer";
   owned: boolean;
+  /**
+   * The tip offer, shown **after** the download starts — see the click handler.
+   *
+   * Absent on a first-party product and for any viewer who cannot be charged, so
+   * this component never decides either; `purchase-section.tsx` did.
+   */
+  tip?: {
+    productName: string;
+    vendorName: string;
+    commissionBasisPoints: number;
+    currency: string;
+    options: ReadonlyArray<{ currency: string; presets: readonly number[] }>;
+  };
   /** Where to come back to after signing in. */
   /**
    * Where a signed-out visitor is sent to sign in — supplied by the server.
@@ -78,6 +101,39 @@ export function GetItFree({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
+
+  /*
+   * Reopen the ask after the refresh that the claim triggered.
+   *
+   * Runs on mount, which is exactly once per remount — and a remount is what
+   * `revalidatePath` causes. The flag is cleared as it is read, so a second
+   * refresh, a Back navigation or another product's page does not inherit it.
+   */
+  useEffect(() => {
+    if (!tip) return;
+
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(TIP_PENDING);
+      if (pending) sessionStorage.removeItem(TIP_PENDING);
+    } catch {
+      return;
+    }
+    if (pending !== productId) return;
+
+    /*
+     * Opened from a timer rather than straight from the effect body.
+     *
+     * Two reasons, and they agree. `react-hooks/set-state-in-effect` objects to a
+     * synchronous setState in an effect — a cascading render — and allows one
+     * from a callback. And the delay is wanted anyway: the browser's own download
+     * chrome appears first, so the dialog reads as a thank-you rather than as the
+     * thing that took the click.
+     */
+    const timer = setTimeout(() => setTipOpen(true), 900);
+    return () => clearTimeout(timer);
+  }, [tip, productId]);
 
   const className =
     "bg-foreground text-background flex items-center justify-center gap-2 rounded-full px-5 py-3 text-[14px] font-medium transition hover:opacity-90 disabled:opacity-50";
@@ -131,6 +187,19 @@ export function GetItFree({
 
   return (
     <div className="flex flex-col gap-1.5">
+      {tip && (
+        <TipDialog
+          open={tipOpen}
+          onOpenChange={setTipOpen}
+          productId={productId}
+          productName={tip.productName}
+          vendorName={tip.vendorName}
+          currency={tip.currency}
+          options={tip.options}
+          commissionBasisPoints={tip.commissionBasisPoints}
+        />
+      )}
+
       <button
         type="button"
         disabled={pending || disabled}
@@ -158,6 +227,38 @@ export function GetItFree({
              * to the product page.
              */
             window.location.assign(result.data.href);
+
+            /*
+             * The ask, once the file is already on its way — **through
+             * `sessionStorage`, not through state.**
+             *
+             * `assign` to `/api/downloads/…` does not navigate: the route answers
+             * 307 to a presigned URL served `Content-Disposition: attachment`, so
+             * the browser saves the file and leaves the page standing. That is
+             * what makes this moment available at all, and why the prompt can
+             * never be mistaken for a gate on the download.
+             *
+             * What *does* happen is a refresh: the action calls
+             * `revalidatePath("/", "layout")` so the button can say "Download
+             * again", and that remounts this component. A `setTimeout` closing
+             * over `setTipOpen` therefore fired into a dead instance and the
+             * dialog never appeared — measured, after watching the button change
+             * and nothing else happen.
+             *
+             * A flag outlives the remount, and the effect below picks it up on
+             * the way back. It also survives the case where the href is a page
+             * rather than a file, which is what an entitlement with no package
+             * returns.
+             */
+            if (tip) {
+              try {
+                sessionStorage.setItem(TIP_PENDING, productId);
+              } catch {
+                // Private windows and blocked site data. The download already
+                // happened; losing the thank-you prompt is the right thing to
+                // lose.
+              }
+            }
           });
         }}
         className={className}

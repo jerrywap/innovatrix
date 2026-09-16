@@ -199,6 +199,14 @@ export function registerNotificationHandlers(): void {
     await dispatch("VendorPayoutPaid", payload, { vendorId: payload.vendorId });
   });
 
+  /*
+   * A tip. `vendorId` is in the payload and `resolveAudience` looks up who that
+   * means — a query, never a claim, like every other vendor audience.
+   */
+  on("VendorTipReceived", async (payload) => {
+    await dispatch("VendorTipReceived", payload, { vendorId: payload.vendorId });
+  });
+
   on("VendorPayoutFailed", async (payload) => {
     await dispatch("VendorPayoutFailed", payload, { vendorId: payload.vendorId });
   });

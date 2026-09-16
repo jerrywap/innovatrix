@@ -5,6 +5,8 @@ import { ArrowUpCircle, KeyRound, MonitorPlay, Package, Sparkles } from "lucide-
 import { StatusBadge } from "@/components/status-badge";
 import type { EntitlementView } from "@/services/entitlements/entitlement-service";
 import { productHref } from "@/config/catalogue";
+import { RemoveFromLibrary } from "./remove-from-library";
+import { TipButton } from "@/features/tips/components/tip-button";
 
 /**
  * One owned product — §29.
@@ -37,7 +39,24 @@ import { productHref } from "@/config/catalogue";
  * version merely exists. A badge that offers a download the server then refuses
  * is worse than no badge.
  */
-export function SoftwareCard({ entitlement }: { entitlement: EntitlementView }) {
+export function SoftwareCard({
+  entitlement,
+  tip,
+}: {
+  entitlement: EntitlementView;
+  /**
+   * What a tip would cost and who it reaches — resolved by the page, per vendor.
+   *
+   * Absent for a first-party product, and absent if the rate could not be
+   * resolved. The card does not look either up: a commission rate is one query
+   * per vendor and this component renders once per row.
+   */
+  tip?: {
+    currency: string;
+    options: ReadonlyArray<{ currency: string; presets: readonly number[] }>;
+    commissionBasisPoints: number;
+  };
+}) {
   const detailHref = `/dashboard/software/${entitlement.id}` as Route;
 
   return (
@@ -70,6 +89,17 @@ export function SoftwareCard({ entitlement }: { entitlement: EntitlementView }) 
               ? `You own v${entitlement.purchasedVersion.version}`
               : "Version not recorded"}
           </p>
+
+          {/*
+            Said rather than silently folded away. The library shows one card per
+            product now, so somebody who bought the same thing twice would
+            otherwise see one and wonder where the other receipt went.
+          */}
+          {entitlement.alsoOwned > 0 && (
+            <p className="text-subtle text-[12.5px]">
+              You own this {entitlement.alsoOwned + 1} times — from separate orders.
+            </p>
+          )}
 
           {entitlement.updateAvailable && (
             <p className="flex items-center gap-1.5 text-[12.5px] text-emerald-700 dark:text-emerald-400">
@@ -142,6 +172,30 @@ export function SoftwareCard({ entitlement }: { entitlement: EntitlementView }) 
         )}
 
         <Action href={productHref(entitlement.product.slug) as Route}>Product page</Action>
+
+        {/*
+          Free only. Paid software disappearing from the one screen that proves
+          ownership is a support thread — `setLibraryHidden` refuses it on the
+          server too, because a control that is merely not drawn is not a control.
+        */}
+        {/*
+          The standing way to tip — beside the actions rather than in them,
+          because it is a courtesy and not a thing the software needs.
+          Rendered for anything with a vendor, paid or free: somebody who bought
+          a licence may still want to say the thing the licence did not.
+        */}
+        {tip && entitlement.product.vendor && (
+          <TipButton
+            productId={entitlement.product.id}
+            productName={entitlement.product.name}
+            vendorName={entitlement.product.vendor.name}
+            currency={tip.currency}
+            options={tip.options}
+            commissionBasisPoints={tip.commissionBasisPoints}
+          />
+        )}
+
+        {entitlement.acquiredFree && <RemoveFromLibrary entitlementId={entitlement.id} />}
       </div>
     </article>
   );

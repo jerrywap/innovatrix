@@ -4,7 +4,8 @@ import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase } from "@/lib/db/client";
 import type { EntitlementDoc, LicenceDoc } from "@/lib/db/models/commerce";
 import type { ProductDoc, ProductFileDoc, ProductVersionDoc } from "@/lib/db/models/catalog";
-import { ForbiddenError } from "@/lib/errors";
+import { Entitlement } from "@/lib/db/models/commerce";
+import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { compareSemver, sortByVersionDesc } from "@/lib/semver";
 import { maskLicenceKey } from "@/lib/licence-key";
 import { entitlements, licences } from "@/repositories/entitlement.repository";
@@ -58,6 +59,13 @@ export interface EntitlementView {
      * what `owners_only` exists for.
      */
     hasDemo: boolean;
+    /**
+     * Who made it, when somebody other than CoSetup did.
+     *
+     * Absent on a first-party listing, which is what the tip control keys off:
+     * there is nobody to thank for one, so the button does not render.
+     */
+    vendor?: { id: string; name: string };
   };
   purchasedVersion?: { id: string; version: string };
   /** Absent when there is nothing newer they are entitled to. */
@@ -75,6 +83,16 @@ export interface EntitlementView {
     activationsUsed: number;
   };
   orderId: string;
+  /** Cost nothing, so it may be taken off the shelf — see `hiddenAt`. */
+  acquiredFree: boolean;
+  /**
+   * How many *other* entitlements for this same product were folded into this
+   * card. `0` for almost everybody.
+   *
+   * Reported rather than discarded: somebody who bought the same product twice
+   * has two receipts and would otherwise see one card and think we had lost one.
+   */
+  alsoOwned: number;
 }
 
 /* ────────────────────────────────────────────── list */
@@ -90,7 +108,17 @@ export interface EntitlementView {
 export async function listOwnedSoftware(organizationId: string): Promise<EntitlementView[]> {
   await connectToDatabase();
 
-  const owned = await entitlements.listForOrganization(organizationId);
+  /*
+   * Hidden rows are dropped **here and nowhere else**.
+   *
+   * `hiddenAt` is a shelf preference, not a revocation, so it must not reach the
+   * repository: `findForProduct` feeds `authoriseDownload`, and filtering there
+   * would turn "remove from my list" into "break my download link", which is
+   * exactly what this was designed not to do.
+   */
+  const owned = (await entitlements.listForOrganization(organizationId)).filter(
+    (entitlement) => !entitlement.hiddenAt,
+  );
   if (owned.length === 0) return [];
 
   const productIds = [...new Set(owned.map((entitlement) => String(entitlement.productId)))];
@@ -111,7 +139,7 @@ export async function listOwnedSoftware(organizationId: string): Promise<Entitle
     versionsByProduct.set(key, [...(versionsByProduct.get(key) ?? []), version]);
   }
 
-  return owned
+  const views = owned
     .map((entitlement) =>
       toView(
         entitlement,
@@ -121,6 +149,59 @@ export async function listOwnedSoftware(organizationId: string): Promise<Entitle
       ),
     )
     .filter((view): view is EntitlementView => view !== null);
+
+  return collapseByProduct(views);
+}
+
+/**
+ * One card per product, not per entitlement.
+ *
+ * ## Why there were ever two
+ *
+ * An entitlement is unique on `{orderId, orderLineId}`, so buying the same
+ * product in two orders — or buying, refunding and buying again — makes two rows.
+ * The library listed rows, so it showed the same software twice with no
+ * explanation. `entitlements.findForProduct` has always known this and picks one
+ * with `sort({ status: 1, createdAt: -1 })`.
+ *
+ * ## The same rule, so the page and the download agree
+ *
+ * That sort is reproduced here deliberately: `active` before `suspended` before
+ * `revoked`, then newest. The card left standing is therefore the one
+ * `authoriseDownload` will authorise against, which is the only version of this
+ * that cannot show a customer a card whose download then refuses.
+ *
+ * Order is otherwise preserved — the repository already returns newest first, and
+ * a stable fold keeps that.
+ */
+export function collapseByProduct(views: readonly EntitlementView[]): EntitlementView[] {
+  const RANK: Record<EntitlementView["status"], number> = {
+    active: 0,
+    suspended: 1,
+    revoked: 2,
+  };
+
+  const best = new Map<string, EntitlementView>();
+  const extras = new Map<string, number>();
+
+  for (const view of views) {
+    const key = view.product.id;
+    const held = best.get(key);
+
+    if (!held) {
+      best.set(key, view);
+      continue;
+    }
+
+    extras.set(key, (extras.get(key) ?? 0) + 1);
+    // Already newest-first, so only a better *status* displaces the incumbent.
+    if (RANK[view.status] < RANK[held.status]) best.set(key, view);
+  }
+
+  return [...best.values()].map((view) => ({
+    ...view,
+    alsoOwned: extras.get(view.product.id) ?? 0,
+  }));
 }
 
 function toView(
@@ -175,6 +256,11 @@ function toView(
       hasDemo: Boolean(
         product.demo?.publicUrl || product.demo?.customerUrl || product.demo?.adminUrl,
       ),
+      // Both fields or neither — a name with no id could not be resolved to a
+      // commission rate, and an id with no name has nothing to put on a button.
+      ...(product.vendorId && product.vendorName
+        ? { vendor: { id: String(product.vendorId), name: product.vendorName } }
+        : {}),
     },
     ...(purchased
       ? { purchasedVersion: { id: String(purchased._id), version: purchased.version } }
@@ -199,6 +285,10 @@ function toView(
         }
       : {}),
     orderId: String(entitlement.orderId),
+    acquiredFree: entitlement.acquiredFree === true,
+    // Set by `listOwnedSoftware` when it folds duplicates; a single view knows
+    // nothing about its siblings.
+    alsoOwned: 0,
   };
 }
 
@@ -359,6 +449,51 @@ export async function hasEntitlementsForOrder(
   session?: ClientSession,
 ): Promise<boolean> {
   return entitlements.existsForOrder(orderId, session);
+}
+
+/**
+ * Take a free item off the library shelf — and put it back.
+ *
+ * ## Why this is a flag and not a delete
+ *
+ * Three things forbid a delete, each written down where it lives: `Download` is
+ * an append-only audit (§66); an `Entitlement` is the proof of purchase every
+ * download authorises against; and the customer keeps the right to the bytes
+ * whatever their library looks like. So "remove" means "stop listing it", and
+ * `listOwnedSoftware` is the only reader of `hiddenAt`.
+ *
+ * ## Free only
+ *
+ * Paid software vanishing from the one screen that proves ownership is a support
+ * thread, so the service refuses it rather than leaving the rule to the button
+ * that calls it — a hidden control is not a control (`AGENTS.md`).
+ *
+ * Scoped by organisation in the filter, never by a claim from the caller.
+ */
+export async function setLibraryHidden(input: {
+  entitlementId: string;
+  organizationId: string;
+  hidden: boolean;
+}): Promise<void> {
+  await connectToDatabase();
+
+  const entitlement = await entitlements.findByIdForOrganization(
+    input.entitlementId,
+    input.organizationId,
+  );
+  if (!entitlement) throw new NotFoundError("entitlement", { id: input.entitlementId });
+
+  if (input.hidden && entitlement.acquiredFree !== true) {
+    throw new ValidationError(
+      "Paid software stays in your library — it is the record of what you bought.",
+      { entitlementId: ["This was not a free download."] },
+    );
+  }
+
+  await Entitlement.updateOne(
+    { _id: toObjectId(input.entitlementId), organizationId: toObjectId(input.organizationId) },
+    input.hidden ? { $set: { hiddenAt: new Date() } } : { $unset: { hiddenAt: "" } },
+  );
 }
 
 export { toObjectId };
