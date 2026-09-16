@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { Route } from "next";
-import { Package, Plus } from "lucide-react";
+import { ArrowUpRight, Package, Plus } from "lucide-react";
 import { DataTable, type Column } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { catalogueOrigin, productHref } from "@/config/catalogue";
+import { serverEnv } from "@/config/env";
 import { formatDateTime } from "@/lib/dates";
 import { PRODUCT_STATUSES, type ProductStatus } from "@/lib/db/enums";
 import { parseListParams } from "@/lib/list-params";
@@ -70,6 +72,15 @@ export default async function Page({ searchParams }: PageProps<"/dashboard/selli
   const readiness = await readinessForMany(page.items);
   const rows = page.items.map(toAdminProductRow);
 
+  /*
+   * Read once, here, rather than per row.
+   *
+   * `catalogueOrigin` is the one place that turns `APP_URL` into a product URL's
+   * origin — its own docblock says so — and both catalogues resolve to the same
+   * value today, so the argument is a seam rather than a branch.
+   */
+  const origin = catalogueOrigin("script", serverEnv().APP_URL);
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -88,7 +99,7 @@ export default async function Page({ searchParams }: PageProps<"/dashboard/selli
 
       <DataTable
         rows={rows}
-        columns={columns(readiness)}
+        columns={columns(readiness, origin)}
         rowKey={(row) => row.id}
         rowHref={(row) => `/dashboard/selling/products/${row.id}/basics` as Route}
         params={params}
@@ -102,7 +113,7 @@ export default async function Page({ searchParams }: PageProps<"/dashboard/selli
             description={
               status || params.q
                 ? "Try a different status, or clear the search."
-                : "Create your first product. A reviewer checks it before it goes on sale."
+                : "Create your first product and submit it for review. We'll let you know when it's ready to go live."
             }
             variant={status || params.q ? "no-results" : "empty"}
           />
@@ -131,18 +142,46 @@ function isProductStatus(value: string): value is ProductStatus {
  * disagree about what is missing — the version that says "ready" while the button
  * refuses is the one people trust.
  */
-function columns(readiness: Map<string, Readiness>): Array<Column<AdminProductRow>> {
+function columns(
+  readiness: Map<string, Readiness>,
+  origin: string,
+): Array<Column<AdminProductRow>> {
   return [
     {
       key: "name",
       header: "Product",
       sortable: true,
-      cell: (row) => (
-        <div className="min-w-0">
-          <p className="truncate font-medium">{row.name}</p>
-          <p className="text-subtle truncate font-mono text-[11px]">/{row.slug}</p>
-        </div>
-      ),
+      cell: (row) => <p className="truncate font-medium">{row.name}</p>,
+    },
+    /*
+     * The address a vendor can hand to somebody — not the bare slug this used to
+     * print, which was `/gracia-daily` and led nowhere: the public route is
+     * `/details/[slug]`.
+     *
+     * Its own column rather than a second line under the name, because
+     * `DataTable` wraps column **0**'s cell in the row link with a stretched
+     * `after:inset-0`. A link inside that cell would be an anchor inside an
+     * anchor, and the overlay would take the click anyway. At any other index a
+     * plain link works and keeps the row to two tab stops.
+     */
+    {
+      key: "url",
+      header: "Public page",
+      cell: (row) => {
+        const url = `${origin}${productHref(row.slug, row.catalogue)}`;
+
+        return (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-subtle hover:text-foreground inline-flex max-w-[22rem] items-center gap-1 font-mono text-[11px] underline-offset-4 hover:underline"
+          >
+            <span className="truncate">{url}</span>
+            <ArrowUpRight className="size-3 shrink-0" aria-hidden />
+          </a>
+        );
+      },
     },
     {
       key: "status",

@@ -494,7 +494,18 @@ export const ADDON_PROVISIONING_STATUSES = values([
 ] as const);
 export type AddonProvisioningStatus = (typeof ADDON_PROVISIONING_STATUSES)[number];
 
-export const PAYMENT_SUBJECT_TYPES = values(["order", "invoice"] as const);
+/**
+ * What a payment settles.
+ *
+ * `tip` is the one that is not a purchase: no order, no invoice, no licence and
+ * nothing delivered. It is here rather than modelled as a one-line order because
+ * an order carries a tax treatment, an invoice and a place in the customer's
+ * purchase history, and a gratuity has earned none of the three.
+ *
+ * `fulfilment.ts` branches on this value, once, and that branch is the only place
+ * that decides which of our records a provider's "this succeeded" settles.
+ */
+export const PAYMENT_SUBJECT_TYPES = values(["order", "invoice", "tip"] as const);
 export type PaymentSubjectType = (typeof PAYMENT_SUBJECT_TYPES)[number];
 
 /**
@@ -745,6 +756,7 @@ export const DOMAIN_EVENTS = values([
   "PaymentReceived",
   "OrderCompleted",
   "LicenceIssued",
+  "VendorTipReceived",
   "ProductPublished",
   "ProductVersionReleased",
   "MessagePosted",
@@ -860,6 +872,13 @@ export const SUBJECT_TYPES = values([
    * `{subjectType, subjectId, createdAt}` index.
    */
   "review",
+  /**
+   * A tip. Taking money and crediting a vendor for it is a financial event, and
+   * without this its `payment.initiated` and `payment.succeeded` rows could not be
+   * found by the `{subjectType, subjectId, createdAt}` index — which is the only
+   * way anybody ever answers "what happened to this tip".
+   */
+  "tip",
 ] as const);
 export type SubjectType = (typeof SUBJECT_TYPES)[number];
 

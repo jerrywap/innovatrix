@@ -64,6 +64,14 @@ export interface NotificationRule<K extends DomainEventName = DomainEventName> {
   /** Deep link to the record itself, per audience — §69. */
   href: (payload: DomainEventMap[K]) => string;
   /**
+   * The email button's label, when `href` leads somewhere with a name.
+   *
+   * Only read by the generic renderer — a rule writing its own `email` already
+   * names its own action. Absent means "Open in CoSetup", which is the right
+   * answer for a nudge towards a screen that is not a single named object.
+   */
+  actionLabel?: string;
+  /**
    * A written email for this rule, instead of the generic one.
    *
    * Every rule without this gets `notificationEmail` — a heading, the body, and
@@ -114,7 +122,7 @@ export const CATALOG: Catalog = {
       audience: { kind: "customer_owner" },
       category: "requests",
       title: (p) => `We've got your request ${p.reference}`,
-      body: () => "We'll come back to you once somebody has looked at it.",
+      body: () => "We'll review your request and let you know what happens next.",
       href: (p) => `/dashboard/requests/${p.reference}`,
     },
     {
@@ -168,6 +176,7 @@ export const CATALOG: Catalog = {
       title: (p) => `Your quote ${p.reference} is ready`,
       body: () => "Have a read, then accept it or tell us what to change.",
       href: (p) => `/dashboard/quotes/${p.quoteId}`,
+      actionLabel: "View quote",
     },
   ],
 
@@ -197,6 +206,57 @@ export const CATALOG: Catalog = {
   ],
 
   /*
+   * The purchase confirmation — the receipt the order confirmation screen has
+   * always promised ("A receipt lands in your inbox") and never sent.
+   *
+   * `essential`, like every other billing row: a receipt for money taken is not
+   * something a preference should be able to switch off.
+   *
+   * Written rather than generic because the subject has to name the order —
+   * "Billing: Your order is confirmed" would make every receipt in an inbox
+   * identical — and because this is the one message that has to say the licences
+   * and downloads are already there. Fulfilment is synchronous, so by the time
+   * this is composed they are.
+   */
+  OrderCompleted: [
+    {
+      audience: { kind: "organization" },
+      category: "billing",
+      essential: true,
+      title: (p) => `Your order ${p.reference} is confirmed`,
+      body: () => "Your purchase is ready.",
+      href: (p) =>
+        p.hasDownloads ? `/dashboard/software` : `/dashboard/orders/${p.reference}`,
+      email: (p, { url }) => ({
+        subject: `Your ${BRAND.name} order ${p.reference} is confirmed`,
+        preheader: `Your purchase is ready in ${BRAND.name}.`,
+        greeting: "Hello,",
+        heading: "Your order is confirmed",
+        body: [
+          `We've received your payment for ${p.description}. Your purchase is ready in ${BRAND.name}.`,
+        ],
+        action: {
+          label: p.hasDownloads ? "View my purchase" : "View my order",
+          url,
+          showUrl: false,
+        },
+        /*
+         * Says the licence is already there rather than sending a second email a
+         * second later to say so — see `OrderCompleted` in `events/index.ts`.
+         * **No key in the body**: it lives behind a sign-in, and an email is not
+         * an authorised surface.
+         */
+        notes: p.hasDownloads
+          ? [
+              `Your licence keys and downloads are available now in ${PURCHASES_LABEL}.`,
+              `You receive this because it is a receipt for a payment.`,
+            ]
+          : [`You receive this because it is a receipt for a payment.`],
+      }),
+    },
+  ],
+
+  /*
    * Billing rows are `essential`. A customer who muted billing email still has
    * to be told what they owe and when a payment landed — muting a receipt is
    * not a preference anybody means to express, and in several jurisdictions an
@@ -209,6 +269,7 @@ export const CATALOG: Catalog = {
       essential: true,
       title: (p) => `Invoice ${p.reference} is ready to pay`,
       href: (p) => `/dashboard/invoices/${p.invoiceId}`,
+      actionLabel: "View invoice",
     },
   ],
 
@@ -248,6 +309,7 @@ export const CATALOG: Catalog = {
           ? `Invoice ${p.reference} is due today`
           : `Invoice ${p.reference} is due in ${p.daysUntilDue} day${p.daysUntilDue === 1 ? "" : "s"}`,
       href: (p) => `/dashboard/invoices/${p.invoiceId}`,
+      actionLabel: "View invoice",
     },
   ],
 
@@ -259,6 +321,7 @@ export const CATALOG: Catalog = {
       title: (p) => `Invoice ${p.reference} is overdue`,
       body: () => "If you have already paid, ignore this — payments can take a day to land.",
       href: (p) => `/dashboard/invoices/${p.invoiceId}`,
+      actionLabel: "View invoice",
     },
     {
       audience: { kind: "staff", permission: "invoice.view_all" },
@@ -324,6 +387,7 @@ export const CATALOG: Catalog = {
       title: (p) => `${p.productName} ${p.version} is available`,
       body: () => `You can download it from ${PURCHASES_LABEL}.`,
       href: () => `/dashboard/software`,
+      actionLabel: "View purchase",
     },
   ],
 
@@ -392,19 +456,19 @@ export const CATALOG: Catalog = {
        */
       email: (p, { url }) => ({
         subject: `Thanks for applying to sell on ${BRAND.name}`,
-        preheader: `Your next step: verify your identity, and you can list as soon as you are approved.`,
-        heading: "Thanks for showing interest",
+        preheader: "Complete your identity verification while we review your application.",
+        heading: "We've received your application",
         body: [
-          `We have your application for ${p.displayName}, and somebody reads every one of them properly — you will hear from us either way.`,
-          "You do not have to wait for that. Verifying your identity is a separate check, it runs alongside the application, and it is the step that unlocks listing a product. Getting it in now means there is nothing left to do on the day you are approved.",
+          `Thanks for applying to sell on ${BRAND.name} as ${p.displayName}. We'll review your application and email you when there's an update.`,
+          "While your application is being reviewed, you can complete your identity verification. Completing it now means you'll be ready to start listing products as soon as your application is approved.",
         ],
         // No raw-URL well: the link carries no token, so a mangled button costs a
         // sign-in rather than the message. Same rule as every other
         // notification email — see `EmailAction.showUrl`.
         action: { label: "Verify my identity", url, showUrl: false },
         notes: [
-          "You will need a passport, driving licence or national ID card, and something showing your address from the last three months — a bank statement, a utility bill or a council tax letter.",
-          "Being paid needs one more check after that, and you can sell before it finishes: earnings wait in your balance until it clears.",
+          "You'll need a passport, driving licence or national ID card, plus proof of address from the last three months, such as a bank statement, utility bill or council tax letter.",
+          `Payout verification is completed separately. You can start selling before it finishes, but earnings will remain in your ${BRAND.name} balance until your payout verification is complete.`,
         ],
       }),
     },
@@ -455,7 +519,7 @@ export const CATALOG: Catalog = {
         body:
           p.outcome === "approved"
             ? [
-                `Somebody has checked the documents you sent for ${p.displayName}, and they are fine.`,
+                `Your documents have been approved.`,
                 unlocked(p.level, "approved"),
                 ...(p.note ? [p.note] : []),
               ]
@@ -496,6 +560,7 @@ export const CATALOG: Catalog = {
       body: () =>
         "We have passed on what they asked for. Take a look and tell us what it would cost.",
       href: (p) => `/dashboard/selling/requests/${p.briefId}`,
+      actionLabel: "View request",
     },
   ],
 
@@ -564,8 +629,9 @@ export const CATALOG: Catalog = {
       category: "messages",
       title: (p) => `A question about ${p.productName}`,
       body: () =>
-        "You answer this one first — we are watching the thread rather than running it.",
+        "This question is for you to answer. CoSetup can step in if support or escalation is needed.",
       href: () => `/dashboard/selling/support`,
+      actionLabel: "View message",
     },
   ],
 
@@ -576,6 +642,7 @@ export const CATALOG: Catalog = {
       title: (p) => `Dispute raised by the ${p.raisedBy}`,
       body: (p) => `Reason given: ${p.reason.replace(/_/g, " ")}.`,
       href: () => `/staff/disputes`,
+      actionLabel: "View dispute",
     },
     {
       // The vendor hears too, whichever side raised it. A dispute they learn about when the
@@ -584,9 +651,10 @@ export const CATALOG: Catalog = {
       category: "messages",
       title: () => "A dispute has been opened on one of your threads",
       body: () =>
-        "CoSetup will decide it. Add anything you want considered to the conversation — it " +
-        "is read before a decision is made.",
+        "CoSetup will review the dispute and decide the outcome. Add anything you want us " +
+        "to consider to the conversation before a decision is made.",
       href: () => `/dashboard/selling/support`,
+      actionLabel: "View dispute",
     },
   ],
 
@@ -599,6 +667,7 @@ export const CATALOG: Catalog = {
       // re-argued.
       body: (p) => p.reason,
       href: () => `/dashboard/selling/support`,
+      actionLabel: "View dispute",
     },
   ],
 
@@ -679,6 +748,30 @@ export const CATALOG: Catalog = {
         `Payout ${p.reference} has been sent. Quote that reference if you need to ask us ` +
         `about it.`,
       href: (p) => `/dashboard/selling/payouts/${p.reference}`,
+      actionLabel: "View payout",
+    },
+  ],
+
+  /*
+   * A tip — vendor-facing, and the one notification that is purely good news.
+   *
+   * `billing` rather than `products`: it is money arriving in their balance, and
+   * a vendor who muted product notifications must still hear about that. The
+   * amount is the one they earn, matching what the payout will show.
+   */
+  VendorTipReceived: [
+    {
+      audience: { kind: "vendor_member" },
+      category: "billing",
+      title: (p) => `Someone tipped you for ${p.productName}`,
+      // The note is the customer's own words, when they left any. Unedited: a
+      // paraphrase of a thank-you is worse than no thank-you.
+      body: (p) =>
+        p.note
+          ? `"${p.note}" — it clears with your other earnings.`
+          : "It clears with your other earnings and goes out on the next payout run.",
+      href: () => `/dashboard/selling/earnings`,
+      actionLabel: "View earnings",
     },
   ],
 
@@ -692,6 +785,7 @@ export const CATALOG: Catalog = {
       body: (p) =>
         `${p.reason} Check your payout account details; we will try again on the next run.`,
       href: () => `/dashboard/selling/settings`,
+      actionLabel: "Review payout",
     },
   ],
 
@@ -725,6 +819,7 @@ export const CATALOG: Catalog = {
       // note is on the product where it belongs.
       body: (p) => (p.detail.length > 200 ? `${p.detail.slice(0, 197)}…` : p.detail),
       href: (p) => `/dashboard/selling/products/${p.productId}/review`,
+      actionLabel: "Review requested changes",
     },
   ],
 
@@ -733,11 +828,16 @@ export const CATALOG: Catalog = {
       audience: { kind: "vendor_member" },
       category: "products",
       title: (p) => `${p.productName} passed review`,
-      // Careful wording: approved is not on sale. Saying "it's live" here and then
-      // having it sit in testing for a week is how a vendor stops trusting us.
+      // Careful wording: approved is not on sale, and this is a separate event from
+      // `ProductPublished` because they are separate product states. Saying "it's
+      // live" here and then having it sit in preparation for a week is how a vendor
+      // stops trusting us. What our own preparation consists of is internal, so it
+      // is described by its effect — "being prepared for publication" — rather than
+      // by naming the stages.
       body: () =>
-        "It has gone into our own testing and readiness checks. We will tell you when it is on sale.",
+        "Your product has passed review and is now being prepared for publication. There's nothing you need to do right now. We'll email you as soon as it's live.",
       href: (p) => `/dashboard/selling/products/${p.productId}/review`,
+      actionLabel: "View product",
     },
   ],
 
@@ -784,9 +884,12 @@ export const CATALOG: Catalog = {
     {
       audience: { kind: "vendor_member" },
       category: "products",
-      title: (p) => `${p.productName} is on sale`,
-      body: () => "Customers can buy it now.",
+      title: (p) => `${p.productName} is now live`,
+      body: () => "Your product is live on CoSetup and available for customers to buy.",
+      // Already the public product page — `productHref` is the only builder for one.
+      // Only the label changes, so the button says where it goes.
       href: (p) => productHref(p.productSlug),
+      actionLabel: "View live product",
     },
   ],
 

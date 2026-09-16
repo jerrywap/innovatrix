@@ -81,7 +81,7 @@ export default async function Page() {
     <div className="flex w-full max-w-[1040px] flex-col gap-7">
       <PageHeader
         title="Sell on CoSetup"
-        description="Tell us who you are and what you build. Somebody reads every application."
+        description="Tell us who you are and what you build. We'll review your application and let you know when there's an update."
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Sell" }]}
         // `PageHeader`'s unused slot, earning its keep: applying is step one of four,
         // and saying so is the difference between a form and a form with a horizon.

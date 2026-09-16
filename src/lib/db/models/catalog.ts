@@ -509,6 +509,21 @@ export interface ProductDoc {
   descriptionInherited?: boolean;
   status: ProductStatus;
   /**
+   * What the status was when this product was last archived.
+   *
+   * Written on the way *into* `archived` by `productService.transition`, read on
+   * the way out so unarchiving puts the product back where it was rather than
+   * dropping everything to `draft` — a published product that was archived by
+   * mistake keeps its place in the pipeline.
+   *
+   * **Not cleared on restore.** `setStatusIfCurrent` only offers `$set`, and the
+   * stale value is honest: it says what the last archive archived, and the next
+   * one overwrites it. Absent on every product archived before this field
+   * existed, and on one delisted by `emergencyDelist`, which writes the status
+   * directly and bypasses the machine — both fall back to `draft`.
+   */
+  archivedFrom?: ProductStatus;
+  /**
    * Which storefront this belongs to — `script` or `template`.
    *
    * A *surface*, not a filter: it decides which grid a product appears in, not
@@ -644,6 +659,9 @@ const productSchema = new Schema<ProductDoc>(
       default: "draft",
       index: true,
     },
+    // Where an unarchive puts it back. Not indexed: it is read only once the
+    // document is already in hand.
+    archivedFrom: { type: String, enum: PRODUCT_STATUSES },
 
     catalogue: { type: String, enum: PRODUCT_CATALOGUES, required: true, default: "script" },
     scriptListingId: { type: Schema.Types.ObjectId, ref: "Product" },

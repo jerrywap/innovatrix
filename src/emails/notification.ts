@@ -38,6 +38,17 @@ export function notificationEmail(input: {
   body?: string;
   url: string;
   category: string;
+  /**
+   * What the button says, when the event has an obvious action.
+   *
+   * Defaults to "Open in CoSetup", which is honest and says nothing: it was the
+   * label on every one of these, so a vendor whose product went live and a
+   * customer whose invoice fell due were offered the identical button. A rule
+   * that knows where it is sending somebody names it — "View live product",
+   * "View invoice" — and the ones that genuinely have no better word keep the
+   * default rather than inventing one.
+   */
+  actionLabel?: string;
 }): EmailMessage {
   const label = categorySubject(input.category) ?? BRAND.name;
 
@@ -52,7 +63,7 @@ export function notificationEmail(input: {
       greeting: input.name ? `Hi ${input.name},` : "Hello,",
       heading: input.title,
       body: input.body ? [input.body] : [],
-      action: { label: "Open in CoSetup", url: input.url, showUrl: false },
+      action: { label: input.actionLabel ?? "Open in CoSetup", url: input.url, showUrl: false },
       notes: [
         isEssentialCategory(input.category)
           ? "You receive this because it concerns money or your account security."

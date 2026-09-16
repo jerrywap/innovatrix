@@ -71,6 +71,7 @@ export function PurchasePanel({
   addons,
   customisable,
   typicalTurnaround,
+  tip,
   demo,
   viewer,
   owned,
@@ -84,6 +85,20 @@ export function PurchasePanel({
   addons: readonly DetailAddon[];
   customisable: boolean;
   typicalTurnaround?: string;
+  /**
+   * The tip offer, when there is one to make.
+   *
+   * Absent for a first-party product (nobody to tip) and for any viewer who is
+   * not a signed-in customer (nobody to charge). Resolved in
+   * `purchase-section.tsx`, so this component never has to ask either question.
+   */
+  tip?: {
+    productName: string;
+    vendorName: string;
+    commissionBasisPoints: number;
+    currency: string;
+    options: ReadonlyArray<{ currency: string; presets: readonly number[] }>;
+  };
   /** Whether there is a session — a free claim needs one, adding to the basket does not. */
   /**
    * Who is looking. Four kinds, because the free-download CTA renders four
@@ -313,6 +328,7 @@ export function PurchasePanel({
             signInHref={signInHref}
             destinationLabel={PURCHASES_LABEL}
             disabled={!selected}
+            {...(tip ? { tip } : {})}
           />
         ) : (
           /* Live as of ticket 10. The selection above decides what goes in —

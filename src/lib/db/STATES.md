@@ -23,7 +23,7 @@ which for `order.paid` means fulfilling twice.
 | `ready` | `published` · `internal_review` · `archived` |  |
 | `published` | `deprecated` · `archived` |  |
 | `deprecated` | `published` · `archived` |  |
-| `archived` | — | **terminal** |
+| `archived` | `draft` · `changes_requested` · `internal_review` · `ready` · `published` · `deprecated` |  |
 
 ```mermaid
 stateDiagram-v2
@@ -48,6 +48,12 @@ stateDiagram-v2
     published --> archived
     deprecated --> published
     deprecated --> archived
+    archived --> draft
+    archived --> changes_requested
+    archived --> internal_review
+    archived --> ready
+    archived --> published
+    archived --> deprecated
 ```
 
 ## productVersion

@@ -2,6 +2,7 @@ import "server-only";
 import { connectToDatabase } from "@/lib/db/client";
 import { toObjectId } from "@/lib/db/base";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { Entitlement } from "@/lib/db/models/commerce";
 import { Organization } from "@/lib/db/models/identity";
 import type { ProductPrice } from "@/lib/db/models/catalog";
 import type { StorefrontCurrency } from "@/config/storefront";
@@ -101,6 +102,22 @@ export async function claimFreeProduct(
    */
   const owned = await entitlements.findForProduct(context.organizationId, input.productId);
   if (owned && owned.status === "active") {
+    /*
+     * Taking it again puts it back on the shelf.
+     *
+     * Somebody who removed a free download from their library and then clicks
+     * "Download for free" again means "I want this listed again", not "make me a
+     * second copy of it". Clearing the flag on the row that already exists is
+     * what keeps one product to one card — the alternative, a fresh entitlement,
+     * is the duplicate the library now folds away.
+     *
+     * Unconditional rather than read-then-write: `$unset` on a row without the
+     * field is a no-op, and the read would be a round trip to avoid nothing.
+     */
+    if (owned.hiddenAt) {
+      await Entitlement.updateOne({ _id: owned._id }, { $unset: { hiddenAt: "" } });
+    }
+
     return {
       entitlementId: String(owned._id),
       ...(await packageFileFor(owned.purchasedVersionId)),

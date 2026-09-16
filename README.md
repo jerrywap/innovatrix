@@ -502,6 +502,7 @@ error rather than a 404 somebody finds later.
 | `ai-contexts/OPERATIONS.md` | environments, migrations, deploy, smoke test, rollback |
 | `ai-contexts/tickets/29-human-checklist.md` | the manual test plan — the four critical journeys, every persona, mobile, a11y |
 | `src/lib/db/ERD.md`, `STATES.md`, `INTEGRITY.md` | generated: the data model, its state machines, its invariants |
+| `docs/` | how existing data maps to work not yet built — starting with `marketing-data.md` |
 
 ## Known limitations
 

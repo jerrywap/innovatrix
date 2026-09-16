@@ -4,7 +4,11 @@ import { connectToDatabase } from "@/lib/db/client";
 import { counterStore } from "@/lib/db/counter-store";
 import { generateReference } from "@/lib/references";
 import { Order, Payment, type OrderDoc, type PaymentDoc } from "@/lib/db/models/commerce";
-import type { InvoiceStatus, PaymentProvider as ProviderKey } from "@/lib/db/enums";
+import type {
+  InvoiceStatus,
+  PaymentProvider as ProviderKey,
+  PaymentSubjectType,
+} from "@/lib/db/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { CurrencyCode } from "@/lib/money";
 import { serverEnv } from "@/config/env";
@@ -248,7 +252,8 @@ export async function createPaymentRecord(input: {
   organizationId: string;
   provider: ProviderKey;
   subjectId: string;
-  subjectType?: "order" | "invoice";
+  /** Defaults to `order`. Kept in step with `PAYMENT_SUBJECT_TYPES` by hand. */
+  subjectType?: PaymentSubjectType;
   amount: { amount: number; currency: string };
   recordedByUserId?: string;
   /**
@@ -403,6 +408,104 @@ export async function initiatePaymentForInvoice(input: {
       invoiceReference: invoice.reference,
     },
     source: "invoice",
+  });
+
+  return {
+    payment: { ...payment, providerRef: initiated.providerRef },
+    redirectUrl: initiated.redirectUrl,
+    provider: key,
+  };
+}
+
+/* ────────────────────────────────────────────── tips */
+
+/**
+ * Take a tip — the third subject.
+ *
+ * ## Almost nothing here is new
+ *
+ * `resolveProvider`, `createPaymentRecord`, the driver contract and the webhook
+ * idempotency index are all reused exactly as the invoice path reuses them. The
+ * driver has never known what it was charging for: `InitiateInput` takes
+ * `Pick<PaymentDoc, "reference" | "subjectType">` and a description. So the
+ * genuinely new code is a `subjectType` and a return URL.
+ *
+ * ## No pending-payment reuse
+ *
+ * The order and invoice paths look for an existing `pending` payment of the same
+ * amount and reuse it, because a customer refreshing checkout must not mint a
+ * second payment for one debt. A tip is the opposite: two tips of £5 are two
+ * gestures, and folding them into one would silently lose the second.
+ */
+export async function initiatePaymentForTip(input: {
+  tipId: string;
+  organizationId: string;
+  customerEmail: string;
+  customerName?: string;
+  preferredProvider?: ProviderKey;
+  actor: AuditActor;
+}): Promise<InitiatePaymentResult> {
+  await connectToDatabase();
+
+  const { Tip } = await import("@/lib/db/models/commerce");
+
+  const tip = await Tip.findOne({
+    _id: toObjectId(input.tipId),
+    organizationId: toObjectId(input.organizationId),
+  }).lean<import("@/lib/db/models/commerce").TipDoc>();
+
+  if (!tip) throw new NotFoundError("tip", { id: input.tipId });
+  if (tip.paidAt) {
+    throw new ConflictError("This tip has already been paid.");
+  }
+
+  const currency = tip.amount.currency.toUpperCase() as CurrencyCode;
+  const { key, driver } = await resolveProvider(currency, input.preferredProvider);
+
+  const payment = await createPaymentRecord({
+    organizationId: input.organizationId,
+    provider: key,
+    subjectType: "tip",
+    subjectId: String(tip._id),
+    amount: { amount: tip.amount.amount, currency },
+  });
+
+  await Tip.updateOne({ _id: tip._id }, { $set: { paymentId: payment._id } });
+
+  const returnUrl = `${serverEnv().APP_URL.replace(/\/$/, "")}/dashboard/software`;
+
+  const initiated = await driver.initiate({
+    payment,
+    amount: { amount: tip.amount.amount, currency },
+    customer: {
+      email: input.customerEmail,
+      ...(input.customerName ? { name: input.customerName } : {}),
+      organizationId: input.organizationId,
+    },
+    // Says what it is on the customer's statement. "CoSetup order" on a tip would
+    // be the line somebody disputes because they cannot place it.
+    description: `CoSetup tip`,
+    returnUrl,
+    metadata: { tip_id: String(tip._id) },
+  });
+
+  await Payment.updateOne(
+    { _id: payment._id },
+    { $set: { providerRef: initiated.providerRef } },
+  );
+
+  await writeAuditLog({
+    action: "payment.initiated",
+    actor: input.actor,
+    subject: { type: "tip", id: String(tip._id) },
+    organizationId: input.organizationId,
+    after: {
+      reference: payment.reference,
+      provider: key,
+      amount: tip.amount.amount,
+      currency,
+    },
+    source: "tip",
   });
 
   return {

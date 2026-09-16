@@ -186,6 +186,7 @@ async function deliverOne<K extends DomainEventName>(
       ...(body ? { body } : {}),
       url,
       category: rule.category,
+      ...(rule.actionLabel ? { actionLabel: rule.actionLabel } : {}),
       ...(written ? { email: written } : {}),
     });
   }

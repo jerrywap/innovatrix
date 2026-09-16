@@ -165,7 +165,7 @@ export function ReviewPanel({
 
         <p className="text-muted-foreground max-w-[36rem] text-[14px] leading-relaxed">
           {brief.manual
-            ? "Write down what you need, one line at a time. A person reads all of it."
+            ? "Write down what you need, one line at a time. Give us as much detail as you can — it helps us understand what you're looking for."
             : "Here’s what we understood. Change anything we got wrong, include anything we suggested that you want, and leave out what you don’t."}
         </p>
       </header>

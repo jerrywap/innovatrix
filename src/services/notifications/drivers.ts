@@ -53,6 +53,7 @@ const email: NotificationChannelDriver = {
           ...(payload.body ? { body: payload.body } : {}),
           url: payload.url,
           category: payload.category,
+          ...(payload.actionLabel ? { actionLabel: payload.actionLabel } : {}),
         });
 
     try {

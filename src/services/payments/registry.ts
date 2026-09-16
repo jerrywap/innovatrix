@@ -231,12 +231,33 @@ export async function providersFor(currency: CurrencyCode): Promise<ResolvedProv
 }
 
 /**
- * Which storefront currencies nobody can take money in.
+ * Which storefront currencies money can and cannot be taken in.
  *
- * The admin screen shows this as a validation error, because a currency the
+ * Two functions rather than one and a filter, because the two callers want
+ * opposite things and each wants a list it can render directly.
+ *
+ * `uncoveredCurrencies` is the admin screen's validation error: a currency the
  * marketplace prices in and cannot charge for is a checkout that fails at the
- * last step — the most expensive place to discover a configuration mistake.
+ * last step, which is the most expensive place to discover a configuration
+ * mistake.
+ *
+ * `payableCurrencies` is the other side of the same fact, asked **before** a
+ * screen offers to take money. A tip dialog that lists amounts in a currency no
+ * provider serves ends in "We can't take payment in GBP at the moment" *after*
+ * somebody has chosen how much to give — which is the same mistake, discovered
+ * at the same worst moment, on a screen whose whole purpose is goodwill.
  */
+export async function payableCurrencies(): Promise<CurrencyCode[]> {
+  const payable: CurrencyCode[] = [];
+
+  for (const currency of STOREFRONT_CURRENCIES) {
+    const candidates = await providersFor(currency);
+    if (candidates.length > 0) payable.push(currency);
+  }
+
+  return payable;
+}
+
 export async function uncoveredCurrencies(): Promise<CurrencyCode[]> {
   const uncovered: CurrencyCode[] = [];
 

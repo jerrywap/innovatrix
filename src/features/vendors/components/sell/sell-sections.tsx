@@ -244,7 +244,7 @@ export function BecomingAVendor() {
       <SectionHead
         eyebrow="What you'll need"
         title="Verify once. Start listing."
-        lede="Applying takes a few minutes. Nothing here is automatic — which is slower than a sign-up form, and the reason a buyer trusts what is on the shelf."
+        lede="Applying takes a few minutes. We review seller applications before approving them to sell on CoSetup."
       />
 
       <ol className="border-border bg-surface mt-10 grid overflow-hidden rounded-[22px] border sm:grid-cols-2 lg:grid-cols-4">

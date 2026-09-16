@@ -9,6 +9,8 @@ import { requireOrg } from "@/lib/auth/dal";
 import { listOwnedSoftware } from "@/services/entitlements/entitlement-service";
 import { SoftwareCard } from "@/features/software/components/software-card";
 import { PURCHASES_LABEL } from "@/lib/navigation";
+import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
+import { tipOfferFor } from "@/services/tips/tip-service";
 
 export const metadata: Metadata = { title: PURCHASES_LABEL };
 
@@ -57,11 +59,55 @@ async function Owned() {
     );
   }
 
+  /*
+   * The tip offer, resolved **once per vendor** rather than once per card.
+   *
+   * A library of twenty products from two vendors is two commission lookups, not
+   * twenty — the same reasoning as `listOwnedSoftware`'s four bulk queries a few
+   * lines above, and the reason the card is handed the answer instead of asking
+   * for it.
+   *
+   * A vendor whose rate cannot be resolved simply gets no button; a tip screen
+   * that cannot state the split honestly should not be shown at all.
+   */
+  const currency = await resolveStorefrontCurrency();
+  const vendors = new Map(
+    owned
+      .map((item) => item.product.vendor)
+      .filter((vendor): vendor is { id: string; name: string } => !!vendor)
+      .map((vendor) => [vendor.id, vendor.name]),
+  );
+  const offers = new Map(
+    await Promise.all(
+      [...vendors].map(
+        async ([id, name]) =>
+          [id, await tipOfferFor({ vendorId: id, vendorName: name, currency })] as const,
+      ),
+    ),
+  );
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      {owned.map((entitlement) => (
-        <SoftwareCard key={entitlement.id} entitlement={entitlement} />
-      ))}
+      {owned.map((entitlement) => {
+        const vendorId = entitlement.product.vendor?.id;
+        const offer = vendorId ? offers.get(vendorId) : undefined;
+
+        return (
+          <SoftwareCard
+            key={entitlement.id}
+            entitlement={entitlement}
+            {...(offer
+              ? {
+                  tip: {
+                    currency: offer.currency,
+                    options: offer.options,
+                    commissionBasisPoints: offer.commissionBasisPoints,
+                  },
+                }
+              : {})}
+          />
+        );
+      })}
     </div>
   );
 }

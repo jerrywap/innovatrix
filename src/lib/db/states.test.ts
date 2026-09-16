@@ -16,8 +16,10 @@ import {
   canTransition,
   isTerminal,
   nextStates,
+  productPermissionsForTarget,
   productTransitionRule,
   requestTransitionRule,
+  restoreTargetFor,
 } from "./states";
 import { PERMISSIONS } from "@/lib/auth/permissions";
 
@@ -53,12 +55,46 @@ describe("every state machine", () => {
     }
   });
 
+  /*
+   * Every machine ends, except the one that describes a thing rather than a process.
+   *
+   * `product` is exempt by name, and the exemption is the point rather than a hole:
+   * an order, an invoice, a payment, a quote, a request and a vendor application
+   * each describe something that *finishes*, and a machine of that kind with no
+   * terminal state is a bug — work that can be moved round the board for ever.
+   *
+   * A product is a catalogue entry. It has no completion; `archived` is a shelf,
+   * not an ending, which is exactly what made it worth being able to come back
+   * from. A product's real end is `deletedAt`, which is outside this machine
+   * because soft-deletion is not a status — see `softDelete`, which refuses
+   * anything that is not an untouched draft.
+   *
+   * Named rather than derived, so adding a seventh machine still has to answer
+   * this question instead of inheriting an answer.
+   */
+  const NO_TERMINAL_STATE = new Set(["product"]);
+
   it("has at least one terminal state, so nothing loops forever", () => {
     for (const [name, map] of Object.entries(STATE_MACHINES)) {
+      if (NO_TERMINAL_STATE.has(name)) continue;
+
       const terminals = Object.entries(map).filter(
         ([, t]) => (t as readonly string[]).length === 0,
       );
       expect(terminals.length, `${name} has no terminal state`).toBeGreaterThan(0);
+    }
+  });
+
+  it("exempts only machines that describe a thing rather than a process", () => {
+    for (const name of NO_TERMINAL_STATE) {
+      const map = STATE_MACHINES[name as keyof typeof STATE_MACHINES];
+      expect(map, `${name} is exempted but is not a machine`).toBeDefined();
+      const terminals = Object.entries(map).filter(
+        ([, t]) => (t as readonly string[]).length === 0,
+      );
+      // If one grows a terminal state, the exemption has stopped being true and
+      // should go rather than sit there excusing nothing.
+      expect(terminals.length, `${name} now has a terminal state; drop the exemption`).toBe(0);
     }
   });
 
@@ -193,9 +229,44 @@ describe("product (§46)", () => {
     }
   });
 
-  it("allows un-deprecating but never un-archiving", () => {
+  it("allows un-deprecating, and un-archiving back the way it came", () => {
     expect(canTransition(PRODUCT_TRANSITIONS, "deprecated", "published")).toBe(true);
-    expect(isTerminal(PRODUCT_TRANSITIONS, "archived")).toBe(true);
+    expect(isTerminal(PRODUCT_TRANSITIONS, "archived")).toBe(false);
+  });
+
+  /*
+   * The one status that archives but cannot be restored to.
+   *
+   * Not an oversight and not a detail of this screen: permission for a product
+   * transition is checked coarsely, by target, with `productPermissionsForTarget`,
+   * and both edges into `submitted` carry `permission: null` so that set is empty
+   * and staff can never reach it. A rule for `archived -> submitted` would make
+   * the set non-empty and hand staff `draft -> submitted` along with it — which is
+   * the vendor's attestation to make. Asserted here so that a later "we should be
+   * able to restore to submitted too" meets the reason rather than rediscovering
+   * it.
+   */
+  it("never restores an archived product to submitted", () => {
+    expect(canTransition(PRODUCT_TRANSITIONS, "archived", "submitted")).toBe(false);
+    expect(productPermissionsForTarget("submitted")).toEqual([]);
+  });
+
+  it("restores to the recorded status, and to draft when there is none", () => {
+    expect(restoreTargetFor("published")).toBe("published");
+    expect(restoreTargetFor("ready")).toBe("ready");
+    // Archived before the field existed, or delisted by a path that bypasses the
+    // machine and writes no `archivedFrom`.
+    expect(restoreTargetFor(undefined)).toBe("draft");
+    // Clamped, because neither is an edge out of `archived`.
+    expect(restoreTargetFor("submitted")).toBe("draft");
+    expect(restoreTargetFor("archived")).toBe("draft");
+  });
+
+  it("offers a rule for every way back out of archived", () => {
+    for (const to of PRODUCT_TRANSITIONS.archived) {
+      expect(productTransitionRule("archived", to)?.label).toBe("Unarchive");
+      expect(productTransitionRule("archived", to)?.vendorMay).toBe(false);
+    }
   });
 });
 

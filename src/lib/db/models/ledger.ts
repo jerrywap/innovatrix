@@ -66,6 +66,15 @@ export interface LedgerEntryDoc {
   invoiceId?: Types.ObjectId;
   /** The quote the invoice collected, for the audit trail back to the vendor's own price. */
   quoteId?: Types.ObjectId;
+  /**
+   * The tip that produced it.
+   *
+   * A third provenance for the same reason `invoiceId` was a second: a tip has no
+   * order line and no invoice, so neither pair above can describe it, and without
+   * this the entry would sit in the balance with nothing to trace it to. A row
+   * still has exactly one provenance — an order line, an invoice, or a tip.
+   */
+  tipId?: Types.ObjectId;
   /** The payout that settled it — vendor ticket 09. */
   payoutId?: Types.ObjectId;
   /** Required on an adjustment. A ledger without adjustments grows a spreadsheet beside it. */
@@ -86,6 +95,8 @@ const ledgerEntrySchema = new Schema<LedgerEntryDoc>(
     // Vendor ticket 14 — the other provenance. Absent on every row that predates it.
     invoiceId: { type: Schema.Types.ObjectId, ref: "Invoice" },
     quoteId: { type: Schema.Types.ObjectId, ref: "Quote" },
+    // The third provenance — a tip, which has neither an order line nor an invoice.
+    tipId: { type: Schema.Types.ObjectId, ref: "Tip" },
     payoutId: { type: Schema.Types.ObjectId, ref: "Payout" },
     note: { type: String, trim: true },
   },
@@ -122,6 +133,21 @@ ledgerEntrySchema.index(
   { unique: true, partialFilterExpression: { invoiceId: { $exists: true } } },
 );
 
+/**
+ * And the same guard again, for tips.
+ *
+ * One tip is one earning. A retried webhook calls `settleTip` a second time, and
+ * without this it would pay the vendor twice for one gesture — the identical
+ * failure the two indexes above exist to stop, so it gets the identical shape.
+ *
+ * Partial, like its siblings: every row without a tip would otherwise collide on
+ * `null`.
+ */
+ledgerEntrySchema.index(
+  { tipId: 1, kind: 1 },
+  { unique: true, partialFilterExpression: { tipId: { $exists: true } } },
+);
+
 /** The sweep's filter, and the balance query. */
 ledgerEntrySchema.index({ status: 1, clearsAt: 1 });
 ledgerEntrySchema.index({ vendorId: 1, status: 1, createdAt: -1 });
@@ -149,6 +175,7 @@ const IMMUTABLE = [
   "orderLineId",
   "invoiceId",
   "quoteId",
+  "tipId",
 ] as const;
 
 const APPEND_ONLY =

@@ -63,16 +63,18 @@ export const WE_HANDLE = [
 ] as const;
 
 /**
- * The four steps, unchanged from the page they came from.
+ * The four steps.
  *
- * These were already specific and honest — "Somebody reads every application" and "A
- * government ID and a proof of address" are the two sentences an applicant most needs
- * — so they are moved rather than rewritten. Only the presentation changes.
+ * The two facts an applicant most needs are that applications are reviewed
+ * before approval, and that identity verification is a government ID plus a
+ * proof of address. Both survive every rewrite of this list; the wording of the
+ * first changed in the communications review, from naming the reviewer to naming
+ * the review.
  */
 export const STEPS = [
   {
     title: "Apply",
-    body: "Tell us who you are and what you build. Somebody reads every application — this is not an automatic sign-up.",
+    body: "Tell us who you are and what you build. Applications are reviewed before a seller account is approved.",
   },
   {
     title: "Verify your identity",
@@ -80,7 +82,7 @@ export const STEPS = [
   },
   {
     title: "List your first product",
-    body: "The same tools our own catalogue is built with. A reviewer checks it before it goes on sale, and tells you what to change if it isn't ready.",
+    body: "The same tools our own catalogue is built with. We'll review it before it goes on sale and let you know if anything needs to change.",
   },
   {
     title: "Get paid",

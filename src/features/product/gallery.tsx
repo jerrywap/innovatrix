@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Image from "next/image";
 import {
   ChevronLeft,
@@ -176,8 +184,42 @@ export function ProductMedia({
    * from them, and re-rendering on every `pointermove` would be a wasted commit
    * on top of the one the pan itself causes.
    */
-  const from = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const from = useRef<{ x: number; y: number; panX: number; panY: number; at: number } | null>(
+    null,
+  );
   const frame = useRef<HTMLDivElement | null>(null);
+
+  /*
+   * Live pointers, for pinch. A `Map` rather than two slots because a third
+   * finger landing mid-gesture must not be mistaken for the second one lifting.
+   *
+   * Refs, not state: a pinch re-renders through `setView` already, and mirroring
+   * the raw pointer positions into state would add a commit per `pointermove` on
+   * top of the one the zoom itself costs.
+   */
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ distance: number; zoom: number } | null>(null);
+
+  /*
+   * The frame as **state** as well as a ref, and a callback ref to set both.
+   *
+   * Radix mounts `DialogContent` through `Presence`, which attaches the portal's
+   * children *after* this component's effects have run — so an effect reading
+   * `frame.current` finds `null` on the render that opens the lightbox, and the
+   * wheel listener below was never attached. Measured, not guessed: the effect
+   * logged `{ node: false, canZoom: true }`.
+   *
+   * A state setter in a callback ref re-renders when the node actually arrives,
+   * which is the ordinary React answer to "an effect needs a node a portal owns".
+   * The callback is memoised with no dependencies because an inline one changes
+   * identity every render, and React would then detach, re-attach and re-set the
+   * state on each — a loop.
+   */
+  const [frameNode, setFrameNode] = useState<HTMLDivElement | null>(null);
+  const setFrame = useCallback((node: HTMLDivElement | null) => {
+    frame.current = node;
+    setFrameNode(node);
+  }, []);
 
   const total = images.length;
 
@@ -230,25 +272,58 @@ export function ProductMedia({
     };
   }, []);
 
-  /*
-   * Both of these take the *previous* value rather than reading the current zoom
-   * from the render closure, and that is not style. Holding `+` down, or
-   * pressing it twice inside one frame, computes every step from the same stale
-   * value and the level advances once — measured, not theorised, while testing
-   * the keyboard bindings.
+  /**
+   * Zoom, keeping one point of the image where it is.
    *
-   * The offset is re-clamped rather than reset, so zooming out from a panned
-   * corner walks the image back toward centre as the overhang shrinks instead of
-   * snapping it there.
+   * ## Why a focal point at all
+   *
+   * Scaling about the centre means the thing somebody just clicked, scrolled
+   * towards or pinched around slides away from them — the further from centre it
+   * was, the further it goes. Clicking a detail in the corner of a screenshot and
+   * watching it leave the frame is the whole complaint.
+   *
+   * The content is drawn as `translate(x, y) scale(z)` about the frame's centre,
+   * so a point `p` measured from that centre shows image coordinate
+   * `c = (p - offset) / z`. Holding `c` still across a change to `z'` gives
+   * `offset' = p - (p - offset) · z'/z`, which is the line below. Then the
+   * existing `clampPan` pulls it back if the edges would show.
+   *
+   * `point` is `null` for the buttons and the keyboard, which have no cursor to
+   * anchor to and correctly zoom about the centre.
    */
-  const zoomTo = useCallback(
-    (next: (current: number) => number) =>
+  const zoomAround = useCallback(
+    (point: { x: number; y: number } | null, next: (current: number) => number) =>
       setView((current) => {
         const zoom = clampZoom(next(current.zoom));
+        // Fully zoomed out is always centred: there is no overhang to hold onto,
+        // and leaving an offset behind would show a corner of a 1× image.
         if (zoom === MIN_ZOOM) return { zoom, x: 0, y: 0 };
-        return { zoom, ...clampPan({ x: current.x, y: current.y }, zoom) };
+
+        const box = frame.current?.getBoundingClientRect();
+        if (!box || !point) return { zoom, ...clampPan({ x: current.x, y: current.y }, zoom) };
+
+        const px = point.x - (box.left + box.width / 2);
+        const py = point.y - (box.top + box.height / 2);
+        const ratio = zoom / current.zoom;
+
+        return {
+          zoom,
+          ...clampPan(
+            { x: px - (px - current.x) * ratio, y: py - (py - current.y) * ratio },
+            zoom,
+          ),
+        };
       }),
     [clampPan],
+  );
+
+  /*
+   * Both of these take the *previous* value rather than reading the current zoom
+   * from the render closure — see the note above `zoomAround`.
+   */
+  const zoomTo = useCallback(
+    (next: (current: number) => number) => zoomAround(null, next),
+    [zoomAround],
   );
 
   const value = useMemo<MediaContextValue>(
@@ -259,6 +334,37 @@ export function ProductMedia({
   const open = openIndex !== null ? images[openIndex] : undefined;
   const canZoom = open?.kind === "screenshot";
   const zoomed = canZoom && view.zoom > MIN_ZOOM;
+
+  /*
+   * Wheel and trackpad zoom.
+   *
+   * A native listener with `{ passive: false }` rather than React's `onWheel`,
+   * because React registers wheel at the root as **passive** — `preventDefault`
+   * there is ignored with a console warning, and the lightbox would zoom *and*
+   * scroll the dialog behind it, which carries `overflow-y-auto`.
+   *
+   * `ctrlKey` is how a browser reports a trackpad pinch, so that arrives here too
+   * and is treated as the same gesture. A plain wheel zooms as well: inside a
+   * lightbox there is nothing else it could usefully do.
+   *
+   * Proportional rather than a fixed step — a trackpad sends many small deltas
+   * and a mouse sends few large ones, so a constant would be either unusably slow
+   * on one or uncontrollable on the other. Clamped per event so a flick cannot
+   * jump the whole range.
+   */
+  useEffect(() => {
+    if (!frameNode || !canZoom) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const factor = Math.exp(-event.deltaY / (event.ctrlKey ? 100 : 320));
+      const bounded = Math.max(0.8, Math.min(1.25, factor));
+      zoomAround({ x: event.clientX, y: event.clientY }, (z) => z * bounded);
+    };
+
+    frameNode.addEventListener("wheel", onWheel, { passive: false });
+    return () => frameNode.removeEventListener("wheel", onWheel);
+  }, [frameNode, canZoom, zoomAround]);
 
   // Nothing to show, and nothing to say about it: a "Screenshots" heading over
   // an empty strip reads as a broken page. The children still render — the hero
@@ -353,14 +459,25 @@ export function ProductMedia({
             </div>
 
             <div
-              ref={frame}
+              ref={setFrame}
               className={cn(
                 "relative h-[70vh] w-full overflow-hidden",
                 // `touch-pan-y` lets the page keep vertical scrolling while a
                 // horizontal drag is ours; once zoomed, both axes are ours.
                 zoomed ? "touch-none" : "touch-pan-y",
-                zoomed && "cursor-grab active:cursor-grabbing",
+                // Says which gesture is available before anybody tries one:
+                // magnify at 1×, move it around once magnified.
+                zoomed ? "cursor-grab active:cursor-grabbing" : canZoom && "cursor-zoom-in",
               )}
+              /*
+                No `onDoubleClick`.
+
+                It used to hold the 1× ⇄ 2× toggle, and with a single click now
+                zooming a step the two fight: click, click would go 1 → 1.5 → 2 and
+                then the double-click handler would fire on the same gesture and
+                send it back to 1×. Two clicks are two steps, which is the same
+                idea without the contradiction, and the `0` key still resets.
+              */
               /*
                 One pointer handler, two jobs, decided by whether we are zoomed.
                 A swipe while magnified would be unusable — the gesture people
@@ -371,11 +488,28 @@ export function ProductMedia({
                 the same path and needs no separate branch.
               */
               onPointerDown={(event) => {
+                pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+                // Two fingers down: a pinch, not a pan or a swipe. Record the
+                // span and the zoom it started from, so the gesture is a ratio
+                // rather than an accumulation of deltas that drifts.
+                if (pointers.current.size === 2) {
+                  const [a, b] = [...pointers.current.values()];
+                  pinch.current = {
+                    distance: Math.hypot(b!.x - a!.x, b!.y - a!.y),
+                    zoom: view.zoom,
+                  };
+                  from.current = null;
+                  setDragging(false);
+                  return;
+                }
+
                 from.current = {
                   x: event.clientX,
                   y: event.clientY,
                   panX: view.x,
                   panY: view.y,
+                  at: event.timeStamp,
                 };
                 if (zoomed) {
                   setDragging(true);
@@ -383,6 +517,25 @@ export function ProductMedia({
                 }
               }}
               onPointerMove={(event) => {
+                if (pointers.current.has(event.pointerId)) {
+                  pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+                }
+
+                const gesture = pinch.current;
+                if (gesture && pointers.current.size === 2) {
+                  if (!canZoom) return;
+                  const [a, b] = [...pointers.current.values()];
+                  const distance = Math.hypot(b!.x - a!.x, b!.y - a!.y);
+                  // A span of nothing would divide by zero and send the zoom to
+                  // infinity; two fingers that close together is not a gesture.
+                  if (gesture.distance < 1) return;
+                  zoomAround(
+                    { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 },
+                    () => gesture.zoom * (distance / gesture.distance),
+                  );
+                  return;
+                }
+
                 const start = from.current;
                 if (!start || !zoomed) return;
                 setView((current) => ({
@@ -397,27 +550,51 @@ export function ProductMedia({
                 }));
               }}
               onPointerUp={(event) => {
+                pointers.current.delete(event.pointerId);
+                if (pointers.current.size < 2) pinch.current = null;
+
                 const start = from.current;
                 from.current = null;
                 setDragging(false);
-                if (!start || zoomed) return;
+                if (!start) return;
+
+                const dx = event.clientX - start.x;
+                const dy = event.clientY - start.y;
+
+                /*
+                  A tap, and the gesture everyone tries first.
+
+                  Discriminated from a drag and a swipe by distance and duration
+                  rather than by a separate `onClick`, which would fire after a
+                  40px swipe as well and step *and* zoom on one gesture. Five
+                  pixels is a steady finger; 250ms is a tap rather than a
+                  press-and-think.
+
+                  Zooming in a step, and returning to 1× at the top, so it is a
+                  loop somebody can get out of without finding the reset button.
+                */
+                if (Math.hypot(dx, dy) < 5 && event.timeStamp - start.at < 250) {
+                  if (canZoom) {
+                    zoomAround({ x: event.clientX, y: event.clientY }, (z) =>
+                      z >= MAX_ZOOM ? MIN_ZOOM : z + ZOOM_STEP,
+                    );
+                  }
+                  return;
+                }
+
+                if (zoomed) return;
                 /*
                   40px so a tap with a shaky thumb is not a navigation, and
                   `|dx| > |dy|` so scrolling the page vertically past the image
                   does not change it.
                 */
-                const dx = event.clientX - start.x;
-                const dy = event.clientY - start.y;
                 if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
               }}
-              onPointerCancel={() => {
+              onPointerCancel={(event) => {
+                pointers.current.delete(event.pointerId);
+                if (pointers.current.size < 2) pinch.current = null;
                 from.current = null;
                 setDragging(false);
-              }}
-              // The gesture everyone tries first. 1× ⇄ 2×, so it is a toggle
-              // rather than a ratchet that needs the keyboard to undo.
-              onDoubleClick={() => {
-                if (canZoom) zoomTo((z) => (z > MIN_ZOOM ? MIN_ZOOM : 2));
               }}
             >
               <div

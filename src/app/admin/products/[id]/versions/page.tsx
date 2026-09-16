@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { requirePermissionOrForbid } from "@/lib/auth/dal";
 import { loadWizardProduct } from "@/features/products/wizard";
 import { stepHref } from "@/features/products/steps";
@@ -73,7 +75,7 @@ export default async function Page({ params }: PageProps<"/admin/products/[id]/v
           actions={STAFF_VERSION_ACTIONS}
           productId={product.id}
           suggested={nextPatch(versions)}
-          hasVersions={versions.length > 0}
+          versionCount={versions.length}
         />
       </div>
 
@@ -90,13 +92,16 @@ export default async function Page({ params }: PageProps<"/admin/products/[id]/v
         ))}
       </div>
 
-      <div className="border-border flex justify-end border-t pt-4">
-        <a
-          href={stepHref(product.id, "demo")}
-          className="text-[13px] underline underline-offset-4"
-        >
-          Continue to demo configuration →
-        </a>
+      {/*
+        A button, like every other step's continue — this was the one underlined
+        text link in the wizard. The label stays honest: nothing on this screen is
+        saved by pressing it. Versions save on their own panels, so "Save and
+        continue" would claim a save that does not happen.
+      */}
+      <div className="border-border flex flex-wrap items-center gap-2 border-t pt-5">
+        <Button asChild>
+          <Link href={stepHref(product.id, "demo")}>Continue to demo configuration</Link>
+        </Button>
       </div>
     </div>
   );

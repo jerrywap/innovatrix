@@ -27,6 +27,7 @@ import { messageSender } from "./recipients";
 const GENERIC: DomainEventName[] = [
   // Audience is the buying organisation and nothing else needs looking up.
   "AddonProvisioned",
+  "OrderCompleted",
   "QuoteIssued",
   "QuoteAccepted",
   "QuoteRejected",
@@ -196,6 +197,14 @@ export function registerNotificationHandlers(): void {
    */
   on("VendorPayoutPaid", async (payload) => {
     await dispatch("VendorPayoutPaid", payload, { vendorId: payload.vendorId });
+  });
+
+  /*
+   * A tip. `vendorId` is in the payload and `resolveAudience` looks up who that
+   * means — a query, never a claim, like every other vendor audience.
+   */
+  on("VendorTipReceived", async (payload) => {
+    await dispatch("VendorTipReceived", payload, { vendorId: payload.vendorId });
   });
 
   on("VendorPayoutFailed", async (payload) => {

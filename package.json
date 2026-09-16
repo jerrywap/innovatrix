@@ -24,6 +24,7 @@
     "db:backfill:catalogue": "tsx --conditions=react-server --env-file=.env.local scripts/backfill-catalogue.ts",
     "db:backfill:customization": "tsx --conditions=react-server --env-file=.env.local scripts/backfill-customization.ts",
     "db:backfill:taxonomy-tree": "tsx --conditions=react-server --env-file=.env.local scripts/backfill-taxonomy-tree.ts",
+    "db:backfill:acquired-free": "tsx --conditions=react-server --env-file=.env.local scripts/backfill-acquired-free.ts",
     "db:reclassify": "tsx --conditions=react-server --env-file=.env.local scripts/reclassify-products.ts",
     "db:docs": "tsx scripts/generate-docs.ts",
     "storage:probe": "tsx --conditions=react-server --env-file=.env.local scripts/storage-probe.ts",

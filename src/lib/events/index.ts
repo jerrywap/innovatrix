@@ -361,6 +361,59 @@ export interface DomainEventMap {
     vendorId?: string;
   };
 
+  /**
+   * A paid order, fulfilled — the customer's purchase confirmation.
+   *
+   * ## Why it was in the enum and nowhere else
+   *
+   * `OrderCompleted` has been in `DOMAIN_EVENTS` since ticket 02 and had no
+   * `DomainEventMap` entry, so nothing could emit it and nothing could be told.
+   * The result was a customer who paid, received their licence, and got no
+   * email at all — while the confirmation screen promised them "a receipt lands
+   * in your inbox". This is that receipt.
+   *
+   * ## `LicenceIssued` is deliberately not a second event
+   *
+   * Fulfilment is synchronous: `fulfilOrder` marks the order paid, creates the
+   * entitlements and generates the licence keys inside **one** transaction, so
+   * the two would land in the same second and say almost the same thing. The
+   * licence is reported by `hasDownloads` here instead, which is what turns this
+   * from a receipt into the one message a buyer needs.
+   */
+  OrderCompleted: {
+    orderId: string;
+    reference: string;
+    organizationId: string;
+    /** What was bought, already composed — the email must not re-derive it. */
+    description: string;
+    /**
+     * Whether this order put anything in the customer's library.
+     *
+     * Decides where the button goes: an order with licences belongs in the
+     * purchases area, and one without — an installation service, say — belongs
+     * on the order itself.
+     */
+    hasDownloads: boolean;
+  };
+
+  /**
+   * A customer tipped a vendor after a download.
+   *
+   * Carries the amount the **vendor earns**, not the amount the customer paid.
+   * The notification says "you received £4.25" and that has to be the figure that
+   * reaches their balance, or the first payout will contradict the email that
+   * announced it. The gross is on the `Tip` for anybody who needs it.
+   */
+  VendorTipReceived: {
+    tipId: string;
+    vendorId: string;
+    productName: string;
+    /** Minor units, after commission — see above. */
+    amount: number;
+    currency: string;
+    note?: string;
+  };
+
   /** Ticket 23. The customer's "payment required" notice (§69). */
   InvoiceIssued: {
     invoiceId: string;
@@ -543,6 +596,8 @@ const EVENT_NAME_SET: Record<DomainEventName, true> = {
   ProductPublished: true,
   AddonProvisioningRequested: true,
   AddonProvisioned: true,
+  OrderCompleted: true,
+  VendorTipReceived: true,
   InvoiceIssued: true,
   MessagePosted: true,
   InvoicePaid: true,

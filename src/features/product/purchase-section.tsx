@@ -1,5 +1,6 @@
 import "server-only";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
+import { tipOfferFor } from "@/services/tips/tip-service";
 import { getSession, loginDestination } from "@/lib/auth/dal";
 import { isSaved } from "@/services/marketplace/saved";
 import {
@@ -53,6 +54,27 @@ export async function PurchaseSection({ product }: { product: ProductDetail }) {
         ? "customer"
         : "no-organisation";
 
+  /*
+   * The tip offer — resolved here, or not offered at all.
+   *
+   * Three conditions, and each removes a way the modal could be wrong:
+   * a product with no vendor has nobody to tip; a viewer who is not a customer
+   * cannot be charged (`requireOrg` would refuse the action); and the rate is
+   * read once, server-side, so the figure the modal shows is the figure
+   * `createTip` will snapshot.
+   */
+  const tip =
+    product.vendor && viewer === "customer"
+      ? {
+          productName: product.name,
+          ...(await tipOfferFor({
+            vendorId: product.vendor.id,
+            vendorName: product.vendor.name,
+            currency,
+          })),
+        }
+      : null;
+
   return (
     <PurchasePanel
       productId={product.id}
@@ -100,6 +122,16 @@ export async function PurchaseSection({ product }: { product: ProductDetail }) {
       {...(product.customization.typicalTurnaround
         ? { typicalTurnaround: product.customization.typicalTurnaround }
         : {})}
+      /*
+        The tip offer, resolved on the server or absent.
+        
+        Absent means the modal never renders: a first-party product has no vendor
+        to tip, and a viewer with no organisation cannot be charged. Deciding it
+        here keeps the client component free of both questions — and keeps the
+        commission rate, which is a vendor's private figure, out of the bundle for
+        any product the viewer cannot tip anyway.
+      */
+      {...(tip ? { tip } : {})}
       saveButton={
         <SaveButton
           productId={product.id}
