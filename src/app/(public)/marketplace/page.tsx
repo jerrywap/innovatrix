@@ -88,6 +88,12 @@ export default function Page({ searchParams }: PageProps<"/marketplace">) {
             searchParams={searchParams}
             basePath="/marketplace"
             catalogue="script"
+            /*
+              COS-43. The one surface that widens: somebody shopping for a working
+              application is exactly who a front-end-plus-an-offer is for. `/templates`
+              and every landing page keep the strict split.
+            */
+            includeCompleteOnRequest
           />
         </Suspense>
       </div>

@@ -19,6 +19,7 @@ import { vendorActor } from "@/services/audit";
 import { catalogChanged } from "@/services/catalog/cache";
 import * as demoService from "@/services/catalog/demo-service";
 import * as productService from "@/services/catalog/product-service";
+import * as completeOnRequest from "@/services/catalog/complete-on-request-service";
 import {
   createScriptSibling,
   createTemplateSibling,
@@ -716,5 +717,60 @@ export async function proposeVendorFeaturesAction(
       }
       throw error;
     }
+  });
+}
+
+/* ────────────────────────────────────────────── complete on request */
+
+/**
+ * Send the "complete on request" offer to staff — COS-43.
+ *
+ * Separate from saving the words, which the Options section already does. A vendor
+ * edits the scope as often as they like; asking for a decision is a distinct act,
+ * and folding the two together would re-open an approved offer every time somebody
+ * fixed a typo.
+ *
+ * Vendor-scoped, and the service refuses a script and an empty scope — the button
+ * is drawn only on a template, and a drawn button is not a control.
+ */
+export async function submitCompleteOnRequestAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ submitted: true }>> {
+  return withAction(async () => {
+    const context = await requireVerifiedVendorOrForbid();
+    const { productId } = parseInput(productIdSchema, parseNestedFormData(formData));
+
+    await completeOnRequest.submitOffer(
+      { productId, scope: { vendorId: context.vendorId } },
+      vendorActor(context.user, context.vendorId),
+    );
+
+    refresh(productId);
+    revalidatePath("/staff/complete-on-request");
+
+    return ok({ submitted: true as const });
+  });
+}
+
+/** Take a live offer down. The listing is untouched; only the offer stops. */
+export async function withdrawCompleteOnRequestAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ withdrawn: true }>> {
+  return withAction(async () => {
+    const context = await requireVerifiedVendorOrForbid();
+    const { productId } = parseInput(productIdSchema, parseNestedFormData(formData));
+
+    await completeOnRequest.withdrawOffer(
+      { productId, scope: { vendorId: context.vendorId }, by: "vendor" },
+      vendorActor(context.user, context.vendorId),
+    );
+
+    catalogChanged();
+    refresh(productId);
+    revalidatePath("/staff/complete-on-request");
+
+    return ok({ withdrawn: true as const });
   });
 }

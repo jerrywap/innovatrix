@@ -64,6 +64,13 @@ export function parseMarketplaceQuery(
      * to browse the other's stock.
      */
     catalogue?: CatalogueScope;
+    /**
+     * COS-43 — let approved "complete on request" templates into a `script` grid.
+     *
+     * From `options` for the same reason `catalogue` is: it describes the surface,
+     * not the visitor. `/marketplace` passes it; a query string cannot.
+     */
+    includeCompleteOnRequest?: boolean;
   } = {},
 ): ParsedMarketplaceQuery {
   const q = trimmedText(raw.q, 120);
@@ -94,6 +101,12 @@ export function parseMarketplaceQuery(
     // Through `boolean()` like `customisable`, so `?free=false` means *not free*
     // rather than a truthy non-empty string.
     ...(boolean(raw.free) !== undefined ? { free: boolean(raw.free)! } : {}),
+    // COS-43. Through `boolean()` like the two beside it, though only `true` does
+    // anything — see `primaryMatch`.
+    ...(boolean(raw.completeOnRequest) !== undefined
+      ? { completeOnRequest: boolean(raw.completeOnRequest)! }
+      : {}),
+    ...(options.includeCompleteOnRequest ? { includeCompleteOnRequest: true } : {}),
     ...(boolean(raw.customisable) !== undefined
       ? { customisable: boolean(raw.customisable)! }
       : {}),
@@ -170,6 +183,7 @@ export const FILTER_KEYS = [
   "minPrice",
   "maxPrice",
   "free",
+  "completeOnRequest",
   "customisable",
 ] as const;
 

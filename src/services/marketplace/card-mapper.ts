@@ -24,6 +24,8 @@ export interface RawCard {
   activePrice?: { amount: number; currency: string; compareAtAmount?: number } | null;
   hasPrice?: boolean;
   customization?: { available?: boolean };
+  /** COS-43 — only `approved` means anything to a card. */
+  completeOnRequest?: { status?: string };
   isFeatured?: boolean;
   /** Vendor ticket 04 — denormalised onto `Product` and projected, never looked up. */
   vendorSlug?: string;
@@ -90,6 +92,13 @@ export function toCard(
         }
       : {}),
     customisable: Boolean(row.customization?.available),
+    /*
+     * Deliberately collapsed to a boolean here rather than passed through as the
+     * status. A card has one question — does this offer stand — and handing it five
+     * states would invite it to render "pending", which is nobody's business but
+     * the vendor's and ours.
+     */
+    completeOnRequest: row.completeOnRequest?.status === "approved",
     isFeatured: Boolean(row.isFeatured),
     // Projected onto the row rather than looked up: `CARD_PROJECTION` carries
     // `vendorName`/`vendorSlug` precisely so a card can attribute itself without a

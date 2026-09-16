@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Hammer, Sparkles } from "lucide-react";
 import { FreeBadge } from "@/components/free-badge";
 import { MoneyDisplay } from "@/components/money-display";
 import { StarRating } from "@/components/star-rating";
@@ -175,14 +175,34 @@ export function ProductCardTile({
             <h3 className="font-display text-[15px] leading-tight tracking-[-0.01em]">
               {card.name}
             </h3>
-            {card.customisable && (
+            {/*
+              COS-43. One marker, not two: a template offering to be completed is
+              adaptable by definition, and both badges on one card is the
+              "three loud ones read as decoration" failure this file warns about a
+              few lines up. The more specific claim wins.
+
+              Rendered in the inline-marker style rather than as a coloured pill for
+              the same reason — the card already carries a catalogue pill and a
+              price, and a fourth coloured thing is decoration.
+            */}
+            {card.completeOnRequest ? (
               <span
                 className="text-subtle flex shrink-0 items-center gap-1 font-mono text-[9.5px] tracking-[0.12em] uppercase"
-                title="Can be adapted to your requirements"
+                title="The front-end is ready now, and the maker will build the working application if you ask"
               >
-                <Sparkles className="size-3" aria-hidden />
-                Adaptable
+                <Hammer className="size-3" aria-hidden />
+                Complete on request
               </span>
+            ) : (
+              card.customisable && (
+                <span
+                  className="text-subtle flex shrink-0 items-center gap-1 font-mono text-[9.5px] tracking-[0.12em] uppercase"
+                  title="Can be adapted to your requirements"
+                >
+                  <Sparkles className="size-3" aria-hidden />
+                  Adaptable
+                </span>
+              )
             )}
           </div>
         </div>

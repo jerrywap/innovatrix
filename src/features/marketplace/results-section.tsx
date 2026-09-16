@@ -32,6 +32,7 @@ export async function MarketplaceResults({
   searchParams,
   basePath,
   catalogue,
+  includeCompleteOnRequest,
   forced,
   locked,
   categoryRoot,
@@ -49,6 +50,13 @@ export async function MarketplaceResults({
    * dimensions.
    */
   catalogue: CatalogueScope;
+  /**
+   * COS-43 — let approved "complete on request" templates into this grid.
+   *
+   * `/marketplace` only. A surface decision, not a filter, so it is a prop rather
+   * than something a URL can turn on.
+   */
+  includeCompleteOnRequest?: boolean;
   /** A landing page's own term, which the rail cannot remove. */
   forced?: { category?: string[]; industry?: string[] };
   /**
@@ -70,6 +78,7 @@ export async function MarketplaceResults({
   const query = parseMarketplaceQuery(raw, {
     currency,
     catalogue,
+    ...(includeCompleteOnRequest ? { includeCompleteOnRequest: true } : {}),
     ...(forced ? { forced } : {}),
   });
 

@@ -4,7 +4,10 @@ import { notFound } from "next/navigation";
 import { getSession } from "@/lib/auth/dal";
 import { Assistant } from "@/features/requirements/components/assistant";
 import { ListingPanel } from "@/features/requirements/components/listing-panel";
-import { customizationOpenersFor } from "@/features/requirements/openers";
+import {
+  completeOnRequestOpeners,
+  customizationOpenersFor,
+} from "@/features/requirements/openers";
 import { aiConfigured } from "@/services/ai/client";
 import {
   assistantViewer,
@@ -212,7 +215,15 @@ export default async function Page({ params, searchParams }: PageProps<"/customi
            */
           suggestions={
             conversation.messages.length === 0
-              ? customizationOpenersFor(product.customization.suggestedAreas)
+              ? /*
+                  COS-43. A template whose backend does not exist yet is a different
+                  conversation: "could the reports show X" describes a product the
+                  buyer is looking at a picture of. So it opens on the shape of the
+                  application instead — see `completeOnRequestOpeners`.
+                */
+                product.completeOnRequest
+                ? completeOnRequestOpeners()
+                : customizationOpenersFor(product.customization.suggestedAreas)
               : undefined
           }
         />

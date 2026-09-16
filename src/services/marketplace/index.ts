@@ -65,6 +65,8 @@ export interface ProductCard {
   /** Absent means "price on request" — never zero, never NaN. */
   price?: { amount: number; currency: StorefrontCurrency; compareAtAmount?: number };
   customisable: boolean;
+  /** COS-43 — the vendor will build the application behind this template. */
+  completeOnRequest: boolean;
   isFeatured: boolean;
   /**
    * Who made it — vendor ticket 04. Absent ⇒ first-party.

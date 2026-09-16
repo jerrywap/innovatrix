@@ -8,6 +8,7 @@ import type {
   ProductCatalogue,
   ProductMediaKind,
   ProductStatus,
+  CompleteOnRequestStatus,
 } from "@/lib/db/enums";
 import type { RichTextDocument } from "@/lib/rich-text/schema";
 
@@ -140,6 +141,19 @@ export interface AdminProductView {
     startingPrice?: { amount: number; currency: string };
     typicalTurnaround?: string;
     suggestedAreas: string[];
+  };
+  /**
+   * COS-43 — the offer to build the rest, as the vendor's own wizard shows it.
+   *
+   * Always present with a status so the form has something to render, even on a
+   * template that has never made one. `note` is the staff refusal and is
+   * vendor-facing by design; the staff-only note lives on the audit row, not here.
+   */
+  completeOnRequest: {
+    status: CompleteOnRequestStatus;
+    scope?: string;
+    leadTime?: string;
+    note?: string;
   };
   installation: {
     selfInstall: boolean;
@@ -286,6 +300,14 @@ export function toAdminProductView(product: ProductDoc): AdminProductView {
         ? { typicalTurnaround: product.customization.typicalTurnaround }
         : {}),
       suggestedAreas: [...product.customization.suggestedAreas],
+    },
+    completeOnRequest: {
+      status: product.completeOnRequest?.status ?? "draft",
+      ...(product.completeOnRequest?.scope ? { scope: product.completeOnRequest.scope } : {}),
+      ...(product.completeOnRequest?.leadTime
+        ? { leadTime: product.completeOnRequest.leadTime }
+        : {}),
+      ...(product.completeOnRequest?.note ? { note: product.completeOnRequest.note } : {}),
     },
     installation: {
       selfInstall: product.installation.selfInstall,

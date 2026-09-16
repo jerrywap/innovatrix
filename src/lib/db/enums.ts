@@ -248,6 +248,39 @@ export type TaxonomyKind = (typeof TAXONOMY_KINDS)[number];
  * Putting it in the `facets` array would make it one, and would put it behind the
  * "1 filter" badge on every template page.
  */
+/**
+ * A template vendor's offer to build the rest — COS-43.
+ *
+ * ## Why this is not in `STATE_MACHINES`
+ *
+ * It is a flag with five legal positions, not a lifecycle. Registering it would
+ * bring the terminal-state and reachability guards in `states.test.ts` to bear on
+ * something that has no ending worth naming, and the moves that matter here are
+ * about *who* takes them — the vendor submits, staff decide — which a transition
+ * map does not express. `completeOnRequest` in the catalog service enforces them.
+ *
+ * ## The states
+ *
+ * `draft` — written, not yet submitted. Invisible to everybody but the vendor.
+ * `pending` — with staff, who are deciding whether this vendor can deliver a
+ *   backend. **The listing is unchanged publicly while it sits here.**
+ * `approved` — the offer is live: the badge, the filter and the request CTA.
+ * `rejected` — refused, with a note the vendor reads. They may revise and resubmit.
+ * `withdrawn` — taken down, either by the vendor or automatically once the script
+ *   sibling exists, because a built application is a product rather than an offer.
+ *
+ * Every one of these already has a tone in `status-badge.tsx`, so no new colour
+ * decision is needed — only the tuple in `ALL_STATUS_ENUMS`.
+ */
+export const COMPLETE_ON_REQUEST_STATUSES = values([
+  "draft",
+  "pending",
+  "approved",
+  "rejected",
+  "withdrawn",
+] as const);
+export type CompleteOnRequestStatus = (typeof COMPLETE_ON_REQUEST_STATUSES)[number];
+
 export const PRODUCT_CATALOGUES = values(["script", "template"] as const);
 export type ProductCatalogue = (typeof PRODUCT_CATALOGUES)[number];
 
