@@ -2,7 +2,12 @@ import "server-only";
 import type { ClientSession } from "mongoose";
 import { toObjectId } from "@/lib/db/base";
 import { connectToDatabase, supportsTransactions } from "@/lib/db/client";
-import { PRODUCT_TRANSITIONS, assertTransition, productTransitionRule } from "@/lib/db/states";
+import {
+  PRODUCT_TRANSITIONS,
+  assertTransition,
+  productTransitionRule,
+  restoreTargetFor,
+} from "@/lib/db/states";
 import { descriptionFields, type ProductDoc } from "@/lib/db/models/catalog";
 import type { ProductCatalogue, ProductStatus } from "@/lib/db/enums";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -615,6 +620,32 @@ export async function transition(
     });
   }
 
+  /*
+   * Leaving `archived` — the two things the machine cannot say on its own.
+   *
+   * The graph lists six ways out because six statuses can archive; only one of
+   * them is right for *this* document. `restoreTargetFor` names it from what was
+   * recorded on the way in, and everything else is refused here rather than left
+   * to the screen, which is a courtesy and not a control — a hand-written POST
+   * reaches this line with any status it likes.
+   */
+  if (from === "archived") {
+    if (product.listingSuppressed) {
+      throw new ValidationError(
+        "This product was delisted, not archived. Reinstate the vendor to put it back.",
+        { status: ["Delisted products are restored by reinstating their vendor."] },
+      );
+    }
+
+    const restore = restoreTargetFor(product.archivedFrom);
+    if (to !== restore) {
+      throw new ValidationError(
+        `An archived product goes back to where it was. This one returns to ${restore}.`,
+        { status: [`Expected ${restore}, not ${to}.`] },
+      );
+    }
+  }
+
   if (to === "published") await assertPublishable(product);
   // The submission gate, and it is the *same* gate as publication: one pure
   // `computeReadiness()` shared by both, so a vendor sees exactly the gaps a
@@ -625,6 +656,9 @@ export async function transition(
   // Set once, on first publish. Re-publishing after deprecation must not
   // rewrite it — `publishedAt` is what "new this month" sorts on.
   if (to === "published" && !product.publishedAt) extra.publishedAt = new Date();
+  // Where to put it back. Written here, on the way in, because `from` is the only
+  // place this is knowable — by the time somebody unarchives, it is gone.
+  if (to === "archived") extra.archivedFrom = from;
 
   const write = async (session?: ClientSession) => {
     const updated = await products.setStatusIfCurrent(productId, from, to, extra, session);

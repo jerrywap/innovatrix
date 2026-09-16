@@ -31,6 +31,8 @@ export interface DeliveryPayload {
   url: string;
   /** For the email subject line prefix and the preview text. */
   category: string;
+  /** The generic email's button label, when the rule named one. */
+  actionLabel?: string;
   /**
    * A written email, when the catalog rule supplied one.
    *

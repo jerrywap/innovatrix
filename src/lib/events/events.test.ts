@@ -45,16 +45,27 @@ describe("DomainEventMap and DOMAIN_EVENTS agree", () => {
    * Allowlisted rather than deleted, following `ANONYMOUS_BY_DESIGN`'s idiom: an
    * exception is a decision somebody wrote down, not a gap that looks like one.
    *
-   * These three are ticket 13's. `01-mvp-todo.md` row 15.3 records the state
-   * exactly — "12 of 14 rows; `OrderCompleted`/`LicenceIssued` need ticket 13 to emit
-   * after its transaction" — so they are reserved names with a known owner. Deleting
-   * them is that ticket's call; emitting them is its work. What this test can do is
-   * stop the *list* growing quietly.
+   * `OrderCompleted` has left this list: `fulfilOrder` emits it after its
+   * transaction, and it carries the purchase confirmation a customer was
+   * previously never sent.
+   *
+   * The two that remain are reserved names with a written reason rather than a
+   * gap that looks like one. What this test can do is stop the *list* growing
+   * quietly.
    */
   const UNEMITTED_BY_DESIGN: Record<string, string> = {
-    PaymentReceived: "ticket 13 — emitted after the fulfilment transaction",
-    OrderCompleted: "ticket 13 — see 01-mvp-todo.md row 15.3",
-    LicenceIssued: "ticket 13 — see 01-mvp-todo.md row 15.3",
+    PaymentReceived: "ticket 13 — the ActivityEvent timeline row, not a bus event",
+    /*
+     * Deliberately folded into `OrderCompleted` rather than emitted.
+     *
+     * Fulfilment is one transaction: the order is marked paid, the entitlements
+     * are created and the licence keys are generated together. A separate
+     * `LicenceIssued` would reach the customer in the same second as the order
+     * confirmation and say almost the same thing, so the confirmation reports
+     * the licence itself via `hasDownloads`. Emitting this would mean two emails
+     * for one purchase.
+     */
+    LicenceIssued: "folded into OrderCompleted — same transaction, one email",
   };
 
   it("has no event named in the enum that nothing can emit", () => {

@@ -54,12 +54,20 @@ export function PublishPanel({
   productId,
   status,
   nextStates,
+  delisted,
   gaps,
 }: {
   productId: string;
   status: ProductStatus;
   /** From the ticket-02 transition map, so the UI cannot offer an illegal move. */
   nextStates: readonly ProductStatus[];
+  /**
+   * Vendor ticket 12 — archived by an emergency delisting rather than by a person.
+   *
+   * Changes only what the empty state *says*. The refusal itself is in
+   * `transition()`, which checks `listingSuppressed` on the document.
+   */
+  delisted?: boolean;
   gaps: readonly ReadinessGap[];
 }) {
   const [state, formAction] = useActionState(transitionProductAction, null);
@@ -117,7 +125,9 @@ export function PublishPanel({
 
       {nextStates.length === 0 ? (
         <p className="text-subtle border-border border-t pt-4 text-[13px]">
-          This product is archived. Nothing moves from here.
+          {delisted
+            ? "This product was delisted. Reinstate the vendor to put it back — it returns with its address, its publish date and its reviews intact."
+            : "Nothing moves from here."}
         </p>
       ) : (
         <form action={formAction} className="border-border flex flex-col gap-3 border-t pt-4">

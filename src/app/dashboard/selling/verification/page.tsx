@@ -406,9 +406,8 @@ function Level({
             <div className="flex flex-col gap-1.5">
               <p className="text-[13.5px] font-medium">Documents Sent</p>
               <p className="text-muted-foreground text-[13px] leading-relaxed">
-                Somebody checks usually within a working day, and we&rsquo;ll email you as soon
-                as there&rsquo;s an answer — whichever way it goes. If we need anything else,
-                we&rsquo;ll ask in that email.
+                Verification is usually completed within one working day. We&rsquo;ll email you
+                as soon as there&rsquo;s an update, including if we need anything else from you.
               </p>
             </div>
           </div>

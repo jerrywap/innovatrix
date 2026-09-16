@@ -20,19 +20,19 @@ export const REQUEST_STATUS_COPY: Record<RequestStatus, { what: string; next: st
   },
   submitted: {
     what: "We've got it.",
-    next: "Someone will pick it up and read it properly. Nothing needed from you.",
+    next: "We'll review your request and let you know what happens next. Nothing needed from you.",
   },
   under_review: {
-    what: "Someone is going through it.",
-    next: "We'll come back with questions or a quote.",
+    what: "Your request is under review.",
+    next: "We'll come back to you with any questions or a quote.",
   },
   waiting_for_customer: {
     what: "We've asked you something.",
     next: "Have a look below — we can't go further until you answer.",
   },
   technical_review: {
-    what: "Our technical team is scoping it.",
-    next: "They're working out what it takes. A quote follows.",
+    what: "We're working out what your request will involve.",
+    next: "We'll send you a quote once the scope is ready.",
   },
   quoted: {
     what: "We've sent you a quote.",
@@ -46,8 +46,8 @@ export const REQUEST_STATUS_COPY: Record<RequestStatus, { what: string; next: st
     // Was "Work has started", which it is not — this state means the money
     // arrived and the job is queued. Saying work had started while it sat in a
     // handover queue is how a customer concludes nobody is doing anything.
-    what: "Payment received — this is with our team.",
-    next: "We'll confirm when someone picks it up.",
+    what: "Payment received.",
+    next: "We'll let you know when work starts.",
   },
   in_progress: {
     what: "Work has started.",

@@ -54,7 +54,7 @@ export function NewVersionForm({
   suggested,
   actions,
   method,
-  hasVersions,
+  versionCount,
 }: {
   productId: string;
   /** Vendor ticket 06 — whose actions to call. */
@@ -69,16 +69,57 @@ export function NewVersionForm({
    * surface does not make.
    */
   method?: DeliveryMethod;
-  /** Collapse behind a button. A product with no versions shows the form. */
-  hasVersions: boolean;
+  /**
+   * How many versions exist. A product with none shows the form open.
+   *
+   * A count rather than the boolean this used to be, because the count is also
+   * the identity `open` is derived from — see below.
+   */
+  versionCount: number;
 }) {
-  const [open, setOpen] = useState(!hasVersions);
   const { state, pending, onSubmit } = useManualSubmit(actions.createVersion);
   const failed = state && !state.ok ? state : null;
 
+  /*
+   * Open for a particular number of versions, rather than open or shut.
+   *
+   * The form used to stay open after a successful create, holding the number it
+   * had just used, so the obvious second click re-submitted a duplicate and
+   * earned the service's "already here" refusal. It should fold away instead:
+   * the work left — the file, then the release — is on the panel that just
+   * appeared below.
+   *
+   * Derived from `versionCount` rather than synchronised with an effect, which
+   * would be a cascading render and is what `react-hooks/set-state-in-effect`
+   * objects to. A successful create revalidates the page and the count comes
+   * back one higher, so `openFor` no longer matches and the form is shut without
+   * anything having to notice that it succeeded. A *failed* create leaves the
+   * count alone, so the form stays open with its errors — which is the behaviour
+   * the manual-dispatch workaround exists to protect.
+   *
+   * The count, and not `suggested`: a vendor who types `0.9.0` while `1.0.0`
+   * exists gets the same suggestion back afterwards, and a form keyed on that
+   * would sit open on a number it had just used.
+   *
+   * Reopening mounts a fresh form, so the fields reseed from the new `suggested`
+   * — `VersionNumberField` reads it once, into `useState` — with no key needed.
+   *
+   * One consequence, left as it is: deleting a draft takes the count back to what
+   * it was when the form was opened, so the form reappears. That is a reasonable
+   * thing to be shown after removing a version and the number it offers is valid
+   * again, so it is not worth a second piece of state to suppress.
+   */
+  const [openFor, setOpenFor] = useState<number | null>(versionCount === 0 ? 0 : null);
+  const open = openFor === versionCount;
+
   if (!open) {
     return (
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpenFor(versionCount)}
+      >
         <Plus className="size-3.5" aria-hidden />
         Add another version
       </Button>
@@ -207,8 +248,8 @@ export function NewVersionForm({
         <Button type="submit" size="sm" disabled={pending}>
           {pending ? "Creating…" : "Create this version"}
         </Button>
-        {hasVersions && (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+        {versionCount > 0 && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setOpenFor(null)}>
             Cancel
           </Button>
         )}

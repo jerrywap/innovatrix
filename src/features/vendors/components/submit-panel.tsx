@@ -86,8 +86,8 @@ export function SubmitPanel({
             <StatusBadge status={status} />
           </div>
           <p className="text-muted-foreground text-[13px]">
-            Somebody will read it and either put it on sale or tell you what to change. You can
-            pull it back until a reviewer starts.
+            We&rsquo;ll review your submission and either approve it or let you know what needs
+            to change. You can withdraw it before the review begins.
           </p>
 
           <form action={withdrawAction} className="flex flex-col gap-2">
@@ -113,12 +113,12 @@ export function SubmitPanel({
     return (
       <div className="border-border flex flex-col gap-3 rounded-xl border p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-[15.5px] tracking-[-0.02em]">In our hands</h2>
+          <h2 className="font-display text-[15.5px] tracking-[-0.02em]">Passed review</h2>
           <StatusBadge status={status} />
         </div>
         <p className="text-muted-foreground text-[13px]">
-          This has passed review and is going through our readiness checks. We will tell you
-          when it is on sale.
+          Your product has been approved and is being prepared for publication. We&rsquo;ll let
+          you know when it&rsquo;s live.
         </p>
       </div>
     );
@@ -156,7 +156,7 @@ export function SubmitPanel({
         />
         {!isPublishable && (
           <p className="text-subtle text-[12.5px]">
-            Finish the items above first — a reviewer checks the same list.
+            Finish the items above before submitting your product for review.
           </p>
         )}
       </div>

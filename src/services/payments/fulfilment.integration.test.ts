@@ -18,6 +18,7 @@ let fulfilment: typeof import("./fulfilment");
 let registry: typeof import("./registry");
 let paymentService: typeof import("./payment-service");
 let commerce: typeof import("@/lib/db/models/commerce");
+let events: typeof import("@/lib/events");
 
 const ORG = "6a80c46f6c887b38e2f0e0b4";
 const USER = "6a80c46f6c887b38e2f0e0b2";
@@ -42,6 +43,7 @@ beforeAll(async () => {
   registry = await import("./registry");
   paymentService = await import("./payment-service");
   commerce = await import("@/lib/db/models/commerce");
+  events = await import("@/lib/events");
 
   const { connectToDatabase } = await import("@/lib/db/client");
   await connectToDatabase();
@@ -63,6 +65,9 @@ afterAll(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  // The event-bus test below subscribes; without this its listener would stay
+  // attached and keep collecting through every later case in the file.
+  events.resetBus();
   await Promise.all([
     commerce.Order.deleteMany({}),
     commerce.Payment.deleteMany({}),
@@ -230,6 +235,39 @@ describe("a verified payment fulfils exactly once", () => {
       .findOne({ action: "payment.succeeded" });
     // The source names which path ran — the acceptance criterion.
     expect(audit?.source).toBe("webhook");
+  });
+
+  /**
+   * The receipt the customer never used to get.
+   *
+   * `OrderCompleted` was a name in `DOMAIN_EVENTS` that nothing emitted, so a
+   * paid order produced an activity row, an audit row, a licence — and silence,
+   * under a confirmation screen promising "a receipt lands in your inbox".
+   *
+   * Asserted here rather than only in the notification suite because the missing
+   * half was the *emit*: a catalogue row for an event nobody fires is a
+   * notification that never arrives and reads as coverage.
+   */
+  it("emits OrderCompleted after the transaction, so a receipt can be sent", async () => {
+    const seen: unknown[] = [];
+    events.on("OrderCompleted", async (payload) => {
+      seen.push(payload);
+    });
+
+    const { order, payment } = await paidableOrder();
+    stubVerify({ status: "succeeded", amount: 29_999 });
+
+    await succeed(payment);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      reference: order.reference,
+      organizationId: ORG,
+      // A licence line, so the button goes to the purchases area.
+      hasDownloads: true,
+    });
+    // Names what was bought, for the first line of the email.
+    expect((seen[0] as { description: string }).description).toBeTruthy();
   });
 });
 

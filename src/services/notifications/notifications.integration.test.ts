@@ -304,6 +304,50 @@ describe("preferences — §69", () => {
   });
 
   /**
+   * The receipt a buyer was never sent.
+   *
+   * `OrderCompleted` sat in `DOMAIN_EVENTS` with no map entry, no emitter and no
+   * catalogue row, so a customer who paid and received a licence heard nothing —
+   * while the order confirmation screen promised "a receipt lands in your inbox".
+   *
+   * Through `emit` rather than `dispatch`, for the reason the password test gives
+   * below: `dispatch` takes its context as an argument, so calling it directly
+   * would prove the row renders while testing none of the wiring in
+   * `handlers.ts` — and the wiring is the half that was missing.
+   */
+  it("emails a receipt when an order is fulfilled, and lets nothing mute it", async () => {
+    await people();
+
+    await communication.NotificationPreference.updateOne(
+      { userId: OWNER },
+      { $addToSet: { muted: "billing:email" } },
+      { upsert: true },
+    );
+
+    // `afterEach` resets the bus, so the wiring under test has to be put back.
+    handlers.registerNotificationHandlers();
+
+    await events.emit("OrderCompleted", {
+      orderId: "6a80c46f6c887b38e2f0e0f1",
+      reference: "ORD-2026-0042",
+      organizationId: ORG,
+      description: "Ejenxy Creative Digital Agency",
+      hasDownloads: true,
+    });
+
+    await deliverQueuedEmail();
+
+    const receipt = sent.find((m) => m.to === "amara@example.test");
+    expect(receipt?.subject).toBe("Your CoSetup order ORD-2026-0042 is confirmed");
+    // The licence lives behind a sign-in; the email says where, never what.
+    expect(receipt?.text).toContain("My Purchases");
+    expect(receipt?.text).not.toMatch(/\bkey\b(?!s\b)/i);
+
+    const [row] = await rowsFor(OWNER);
+    expect(row!.href).toBe("/dashboard/software");
+  });
+
+  /**
    * The account-security alerts, and the one mistake that would ship silently.
    *
    * `resolveAudience` strips `context.actorUserId` from every audience — nobody

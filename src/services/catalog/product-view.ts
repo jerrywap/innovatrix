@@ -83,6 +83,18 @@ export interface AdminProductView {
   summary: string;
   description?: RichTextDocument;
   status: ProductStatus;
+  /**
+   * What it was before it was archived — the review screen's unarchive target.
+   *
+   * Meaningful only while `status` is `archived`; stale otherwise, by design, and
+   * nothing reads it then.
+   */
+  archivedFrom?: ProductStatus;
+  /**
+   * Vendor ticket 12 — delisted rather than archived, and put back by reinstating
+   * the vendor. The review screen needs it to explain why there is no unarchive.
+   */
+  listingSuppressed?: boolean;
   /** Vendor ticket 06. Absent ⇒ `archive`, the direct-upload path. */
   deliveryMethod?: DeliveryMethod;
   /** Which catalogue it is in — the classification form's first control. */
@@ -206,6 +218,8 @@ export function toAdminProductView(product: ProductDoc): AdminProductView {
     summary: product.summary,
     ...(product.description ? { description: product.description } : {}),
     status: product.status,
+    ...(product.archivedFrom ? { archivedFrom: product.archivedFrom } : {}),
+    ...(product.listingSuppressed ? { listingSuppressed: true } : {}),
     ...(product.deliveryMethod ? { deliveryMethod: product.deliveryMethod } : {}),
     catalogue: product.catalogue ?? "script",
     ...(product.scriptListingId ? { scriptListingId: String(product.scriptListingId) } : {}),
@@ -298,6 +312,8 @@ export interface AdminProductRow {
   slug: string;
   name: string;
   status: ProductStatus;
+  /** Which surface the public URL hangs off — `productHref` needs it. */
+  catalogue: ProductCatalogue;
   /** Vendor ticket 04. Absent ⇒ first-party, published by CoSetup. */
   vendorName?: string;
   isFeatured: boolean;
@@ -316,6 +332,7 @@ export function toAdminProductRow(product: ProductDoc): AdminProductRow {
     slug: product.slug,
     name: product.name,
     status: product.status,
+    catalogue: product.catalogue ?? "script",
     ...(product.vendorName ? { vendorName: product.vendorName } : {}),
     isFeatured: product.isFeatured,
     priceCount: product.prices.length,

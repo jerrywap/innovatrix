@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requirePermissionOrForbid } from "@/lib/auth/dal";
-import { PRODUCT_TRANSITIONS, nextStates } from "@/lib/db/states";
+import { PRODUCT_TRANSITIONS, nextStates, restoreTargetFor } from "@/lib/db/states";
 import { loadWizardProduct } from "@/features/products/wizard";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { PublishPanel } from "@/features/products/components/publish-panel";
@@ -43,7 +43,24 @@ export default async function ReviewPage({ params }: PageProps<"/admin/products/
       <PublishPanel
         productId={product.id}
         status={product.status}
-        nextStates={nextStates(PRODUCT_TRANSITIONS, product.status)}
+        /*
+          The graph lists six ways out of `archived` because six statuses can
+          archive; exactly one is right for this document. Narrowing here rather
+          than in the panel keeps the panel a renderer of whatever it is handed,
+          and `transition()` refuses the other five regardless — this decides what
+          is *drawn*, not what is allowed.
+
+          A delisted product offers nothing: it is put back by reinstating its
+          vendor, which is a different screen and a different decision.
+        */
+        nextStates={
+          product.status !== "archived"
+            ? nextStates(PRODUCT_TRANSITIONS, product.status)
+            : product.listingSuppressed
+              ? []
+              : [restoreTargetFor(product.archivedFrom)]
+        }
+        {...(product.listingSuppressed ? { delisted: true } : {})}
         gaps={readiness.gaps}
       />
       <TemplateSiblingPanel

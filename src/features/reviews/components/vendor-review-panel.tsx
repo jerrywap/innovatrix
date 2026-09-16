@@ -148,7 +148,9 @@ function ReportForm({ reviewId, onCancel }: { reviewId: string; onCancel: () => 
         <p className="text-[12.5px] text-[var(--danger)]">{state.error}</p>
       )}
       {state?.ok && (
-        <p className="text-subtle text-[12.5px]">Reported. Somebody will read it.</p>
+        <p className="text-subtle text-[12.5px]">
+          Reported. We&rsquo;ll review it and take action if it breaks our rules.
+        </p>
       )}
 
       <div className="flex gap-2">

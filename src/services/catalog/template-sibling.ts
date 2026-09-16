@@ -165,6 +165,10 @@ const EXCLUDED: Record<Excluded, string> = {
     "Points at a `ProductVersion` whose `productId` is the script. A copied pointer is the " +
     "cross-product artefact reference the whole storage model forbids.",
   publishedAt: "Nothing has been published. The sibling lands as a draft.",
+  archivedFrom:
+    "Where the *other* listing goes when unarchived. The sibling lands as a draft and has " +
+    "never been archived, so a copied value would send its first unarchive somewhere it has " +
+    "never been — to `published`, for a product nobody has reviewed.",
   slugHistory:
     "Hard constraint: copying it would make this product answer for the other's retired " +
     "URLs, silently hijacking the redirect of the product that used to own them.",

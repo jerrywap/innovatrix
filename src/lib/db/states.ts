@@ -84,8 +84,55 @@ export const PRODUCT_TRANSITIONS: TransitionMap<ProductStatus> = {
   ready: ["published", "internal_review", "archived"],
   published: ["deprecated", "archived"],
   deprecated: ["published", "archived"],
-  archived: [],
+  /*
+   * Unarchiving — and **not** to anywhere the caller likes.
+   *
+   * `archived` was terminal, which made an archive-by-mistake unrecoverable: the
+   * publish panel said "nothing moves from here" and meant it. It is no longer a
+   * terminal state, but it is still a narrow one. Every edge listed here is legal
+   * for the *machine*; `restoreTargetFor` then says which single one is legal for
+   * a given document, from the `archivedFrom` written on the way in, and
+   * `transition()` refuses the rest.
+   *
+   * `submitted` is deliberately absent. Permission for a transition is checked by
+   * the action, coarsely, with `productPermissionsForTarget(to)` — an OR across
+   * every rule ending in that status — and the service does not re-check it per
+   * edge. Both edges into `submitted` carry `permission: null`, so that set is
+   * empty and `hasAnyPermission` over an empty list is always false: staff cannot
+   * reach `submitted` at all today, which is what makes "nobody submits for a
+   * vendor" true rather than merely written down. An `archived -> submitted` rule
+   * would put a permission in that set and hand staff `draft -> submitted` as
+   * well. A product archived while submitted comes back to `draft`; the vendor
+   * submits it again, which is the attestation being theirs to make.
+   */
+  archived: [
+    "draft",
+    "changes_requested",
+    "internal_review",
+    "ready",
+    "published",
+    "deprecated",
+  ],
 };
+
+/**
+ * Where an archived product goes back to.
+ *
+ * Total rather than partial: an absent `archivedFrom` is the normal case for
+ * anything archived before the field existed and for an `emergencyDelist`, which
+ * writes the status directly, and `draft` is the answer that assumes least.
+ *
+ * Read by the review screen to decide which single button to draw and by
+ * `transition()` to refuse everything else, so the two cannot disagree about
+ * where a product is allowed to go.
+ */
+export function restoreTargetFor(archivedFrom: ProductStatus | undefined): ProductStatus {
+  if (!archivedFrom) return "draft";
+  // `submitted` is not an edge out of `archived` — see the map. `archived` itself
+  // would be a self-edge, which this file's header rules out.
+  if (archivedFrom === "submitted" || archivedFrom === "archived") return "draft";
+  return archivedFrom;
+}
 
 /**
  * Vendor ticket 01 — a vendor's life on the platform.
@@ -604,6 +651,49 @@ export const PRODUCT_TRANSITION_RULES: Readonly<Record<string, ProductTransition
     permission: "product.unpublish",
     vendorMay: false,
     label: "Archive",
+  },
+
+  /* ── unarchiving, back to wherever it was ── */
+
+  /*
+   * One label for all six, because from the reader's side it is one action: the
+   * destination is not a choice they make, it is the status the product had.
+   *
+   * The permission on each is the one that already leads into that status, so
+   * `productPermissionsForTarget` returns exactly what it returned before for
+   * every target. Giving them all `product.unpublish` — the permission that
+   * archives — would have been the obvious move and would have quietly handed
+   * anyone holding it `internal_review -> draft` and `ready -> published` too.
+   */
+  [productEdge("archived", "draft")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Unarchive",
+  },
+  [productEdge("archived", "changes_requested")]: {
+    permission: "product.review",
+    vendorMay: false,
+    label: "Unarchive",
+  },
+  [productEdge("archived", "internal_review")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Unarchive",
+  },
+  [productEdge("archived", "ready")]: {
+    permission: "product.update",
+    vendorMay: false,
+    label: "Unarchive",
+  },
+  [productEdge("archived", "published")]: {
+    permission: "product.publish",
+    vendorMay: false,
+    label: "Unarchive",
+  },
+  [productEdge("archived", "deprecated")]: {
+    permission: "product.unpublish",
+    vendorMay: false,
+    label: "Unarchive",
   },
 };
 

@@ -39,16 +39,14 @@ export function DiscoveryIntro() {
       </p>
 
       <ul className="text-subtle flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px]">
-        {[
-          "Free discovery",
-          "No technical knowledge needed",
-          "A person reads every request",
-        ].map((claim) => (
-          <li key={claim} className="flex items-center gap-1.5">
-            <span className="bg-signal size-1 rounded-full" aria-hidden />
-            {claim}
-          </li>
-        ))}
+        {["Free discovery", "No technical knowledge needed", "Every request is reviewed"].map(
+          (claim) => (
+            <li key={claim} className="flex items-center gap-1.5">
+              <span className="bg-signal size-1 rounded-full" aria-hidden />
+              {claim}
+            </li>
+          ),
+        )}
       </ul>
     </div>
   );

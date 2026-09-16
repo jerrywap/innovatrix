@@ -211,7 +211,7 @@ function statusExplanation(status: string): string {
     case "applied":
       return "Vendor application started.";
     case "in_review":
-      return "Somebody is reading your application now. Carry on with verification while they do — the two run side by side, and if we need anything else we'll ask by email.";
+      return "Your application is under review. You can continue with identity verification while you wait — the two run side by side. If we need anything else, we'll email you.";
     case "rejected":
       return "We are not able to take this application forward.";
     case "suspended":

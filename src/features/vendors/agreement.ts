@@ -34,9 +34,9 @@ export const VENDOR_AGREEMENT_SECTIONS: readonly AgreementSection[] = [
   {
     heading: "Applying, and being verified",
     body: [
-      "Somebody reads every application. Being accepted is not automatic and we do not have to explain a rejection, though we will tell you plainly that it is one.",
+      "We review every application. Acceptance is not automatic, and we may decline an application without providing a detailed reason. We will always tell you when an application has been declined.",
       "Identity verification — a government ID and a proof of address — is what lets you list a product. Business verification is separate and only matters when money leaves: until it is approved you can sell and earn, and payouts wait.",
-      "The documents you upload are read by a person, and what they decided is recorded along with a checksum of what they read. We keep the decision; we do not need to keep the document indefinitely.",
+      "The documents you upload are reviewed as part of our verification process. We record the decision along with a checksum of the documents reviewed. We keep the decision; we do not need to keep the document indefinitely.",
     ],
   },
   {
@@ -50,7 +50,7 @@ export const VENDOR_AGREEMENT_SECTIONS: readonly AgreementSection[] = [
   {
     heading: "Review before sale",
     body: [
-      "A reviewer checks a product before it goes on sale. If it is not ready you are told what to change, in specific terms, and you resubmit — the history of what was said is kept so a third submission makes sense next to the first two.",
+      "Products are reviewed before they go on sale. If it is not ready you are told what to change, in specific terms, and you resubmit — the history of what was said is kept so a third submission makes sense next to the first two.",
       "We do not review your source code for correctness and we are not warranting your software to the customer. The review checks that what the listing claims matches what is delivered.",
       "We may decline to list something without that being a judgement on its quality. A product we cannot support, cannot describe honestly, or cannot deliver safely is one we will not sell.",
     ],
@@ -77,7 +77,7 @@ export const VENDOR_AGREEMENT_SECTIONS: readonly AgreementSection[] = [
   {
     heading: "Refunds and chargebacks",
     body: [
-      "We decide refunds, because we took the payment. You can say what you think in the thread and we read it before deciding; you cannot approve or refuse one.",
+      "We decide refunds, because we took the payment. You can add anything you want us to consider to the thread before we decide; you cannot approve or refuse one.",
       "A refund reverses the earning on that sale. If it had not yet been paid out, the two cancel; if it had, your balance goes negative and the next payout is reduced. We recover it from future earnings rather than invoicing you for it.",
       "A refunded customer keeps their licence in a suspended state rather than losing it outright, because a refund is sometimes a dispute in progress and reversing a deletion is not possible.",
     ],
@@ -101,7 +101,7 @@ export const VENDOR_AGREEMENT_SECTIONS: readonly AgreementSection[] = [
     heading: "Reviews of your products",
     body: [
       "Only customers who have bought a product can review it, and only once per purchase. You can reply publicly to any review and your reply is shown beside it.",
-      "You cannot hide, remove or edit a review, and neither can we do it on request. What you can do is report one that breaks our rules, and a person will read it. A seller who could suppress criticism would make every remaining review on the platform worthless, including the good ones.",
+      "You cannot hide, remove or edit a review, and neither can we do it on request. What you can do is report one that breaks our rules, and we will review it. A seller who could suppress criticism would make every remaining review on the platform worthless, including the good ones.",
       "Your rating is worked out from the reviews of everything you sell. Nobody adjusts it — not you, not us.",
     ],
   },

@@ -20,6 +20,7 @@ import {
   type PaymentDoc,
 } from "@/lib/db/models/commerce";
 import { writeAuditLog, type AuditActor } from "@/services/audit";
+import { emit } from "@/lib/events";
 import { orders } from "@/repositories/order.repository";
 import { payments } from "@/repositories/payment.repository";
 import { clawBackEarnings, recordEarnings } from "@/services/vendors/ledger-service";
@@ -296,11 +297,52 @@ export async function processPaymentSucceeded(input: {
    */
   await requestProvisioning(order);
 
+  /*
+   * The receipt — also after the commit, and for the same reason.
+   *
+   * `OrderCompleted` existed in `DOMAIN_EVENTS` and was emitted nowhere, so a
+   * customer who paid was told nothing at all while
+   * `/orders/[reference]/confirmation` promised them a receipt. Emitting it here
+   * rather than on the `paid -> fulfilled` transition is deliberate: this is the
+   * moment the customer's licences exist and their downloads work, which is what
+   * the email says.
+   *
+   * Never inside the transaction — a receipt for a purchase that then rolled
+   * back is worse than a missing one.
+   */
+  await emit("OrderCompleted", {
+    orderId: String(order._id),
+    reference: order.reference,
+    organizationId: String(order.organizationId),
+    description: describeOrder(order),
+    hasDownloads: order.items.some((item) => item.kind === "product_licence"),
+  });
+
   return {
     outcome: "fulfilled",
     paymentId: String(payment._id),
     orderReference: order.reference,
   };
+}
+
+/**
+ * What the customer bought, as a phrase that fits mid-sentence.
+ *
+ * Composed here rather than in the email because the order is what knows: the
+ * catalog receives a payload, and a template that reached back for line items
+ * would be reading the database from inside a renderer.
+ *
+ * Names one product because that is the overwhelming case and "Ejenxy Creative
+ * Digital Agency" tells somebody what the receipt is for at a glance. Anything
+ * longer becomes a count — listing six product names in a sentence is worse than
+ * not listing them, and the order page has the full list.
+ */
+function describeOrder(order: OrderDoc): string {
+  const names = [...new Set(order.items.map((item) => item.productName))];
+
+  if (names.length === 0) return `order ${order.reference}`;
+  if (names.length === 1) return names[0]!;
+  return `${names[0]!} and ${names.length - 1} other item${names.length === 2 ? "" : "s"}`;
 }
 
 /* ────────────────────────────────────────────── invoices */

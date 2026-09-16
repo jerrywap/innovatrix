@@ -27,6 +27,7 @@ import { messageSender } from "./recipients";
 const GENERIC: DomainEventName[] = [
   // Audience is the buying organisation and nothing else needs looking up.
   "AddonProvisioned",
+  "OrderCompleted",
   "QuoteIssued",
   "QuoteAccepted",
   "QuoteRejected",
