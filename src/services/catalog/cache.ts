@@ -31,6 +31,15 @@ import { revalidateTag, updateTag } from "next/cache";
 export const CATALOG_TAG = "catalog";
 /** Categories, industries, technologies — read on nearly every public page. */
 export const TAXONOMY_TAG = "taxonomy";
+/**
+ * Which currencies the platform can take money in.
+ *
+ * Its own tag rather than a fold into `CATALOG_TAG`: an admin enabling a provider
+ * changes what every page *offers* without changing a single product, and dumping
+ * the whole catalogue to answer a settings question would be the most expensive
+ * invalidation in the app for the smallest write.
+ */
+export const PAYMENT_SETTINGS_TAG = "payment-settings";
 
 /** One product's detail page. Scoped so editing one product doesn't dump the grid. */
 export function productTag(slug: string): string {
@@ -135,4 +144,23 @@ export const CACHE_PROFILE = {
    * which is exactly what `revalidate` already bounds.
    */
   product: { stale: 0, revalidate: 3600, expire: 86_400 },
+  /*
+   * Payment settings change rarely and are read on nearly every page, so this
+   * leans long — but `stale: 0` for the same reason `product` does: an admin who
+   * has just turned a provider off should not watch the storefront keep offering
+   * that currency, and the in-process `updateTag` from their own action is what
+   * makes the change immediate rather than eventual.
+   */
+  paymentSettings: { stale: 0, revalidate: 3600, expire: 86_400 },
 } as const;
+
+/**
+ * After anything on `/admin/settings/payments`.
+ *
+ * Providers, their currencies, the routing table and the bank-transfer list all
+ * change the same answer — which currencies the storefront may offer — so they
+ * share one tag rather than four.
+ */
+export function paymentSettingsChanged(): void {
+  invalidate(PAYMENT_SETTINGS_TAG);
+}

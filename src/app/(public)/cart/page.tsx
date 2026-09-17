@@ -9,6 +9,7 @@ import { loadCart } from "@/features/cart/load";
 import { CartLines } from "@/features/cart/components/cart-lines";
 import { OrderSummary } from "@/features/cart/components/order-summary";
 import { CurrencySwitcher } from "@/features/cart/components/currency-switcher";
+import { offeredCurrencies } from "@/services/payments/offered-currencies";
 import { BlockedLines } from "@/features/cart/components/blocked-lines";
 
 export const metadata: Metadata = {
@@ -89,7 +90,7 @@ async function CartContents() {
         {cart.lines.length > 0 && (
           <CartLines lines={cart.lines} notices={cart.notices} currency={cart.currency} />
         )}
-        <CurrencySwitcher current={cart.currency} />
+        <CurrencySwitcher current={cart.currency} options={await offeredCurrencies()} />
       </div>
 
       <aside className="lg:sticky lg:top-24 lg:self-start">

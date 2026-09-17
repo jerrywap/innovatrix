@@ -53,7 +53,18 @@ export function ProductJsonLd({
 }) {
   const url = `${origin}${productHref(product.slug)}`;
   const images = screenshots(product.media);
-  const price = product.prices.find((row) => row.currency === currency) ?? product.prices[0];
+  /*
+   * No fallback to `prices[0]`.
+   *
+   * It used to take the first row when the active currency had none, which
+   * published a price a shopper arriving from that search result could not be
+   * charged — and structured data is read literally. A product with no price in
+   * the currency this page is rendered in is a "Price on request" listing, and the
+   * honest machine-readable form of that is a `SoftwareApplication` with no
+   * `offers` node at all, which is what `DEFAULT_CURRENCY`'s own docblock
+   * describes.
+   */
+  const price = product.prices.find((row) => row.currency === currency);
   const current = product.versions.find((version) => version.isCurrent);
 
   const data: Record<string, unknown> = {

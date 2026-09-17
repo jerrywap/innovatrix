@@ -10,7 +10,8 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { money, type CurrencyCode, type Money } from "@/lib/money";
 import { products } from "@/repositories/product.repository";
 import { carts } from "@/repositories/cart.repository";
-import { STOREFRONT_CURRENCIES, type StorefrontCurrency } from "@/config/storefront";
+import { offeredCurrencies } from "@/services/payments/offered-currencies";
+import type { StorefrontCurrency } from "@/config/storefront";
 import { calculateTotals, type CartTotals } from "./calculate";
 import { evaluateDiscount, type DiscountRefusal } from "./discount";
 import { resolveTaxRule } from "./tax";
@@ -271,7 +272,7 @@ export async function recalculate(
     blocked,
     totals,
     notices,
-    priceableCurrencies: priceableCurrencies(cart.items, byId),
+    priceableCurrencies: priceableCurrencies(cart.items, byId, await offeredCurrencies()),
     /*
      * Blocked lines count.
      *
@@ -295,12 +296,17 @@ export async function recalculate(
  * braces: a withdrawn product still has a GBP row on it, so pricing alone would
  * offer "show my basket in £" for a line no currency can unblock. A currency is
  * only worth suggesting if switching to it clears the basket.
+ *
+ * And only if the basket can then be *paid*, which is why the candidate list comes
+ * in rather than being the storefront constant: suggesting £ to somebody whose
+ * basket is stuck, when nothing can charge in £, moves the dead end one screen later.
  */
 function priceableCurrencies(
   items: readonly CartItem[],
   byId: Map<string, ProductDoc>,
+  candidates: readonly StorefrontCurrency[],
 ): StorefrontCurrency[] {
-  return STOREFRONT_CURRENCIES.filter((currency) =>
+  return candidates.filter((currency) =>
     items.every((item) => {
       const product = byId.get(String(item.productId));
       return isSellable(product) && priceOf(product, item, currency) !== undefined;

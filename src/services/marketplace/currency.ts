@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
+import { fallbackCurrency, isOfferedCurrency } from "@/services/payments/offered-currencies";
 import {
   CURRENCY_COOKIE,
   isStorefrontCurrency,
@@ -62,13 +63,32 @@ import {
  * afterwards, so `?currency=XYZ` — a typo, a stale link, a fuzzer — silently
  * overrode a stored NGN preference with GBP. A value that cannot be honoured
  * should leave the viewer's own choice alone rather than replace it with a default.
+ *
+ * ## A choice the platform cannot honour is not honoured
+ *
+ * The last step, and the one that carries most of "the admin's configuration decides
+ * what the app offers". A URL or a cookie may name a currency no provider takes and
+ * no bank account receives — a link shared from when GBP was live, a cookie set
+ * before somebody turned Stripe off — and resolving to it means every price on the
+ * page is one nobody can pay, with the refusal arriving at the last click.
+ *
+ * So the answer is intersected with `offeredCurrencies()` at the end. Everything
+ * downstream — prices, rails, cards, filters, totals, the cart — is computed from
+ * this one value, so making it unable to return an unoffered currency is what makes
+ * the rest of the storefront correct without touching any of it.
+ *
+ * The viewer's preference is **not** overwritten: the cookie still says GBP, and if
+ * GBP comes back it is honoured again. This decides what to render now, not what
+ * they asked for.
  */
 export const resolveStorefrontCurrency = cache(
   async (rawCurrency?: string | string[]): Promise<StorefrontCurrency> => {
     const fromUrl = Array.isArray(rawCurrency) ? rawCurrency[0] : rawCurrency;
-    if (isStorefrontCurrency(fromUrl)) return fromUrl;
 
-    const jar = await cookies();
-    return toStorefrontCurrency(jar.get(CURRENCY_COOKIE)?.value);
+    const chosen = isStorefrontCurrency(fromUrl)
+      ? fromUrl
+      : toStorefrontCurrency((await cookies()).get(CURRENCY_COOKIE)?.value);
+
+    return (await isOfferedCurrency(chosen)) ? chosen : fallbackCurrency();
   },
 );

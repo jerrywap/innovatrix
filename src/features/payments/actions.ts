@@ -15,6 +15,7 @@ import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 import { staffActor, writeAuditLog } from "@/services/audit";
 import { SECRET_ENV_VARS, allDrivers, providersFor } from "@/services/payments/registry";
 import { createPaymentRecord } from "@/services/payments/payment-service";
+import { paymentSettingsChanged } from "@/services/catalog/cache";
 import { processPaymentSucceeded } from "@/services/payments/fulfilment";
 
 /**
@@ -133,6 +134,9 @@ export async function toggleProviderAction(
       after: { provider: input.provider, enabled: input.enabled, mode: input.mode },
     });
 
+    // Every write here changes which currencies the storefront may offer, which is
+    // read on nearly every page behind `PAYMENT_SETTINGS_TAG`.
+    paymentSettingsChanged();
     revalidatePath("/admin/settings/payments");
     return ok({ saved: true as const });
   });
@@ -197,6 +201,9 @@ export async function setProviderCurrenciesAction(
       after: { provider: input.provider, supportedCurrencies: input.currencies },
     });
 
+    // Every write here changes which currencies the storefront may offer, which is
+    // read on nearly every page behind `PAYMENT_SETTINGS_TAG`.
+    paymentSettingsChanged();
     revalidatePath("/admin/settings/payments");
     return ok({ saved: true as const });
   });
@@ -276,6 +283,9 @@ export async function setCurrencyRoutingAction(
       },
     });
 
+    // Every write here changes which currencies the storefront may offer, which is
+    // read on nearly every page behind `PAYMENT_SETTINGS_TAG`.
+    paymentSettingsChanged();
     revalidatePath("/admin/settings/payments");
     return ok({ saved: true as const });
   });
@@ -551,6 +561,18 @@ export async function saveOfflineInstructionsAction(
           .optional()
           .transform((value) => value === "on"),
         offlineInstructions: z.string().trim().max(2000),
+        /*
+         * Which currencies we can receive a transfer in.
+         *
+         * Bounded by `STOREFRONT_CURRENCIES` — the vocabulary, which is still
+         * static — while *availability* is what this field decides. A single
+         * unchecked box arrives as a string rather than an array, so it is
+         * normalised the way every other checkbox group here is.
+         */
+        offlineCurrencies: z
+          .union([z.enum(STOREFRONT_CURRENCIES), z.array(z.enum(STOREFRONT_CURRENCIES))])
+          .optional()
+          .transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v])),
       }),
       parseNestedFormData(formData),
     );
@@ -563,6 +585,7 @@ export async function saveOfflineInstructionsAction(
           singleton: "global",
           offlineEnabled: input.offlineEnabled,
           offlineInstructions: input.offlineInstructions,
+          offlineCurrencies: input.offlineCurrencies,
           updatedByUserId: toObjectId(staff.user.id),
         },
       },
@@ -578,9 +601,15 @@ export async function saveOfflineInstructionsAction(
       after: {
         enabled: input.offlineEnabled,
         instructionsPresent: input.offlineInstructions.length > 0,
+        // The currencies *are* auditable: they decide what the storefront offers,
+        // which is a commercial fact rather than a bank detail.
+        currencies: input.offlineCurrencies,
       },
     });
 
+    // Every write here changes which currencies the storefront may offer, which is
+    // read on nearly every page behind `PAYMENT_SETTINGS_TAG`.
+    paymentSettingsChanged();
     revalidatePath("/admin/settings/payments");
     revalidatePath("/checkout");
     return ok({ saved: true as const });

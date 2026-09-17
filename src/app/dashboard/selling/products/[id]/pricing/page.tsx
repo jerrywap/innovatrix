@@ -5,6 +5,7 @@ import { stepHref } from "@/features/products/steps";
 import { PricingForm } from "@/features/products/components/pricing-form";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { saveVendorPricingAction } from "@/features/vendors/product-actions";
+import { unofferedCurrencies } from "@/services/payments/offered-currencies";
 
 export const metadata: Metadata = { title: "Pricing" };
 
@@ -30,6 +31,7 @@ export default async function Page({
         product={product}
         nextHref={stepHref(product.id, "versions", "vendor")}
         action={saveVendorPricingAction}
+        unoffered={await unofferedCurrencies()}
       />
     </div>
   );

@@ -4,6 +4,7 @@ import { loadWizardProduct } from "@/features/products/wizard";
 import { stepHref } from "@/features/products/steps";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { PricingForm } from "@/features/products/components/pricing-form";
+import { unofferedCurrencies } from "@/services/payments/offered-currencies";
 
 export const metadata: Metadata = { title: "Pricing" };
 
@@ -18,7 +19,11 @@ export default async function Page({ params }: PageProps<"/admin/products/[id]/p
   return (
     <div className="flex flex-col gap-6">
       <StepHeading section="pricing" />
-      <PricingForm product={product} nextHref={stepHref(product.id, "versions")} />
+      <PricingForm
+        product={product}
+        nextHref={stepHref(product.id, "versions")}
+        unoffered={await unofferedCurrencies()}
+      />
     </div>
   );
 }

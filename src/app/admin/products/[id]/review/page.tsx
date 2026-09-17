@@ -5,6 +5,7 @@ import { loadWizardProduct } from "@/features/products/wizard";
 import { StepHeading } from "@/features/products/components/step-heading";
 import { PublishPanel } from "@/features/products/components/publish-panel";
 import { TemplateSiblingPanel } from "@/features/products/components/template-sibling-panel";
+import { unofferedCurrencies } from "@/services/payments/offered-currencies";
 import { stepHref } from "@/features/products/steps";
 import { products } from "@/repositories/product.repository";
 
@@ -67,6 +68,7 @@ export default async function ReviewPage({ params }: PageProps<"/admin/products/
         productId={product.id}
         catalogue={product.catalogue}
         licencePackageCount={product.licencePackages.length}
+        unoffered={await unofferedCurrencies()}
         {...(sibling
           ? {
               sibling: {

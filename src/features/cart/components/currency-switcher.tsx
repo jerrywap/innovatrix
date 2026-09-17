@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 import { switchCurrencyAction } from "../actions";
 
 /**
@@ -36,7 +35,20 @@ import { switchCurrencyAction } from "../actions";
  * also keeps this clear of the `<form action={fn}>` reset trap AGENTS.md
  * describes, should a Radix control ever land beside it.
  */
-export function CurrencySwitcher({ current }: { current: string }) {
+export function CurrencySwitcher({
+  current,
+  options,
+}: {
+  current: string;
+  /**
+   * The currencies on offer, resolved on the server.
+   *
+   * A prop rather than the module constant it used to import straight into this
+   * client bundle: what can be charged is a database answer, and a basket offering
+   * a switch to a currency nobody can take is the failure this replaced.
+   */
+  options: readonly string[];
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +66,7 @@ export function CurrencySwitcher({ current }: { current: string }) {
         <span className="text-subtle font-mono text-[9.5px] tracking-[0.16em] uppercase">
           Currency
         </span>
-        {STOREFRONT_CURRENCIES.map((code) => (
+        {options.map((code) => (
           <button
             key={code}
             type="button"

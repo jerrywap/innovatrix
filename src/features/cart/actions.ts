@@ -17,6 +17,7 @@ import {
   type StorefrontCurrency,
 } from "@/config/storefront";
 import { currencySwitchHref } from "@/services/marketplace/query";
+import { fallbackCurrency, isOfferedCurrency } from "@/services/payments/offered-currencies";
 import * as cartService from "@/services/cart/cart-service";
 import { ensureOwnerKey, readOwnerKey } from "@/services/cart/owner";
 import { cartCurrency, loadCart } from "./load";
@@ -223,7 +224,16 @@ export async function switchCurrencyAction(
 ): Promise<ActionResult<{ currency: StorefrontCurrency }>> {
   return withAction(async () => {
     const parsed = parseInput(switchCurrencySchema, input);
-    const currency = parsed.currency;
+    /*
+     * The schema bounds the *vocabulary*; whether we can be paid in a currency is
+     * a runtime fact and belongs here, the way `tips/actions.ts` checks it. The
+     * switcher only draws offered currencies, so reaching this with an unoffered
+     * one means a stale tab or a hand-made POST — substituted rather than refused,
+     * because the visitor asked to see prices and there is a currency we can show.
+     */
+    const currency = (await isOfferedCurrency(parsed.currency))
+      ? parsed.currency
+      : await fallbackCurrency();
 
     await applyCurrency(currency);
     refreshCart();
@@ -284,6 +294,16 @@ export async function adoptDetectedCurrencyAction(
     if (isStorefrontCurrency(existing)) {
       // Already chosen or already detected. A detection must never overwrite it.
       return ok({ currency: existing, adopted: false });
+    }
+
+    /*
+     * A visitor in Lagos gets NGN only if NGN can be taken. When it cannot, nothing
+     * is written — the same choice as an unreadable answer above, and for the same
+     * reason: a later visit should detect again once an admin has configured it,
+     * rather than find a thirty-day cookie holding a currency we rejected.
+     */
+    if (!(await isOfferedCurrency(currency))) {
+      return ok({ currency: await fallbackCurrency(), adopted: false });
     }
 
     await applyCurrency(currency);

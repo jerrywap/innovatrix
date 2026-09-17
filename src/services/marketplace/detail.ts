@@ -14,8 +14,14 @@ import type { RichTextDocument } from "@/lib/rich-text/schema";
 import { toObjectId } from "@/lib/db/base";
 import type { StorefrontCurrency } from "@/config/storefront";
 import { productCatalogueFilter } from "@/config/catalogue";
-import { STOREFRONT_CURRENCIES } from "@/config/storefront";
-import { CACHE_PROFILE, CATALOG_TAG, TAXONOMY_TAG, productTag } from "@/services/catalog/cache";
+import {
+  CACHE_PROFILE,
+  CATALOG_TAG,
+  PAYMENT_SETTINGS_TAG,
+  TAXONOMY_TAG,
+  productTag,
+} from "@/services/catalog/cache";
+import { offeredCurrencies } from "@/services/payments/offered-currencies";
 import { listCustomerVersions } from "@/services/catalog/version-service";
 import { publicDemoView, type PublicDemoView } from "@/services/catalog/demo-service";
 import { getTaxonomyIndex, type ProductCard, type TaxonomyIndex } from "./index";
@@ -225,7 +231,12 @@ export function screenshots(media: ProductDetail["media"]): ProductDetail["media
 
 export async function getProductDetail(slug: string): Promise<ProductDetail | null> {
   "use cache";
-  cacheTag(CATALOG_TAG, TAXONOMY_TAG, productTag(slug));
+  /*
+   * `PAYMENT_SETTINGS_TAG` because the price rows below are filtered to what an admin
+   * can be paid in — so turning a provider on or off changes this payload, not only
+   * the checkout it feeds.
+   */
+  cacheTag(CATALOG_TAG, TAXONOMY_TAG, productTag(slug), PAYMENT_SETTINGS_TAG);
   cacheLife(CACHE_PROFILE.product);
 
   await connectToDatabase();
@@ -248,9 +259,10 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
 
   if (!product) return null;
 
-  const [taxonomy, versions] = await Promise.all([
+  const [taxonomy, versions, offered] = await Promise.all([
     getTaxonomyIndex(),
     listCustomerVersions(String(product._id)),
+    offeredCurrencies(),
   ]);
 
   /*
@@ -332,7 +344,7 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
           },
         }
       : {}),
-    prices: storefrontPrices(product.prices),
+    prices: storefrontPrices(product.prices, offered),
     licencePackages: (product.licencePackages ?? []).map((pkg) => ({
       key: pkg.key,
       name: pkg.name,
@@ -341,14 +353,14 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
       activationLimit: pkg.activationLimit,
       supportMonths: pkg.supportMonths,
       updateMonths: pkg.updateMonths,
-      prices: storefrontPrices(pkg.prices),
+      prices: storefrontPrices(pkg.prices, offered),
     })),
     addons: (product.addons ?? []).map((addon) => ({
       key: addon.key,
       name: addon.name,
       ...(addon.description ? { description: addon.description } : {}),
       pricingType: addon.pricingType,
-      prices: storefrontPrices(addon.prices),
+      prices: storefrontPrices(addon.prices, offered),
     })),
     installation: {
       selfInstall: Boolean(product.installation?.selfInstall),
@@ -362,7 +374,9 @@ export async function getProductDetail(slug: string): Promise<ProductDetail | nu
         ? { typicalTurnaround: product.customization.typicalTurnaround }
         : {}),
       ...(product.customization?.startingPrice
-        ? { startingPrice: storefrontPrices([product.customization.startingPrice])[0]! }
+        ? {
+            startingPrice: storefrontPrices([product.customization.startingPrice], offered)[0]!,
+          }
         : {}),
       suggestedAreas: product.customization?.suggestedAreas ?? [],
     },
@@ -568,7 +582,7 @@ export async function getLinkedScriptListing(
   templateSlug: string,
 ): Promise<LinkedScriptListing | null> {
   "use cache";
-  cacheTag(CATALOG_TAG, productTag(templateSlug));
+  cacheTag(CATALOG_TAG, productTag(templateSlug), PAYMENT_SETTINGS_TAG);
   cacheLife(CACHE_PROFILE.product);
 
   await connectToDatabase();
@@ -599,7 +613,7 @@ export async function getLinkedScriptListing(
   return {
     slug: found.slug,
     name: found.name,
-    prices: storefrontPrices(found.prices),
+    prices: storefrontPrices(found.prices, await offeredCurrencies()),
   };
 }
 
@@ -692,15 +706,29 @@ export async function viewerOwnsProduct(
 /* ────────────────────────────────────────────── internals */
 
 /** Drop any currency the storefront does not sell in, and keep a stable order. */
+/**
+ * The price rows a shopper may be shown, in storefront order.
+ *
+ * `offered` rather than `STOREFRONT_CURRENCIES`: a price in a currency nothing can
+ * charge in is not an offer, and dropping it here is what turns such a product into
+ * a "Price on request" listing everywhere at once — the card, the panel and the
+ * structured data all read this list and none of them has to know why a row is
+ * missing.
+ *
+ * The rows are not deleted, only unpublished. Turning a provider back on brings the
+ * prices back exactly as the vendor set them, which is the reason the pricing form
+ * still accepts every storefront currency.
+ */
 function storefrontPrices(
   prices:
     ReadonlyArray<{ currency: string; amount: number; compareAtAmount?: number }> | undefined,
+  offered: readonly StorefrontCurrency[],
 ): DetailPrice[] {
   const byCurrency = new Map(
     (prices ?? []).map((price) => [price.currency.toUpperCase(), price]),
   );
 
-  return STOREFRONT_CURRENCIES.flatMap((currency) => {
+  return offered.flatMap((currency) => {
     const price = byCurrency.get(currency);
     if (!price) return [];
     return [

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { saveOfflineInstructionsAction } from "../actions";
 import { BRAND } from "@/config/brand";
+import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 
 /**
  * Bank details, shown to customers who choose to pay by transfer.
@@ -22,9 +23,12 @@ import { BRAND } from "@/config/brand";
 export function OfflineSettings({
   enabled,
   instructions,
+  currencies,
 }: {
   enabled: boolean;
   instructions: string;
+  /** Which currencies we hold an account in. Empty means none — see below. */
+  currencies: readonly string[];
 }) {
   const [state, submit] = useActionState(saveOfflineInstructionsAction, null);
 
@@ -69,6 +73,36 @@ export function OfflineSettings({
           however the tickbox is set — a payment route with no destination is worse than none.
         </span>
       </label>
+
+      <fieldset className="flex flex-col gap-1.5 border-0 p-0">
+        <legend className="text-[13px] font-medium">Currencies you can receive</legend>
+        {/*
+          The field that stops a transfer being offered in a currency we cannot
+          actually take. Enabling transfer used to make every storefront currency
+          payable by assumption — this asks instead.
+
+          Empty means **none**, not "all", which is the opposite of how a provider's
+          currency list reads. The reasoning is on `PaymentSettingsDoc.offlineCurrencies`:
+          a provider list narrows a known ceiling, and a bank account either exists
+          or does not.
+        */}
+        <div className="border-border bg-background flex flex-wrap gap-3 rounded-lg border px-3 py-2.5">
+          {STOREFRONT_CURRENCIES.map((currency) => (
+            <label key={currency} className="flex items-center gap-2 text-[13px]">
+              <Checkbox
+                name="offlineCurrencies"
+                value={currency}
+                defaultChecked={currencies.includes(currency)}
+              />
+              <span className="font-mono">{currency}</span>
+            </label>
+          ))}
+        </div>
+        <span className="text-subtle text-[12px]">
+          The accounts you actually hold — not what the page says. A currency with no account
+          here and no card provider is not offered to shoppers at all.
+        </span>
+      </fieldset>
 
       {state?.ok === false && (
         <p className="text-[12.5px] text-[var(--danger)]">{state.error}</p>

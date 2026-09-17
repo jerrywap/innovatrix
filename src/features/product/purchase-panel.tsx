@@ -167,6 +167,20 @@ export function PurchasePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [licencePrice, chosenAddons, addons, currency]);
 
+  /*
+   * Priced, but not in the currency this page is rendered in.
+   *
+   * `detail.ts` only publishes price rows in currencies an admin has a way of being
+   * paid in, so this is the shape of a product priced only in, say, GBP on a
+   * platform that can currently take only NGN. The Total row already reads "Price on
+   * request" for it; without this the button underneath still said "Add to basket",
+   * and `addItem` refused the line one screen later.
+   *
+   * Distinguished from "no package chosen", which is the same missing number for an
+   * entirely different reason and keeps the disabled button it already had.
+   */
+  const priceOnRequest = Boolean(selected) && !licencePrice;
+
   const quoteOnly = addons.some(
     (addon) => chosenAddons.has(addon.key) && addon.pricingType === "quote_required",
   );
@@ -319,7 +333,20 @@ export function PurchasePanel({
         */}
         <PreviewDemo demo={demo} slug={slug} />
 
-        {total === 0 && chosenAddons.size === 0 ? (
+        {priceOnRequest ? (
+          /*
+           * The same door a customisation request goes through — `/customize/{slug}`
+           * takes any product, not only a `customisable` one, and it is a
+           * conversation rather than a form. "Price on request" that leads nowhere
+           * is just a dead end with better manners.
+           */
+          <Link
+            href={`/customize/${slug}` as Route}
+            className="bg-foreground text-background flex items-center justify-center gap-2 rounded-full px-5 py-3 text-[14px] font-medium transition hover:opacity-90"
+          >
+            Ask for a price
+          </Link>
+        ) : total === 0 && chosenAddons.size === 0 ? (
           <GetItFree
             productId={productId}
             {...(selectedKey ? { licencePackageKey: selectedKey } : {})}
@@ -341,7 +368,9 @@ export function PurchasePanel({
           />
         )}
 
-        {customisable && (
+        {/* Not beside "Ask for a price": both links lead to the same page, and two
+            buttons to one destination read as two different offers. */}
+        {customisable && !priceOnRequest && (
           <Link
             href={`/customize/${slug}` as Route}
             className="border-border hover:bg-surface-muted flex items-center justify-center gap-2 rounded-full border px-5 py-3 text-[14px] font-medium transition"

@@ -889,6 +889,32 @@ export interface PaymentSettingsDoc {
   offlineInstructions?: string;
   /** Off ⇒ the option is not offered at checkout at all. */
   offlineEnabled: boolean;
+  /**
+   * The currencies a bank transfer can actually be received in.
+   *
+   * ## Why transfer needs its own list
+   *
+   * A card currency is decided by a provider: `providersFor()` answers it from the
+   * driver, the account's own list and the secret being present. A transfer has no
+   * provider to ask — but it still needs a **bank account in that currency**, and
+   * nothing else in this document records whether one exists.
+   *
+   * Without this, enabling transfer would silently make every storefront currency
+   * payable, which is how a GBP price gets offered to somebody we have no way to
+   * receive GBP from.
+   *
+   * ## Empty means **none**, not "unset"
+   *
+   * Deliberately the opposite of `currenciesFor()`, where an empty stored list falls
+   * back to the driver's full set. That rule is right there because a provider's
+   * account list *narrows* something already known — the driver's ceiling — so an
+   * empty narrowing is indistinguishable from no narrowing.
+   *
+   * Here there is no underlying truth to fall back to. We either hold an account in
+   * a currency or we do not, and guessing "all" is exactly the assumption this field
+   * was added to remove.
+   */
+  offlineCurrencies: string[];
   /** Vendor ticket 07. Absent ⇒ `DEFAULT_COMMISSION_BASIS_POINTS`. */
   commissionBasisPoints?: number;
   /**
@@ -947,6 +973,9 @@ const paymentSettingsSchema = new Schema<PaymentSettingsDoc>(
     // Default on: the machinery exists, and a platform that cannot take a bank
     // transfer is the state this ticket set out to fix.
     offlineEnabled: { type: Boolean, default: true },
+    // Default empty, and empty means none — see the interface. A fresh install takes
+    // no transfers until somebody says which account they hold.
+    offlineCurrencies: { type: [String], default: [] },
     // Vendor ticket 07. Same validator set as `TaxRuleDoc.basisPoints` — an integer,
     // 0..10000, because a rate held as a float is the mistake §84 settled for money.
     commissionBasisPoints: {

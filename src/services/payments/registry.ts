@@ -231,21 +231,28 @@ export async function providersFor(currency: CurrencyCode): Promise<ResolvedProv
 }
 
 /**
- * Which storefront currencies money can and cannot be taken in.
+ * Which storefront currencies a card payment can be taken in.
  *
- * Two functions rather than one and a filter, because the two callers want
- * opposite things and each wants a list it can render directly.
+ * Asked **before** a screen offers to take money. A tip dialog that lists amounts
+ * in a currency no provider serves ends in "We can't take payment in GBP at the
+ * moment" *after* somebody has chosen how much to give — the mistake discovered at
+ * the worst moment, on a screen whose whole purpose is goodwill.
  *
- * `uncoveredCurrencies` is the admin screen's validation error: a currency the
- * marketplace prices in and cannot charge for is a checkout that fails at the
- * last step, which is the most expensive place to discover a configuration
- * mistake.
+ * ## Cards only, which is why the storefront does not read this
  *
- * `payableCurrencies` is the other side of the same fact, asked **before** a
- * screen offers to take money. A tip dialog that lists amounts in a currency no
- * provider serves ends in "We can't take payment in GBP at the moment" *after*
- * somebody has chosen how much to give — which is the same mistake, discovered
- * at the same worst moment, on a screen whose whole purpose is goodwill.
+ * A bank transfer is a way of being paid too, and it has no provider to ask. The
+ * union of the two is `offeredCurrencies()`, and that is what decides which
+ * currencies the storefront shows. This is the narrower question — can we charge a
+ * card — and tipping is the caller that means it, because a tip is not an invoice
+ * somebody pays later by transfer.
+ *
+ * ## The `uncovered` side of this was deleted
+ *
+ * There was a mirror-image `uncoveredCurrencies()` here, for the admin screen, and
+ * it never acquired a caller: `settings-view.ts` computes the same list inside a
+ * loop that is already calling `providersFor` per currency for the routing table,
+ * so using this would have doubled the queries to learn something it had in hand.
+ * Two implementations where the unused one is the "shared" one is worse than one.
  */
 export async function payableCurrencies(): Promise<CurrencyCode[]> {
   const payable: CurrencyCode[] = [];
@@ -256,15 +263,4 @@ export async function payableCurrencies(): Promise<CurrencyCode[]> {
   }
 
   return payable;
-}
-
-export async function uncoveredCurrencies(): Promise<CurrencyCode[]> {
-  const uncovered: CurrencyCode[] = [];
-
-  for (const currency of STOREFRONT_CURRENCIES) {
-    const candidates = await providersFor(currency);
-    if (candidates.length === 0) uncovered.push(currency);
-  }
-
-  return uncovered;
 }

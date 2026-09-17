@@ -10,6 +10,7 @@ import { ProviderToggle } from "@/features/payments/components/provider-toggle";
 import { RoutingRow } from "@/features/payments/components/routing-row";
 import { CopyField } from "@/features/product/copy-field";
 import { OfflineSettings } from "@/features/payments/components/offline-settings";
+import { DEFAULT_CURRENCY } from "@/config/storefront";
 
 export const metadata: Metadata = { title: "Payments" };
 
@@ -44,9 +45,42 @@ async function Settings() {
 
   return (
     <div className="flex flex-col gap-8">
+      {/*
+        What a shopper can actually see and pay in, stated first and positively.
+
+        Everything below this describes what is *wrong*; this is the line an admin
+        came to check, and its absence is why a currency nobody could charge in stayed
+        on the storefront until somebody tried to pay.
+      */}
+      <section
+        className={
+          view.usingFallback
+            ? "rounded-xl border border-[var(--danger)]/40 bg-[var(--danger)]/5 px-4 py-3"
+            : "border-border bg-surface rounded-xl border px-4 py-3"
+        }
+      >
+        {view.usingFallback ? (
+          <p className="text-[13px] leading-relaxed">
+            <strong className="font-medium">No currency is configured.</strong> The storefront
+            is showing {DEFAULT_CURRENCY} so it still renders, but nothing can be charged in any
+            currency. Enable a provider below, or say which currencies you can take a bank
+            transfer in.
+          </p>
+        ) : (
+          <p className="text-[13px] leading-relaxed">
+            <strong className="font-medium">
+              Shoppers can see and pay in {view.offered.join(", ")}.
+            </strong>{" "}
+            Everything else the marketplace prices in is shown as &ldquo;Price on request&rdquo;
+            and cannot be bought.
+          </p>
+        )}
+      </section>
+
       <OfflineSettings
         enabled={view.offline.enabled}
         instructions={view.offline.instructions}
+        currencies={view.offline.currencies}
       />
 
       {view.uncovered.length > 0 && (
@@ -54,12 +88,13 @@ async function Settings() {
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-[var(--danger)]" aria-hidden />
           <span>
             <strong className="font-medium">
-              No provider can take {view.uncovered.join(", ")}.
+              No card provider can take {view.uncovered.join(", ")}.
             </strong>{" "}
-            The marketplace prices in {view.uncovered.length === 1 ? "it" : "them"}, so checkout
-            will refuse at the last step. Enable a provider that supports{" "}
-            {view.uncovered.length === 1 ? "it" : "them"}, or stop pricing in{" "}
-            {view.uncovered.length === 1 ? "it" : "them"}.
+            {/* Named as *card*, because a currency here may still be payable by
+                transfer — the row below says which. */}
+            Enable a provider that supports {view.uncovered.length === 1 ? "it" : "them"}, tick{" "}
+            {view.uncovered.length === 1 ? "it" : "them"} under bank transfer if you hold the
+            account, or leave {view.uncovered.length === 1 ? "it" : "them"} off the storefront.
           </span>
         </p>
       )}

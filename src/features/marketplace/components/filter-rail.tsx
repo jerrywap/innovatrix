@@ -14,7 +14,6 @@ import { visibleChildren, visibleRoots } from "@/services/marketplace/taxonomy-t
 import type { TermCounts } from "@/services/marketplace/term-counts";
 import { categoryLandingPath } from "@/config/catalogue";
 import type { StorefrontCurrency } from "@/config/storefront";
-import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 
 /**
  * The filter rail — §6.
@@ -316,6 +315,7 @@ export function FilterPanel({
   basePath,
   raw,
   currency,
+  currencies,
   currencyInUrl,
   sort,
   vendorLabels,
@@ -324,6 +324,15 @@ export function FilterPanel({
   basePath: string;
   raw: RawSearchParams;
   currency: StorefrontCurrency;
+  /**
+   * The currencies actually on offer — what the admin configured, not the whole
+   * storefront vocabulary.
+   *
+   * A prop rather than an import, because this renders into a client bundle in the
+   * panel and because the answer is a database read. One item means no choice, and
+   * the section drops out.
+   */
+  currencies: readonly StorefrontCurrency[];
   currencyInUrl: boolean;
   /**
    * The **effective** sort, from `parseMarketplaceQuery` — not `raw.sort`.
@@ -491,25 +500,31 @@ export function FilterPanel({
         the alternative, which is a preference that either never sticks or sticks
         without being asked for.
       */}
-      <Section title="Currency">
-        <div className="flex gap-1.5">
-          {STOREFRONT_CURRENCIES.map((code) =>
-            code === currency ? (
-              <span key={code} aria-current="true" className={`${CHIP} ${CHIP_ACTIVE}`}>
-                {code}
-              </span>
-            ) : (
-              <a
-                key={code}
-                href={hrefFor({ currency: code })}
-                className={`${CHIP} text-subtle`}
-              >
-                {code}
-              </a>
-            ),
-          )}
-        </div>
-      </Section>
+      {/*
+        Hidden entirely when there is one currency: a row of chips you cannot change
+        is decoration, and the price heading above already names the currency.
+      */}
+      {currencies.length > 1 && (
+        <Section title="Currency">
+          <div className="flex gap-1.5">
+            {currencies.map((code) =>
+              code === currency ? (
+                <span key={code} aria-current="true" className={`${CHIP} ${CHIP_ACTIVE}`}>
+                  {code}
+                </span>
+              ) : (
+                <a
+                  key={code}
+                  href={hrefFor({ currency: code })}
+                  className={`${CHIP} text-subtle`}
+                >
+                  {code}
+                </a>
+              ),
+            )}
+          </div>
+        </Section>
+      )}
 
       {/*
         The sidebar's job at `lg` and above; here only when there is no sidebar.

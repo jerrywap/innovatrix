@@ -81,6 +81,7 @@ export function TemplateSiblingPanel({
   linkedScript,
   /** How many licence packages this listing has — the copy warns when it is >1. */
   licencePackageCount,
+  unoffered = [],
   action = createTemplateSiblingAction,
   scriptAction = createScriptSiblingAction,
   unlinkAction = unlinkTemplateSiblingAction,
@@ -90,6 +91,8 @@ export function TemplateSiblingPanel({
   sibling?: TemplateSiblingView;
   linkedScript?: TemplateSiblingView;
   licencePackageCount: number;
+  /** Storefront currencies nothing can be charged in — passed to the price matrix. */
+  unoffered?: readonly string[];
   action?: SiblingCreateAction;
   /** The reverse direction — a template spawning its backend script. */
   scriptAction?: SiblingCreateAction;
@@ -111,6 +114,7 @@ export function TemplateSiblingPanel({
       <CreateForm
         productId={productId}
         licencePackageCount={licencePackageCount}
+        unoffered={unoffered}
         action={scriptAction}
         copy={SCRIPT_DIRECTION}
       />
@@ -144,6 +148,7 @@ export function TemplateSiblingPanel({
     <CreateForm
       productId={productId}
       licencePackageCount={licencePackageCount}
+      unoffered={unoffered}
       action={action}
       copy={TEMPLATE_DIRECTION}
     />
@@ -210,11 +215,13 @@ const SCRIPT_DIRECTION: DirectionCopy = {
 function CreateForm({
   productId,
   licencePackageCount,
+  unoffered,
   action,
   copy,
 }: {
   productId: string;
   licencePackageCount: number;
+  unoffered: readonly string[];
   action: SiblingCreateAction;
   copy: DirectionCopy;
 }) {
@@ -288,7 +295,7 @@ function CreateForm({
         {confirmed && (
           <div className="flex flex-col gap-2 pl-7">
             <span className="text-[12.5px] font-medium">Price of the new listing</span>
-            <PriceMatrix name="prices" prices={[]} context="product" />
+            <PriceMatrix name="prices" prices={[]} context="product" unoffered={unoffered} />
 
             {/* Said before the click, not after — see `DirectionCopy.stillNeeded`. */}
             <p className="text-subtle text-[12.5px] leading-relaxed">

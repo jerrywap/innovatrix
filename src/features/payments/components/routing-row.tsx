@@ -34,6 +34,17 @@ export function RoutingRow({ route }: { route: CurrencyRoutingView }) {
         <span className="text-subtle text-[11.5px]">
           Enable one above, or tick this currency on an account that takes it.
         </span>
+        {/*
+          The difference between "unbuyable" and "slow to buy". A currency with no
+          card provider but a bank account is still on the storefront and still takes
+          money — by hand — so saying only "no provider takes this" would read as
+          worse than it is.
+        */}
+        {route.transfer && (
+          <span className="text-subtle text-[11.5px]">
+            Bank transfer is on for {route.currency}, so it stays on the storefront.
+          </span>
+        )}
       </div>
     );
   }

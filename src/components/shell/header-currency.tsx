@@ -1,9 +1,9 @@
 import "server-only";
 import { headers } from "next/headers";
 import { CURRENT_PATH_HEADER } from "@/config/request-context";
-import { STOREFRONT_CURRENCIES } from "@/config/storefront";
 import { CURRENCIES } from "@/lib/money";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
+import { offeredCurrencies } from "@/services/payments/offered-currencies";
 import { isStorefrontCurrencyParam } from "@/services/marketplace/query";
 import { CurrencyMenu } from "./currency-menu";
 
@@ -55,10 +55,26 @@ export async function HeaderCurrency() {
     isStorefrontCurrencyParam(fromUrl) ? fromUrl : undefined,
   );
 
+  /*
+   * What the admin configured, not what the business prices in.
+   *
+   * Offering a currency nobody can be charged in is how a shopper spends a session
+   * browsing £ prices and meets the refusal at the last click.
+   */
+  const offered = await offeredCurrencies();
+
+  /*
+   * One option is not a choice.
+   *
+   * A single-currency platform showing a menu with one item in it is a control that
+   * cannot do anything — and it invites the click that proves it.
+   */
+  if (offered.length < 2) return null;
+
   return (
     <CurrencyMenu
       current={current}
-      options={STOREFRONT_CURRENCIES.map((code) => ({
+      options={offered.map((code) => ({
         code,
         // `lib/money.ts` is isomorphic — no `server-only` — so the symbol and the
         // full name can cross to the client component as plain strings.

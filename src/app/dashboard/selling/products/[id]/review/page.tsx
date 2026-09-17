@@ -6,6 +6,7 @@ import { StepHeading } from "@/features/products/components/step-heading";
 import { ReadinessGaps } from "@/features/products/components/readiness-gaps";
 import { SubmitPanel } from "@/features/vendors/components/submit-panel";
 import { TemplateSiblingPanel } from "@/features/products/components/template-sibling-panel";
+import { unofferedCurrencies } from "@/services/payments/offered-currencies";
 import { stepHref } from "@/features/products/steps";
 import {
   createVendorScriptSiblingAction,
@@ -87,6 +88,7 @@ export default async function Page({
         productId={product.id}
         catalogue={doc.catalogue ?? "script"}
         licencePackageCount={doc.licencePackages.length}
+        unoffered={await unofferedCurrencies()}
         action={createVendorTemplateSiblingAction}
         // Both directions, both vendor-scoped. Letting this default would dispatch
         // the *staff* action, which asks for `product.create` and 403s a vendor.

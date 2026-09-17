@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Gift } from "lucide-react";
+import { createContext, useContext, useState } from "react";
+import { Gift, TriangleAlert } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -54,14 +54,18 @@ export function PricingForm({
   product,
   nextHref,
   action = savePricingAction,
+  unoffered = [],
 }: {
   product: AdminProductView;
   nextHref: string;
   action?: SectionFormProps["action"];
+  /** Storefront currencies nothing can currently be charged in — see `UnofferedCurrencies`. */
+  unoffered?: readonly string[];
 }) {
   return (
-    <SectionForm action={action} productId={product.id} nextHref={nextHref}>
-      {/*
+    <UnofferedCurrencies.Provider value={unoffered}>
+      <SectionForm action={action} productId={product.id} nextHref={nextHref}>
+        {/*
         There is no product-level price input any more.
         
         There were two independent price stores and nothing reconciled them:
@@ -76,37 +80,54 @@ export function PricingForm({
         two cannot disagree by construction — which also retires the
         `unbuyable_currency` publish gate that existed only to police the gap.
       */}
-      <FieldGroup
-        title="Licence packages"
-        description="What a customer actually buys, and what they are charged. The marketplace advertises your cheapest package."
-      >
-        <Repeater
-          initial={product.licencePackages}
-          blank={blankPackage}
-          addLabel="Add another package"
-          min={1}
-          minLabel="A product needs at least one package — this is the only thing a customer can buy."
-          max={12}
-          row={(pkg, index) => <LicencePackageRow pkg={pkg} index={index} />}
-        />
-      </FieldGroup>
+        <FieldGroup
+          title="Licence packages"
+          description="What a customer actually buys, and what they are charged. The marketplace advertises your cheapest package."
+        >
+          <Repeater
+            initial={product.licencePackages}
+            blank={blankPackage}
+            addLabel="Add another package"
+            min={1}
+            minLabel="A product needs at least one package — this is the only thing a customer can buy."
+            max={12}
+            row={(pkg, index) => <LicencePackageRow pkg={pkg} index={index} />}
+          />
+        </FieldGroup>
 
-      <FieldGroup
-        title="Service add-ons"
-        description="Installation, branding, data migration — the things sold alongside."
-      >
-        <Repeater
-          initial={product.addons}
-          blank={blankAddon}
-          addLabel="Add a service"
-          emptyLabel="No add-ons offered."
-          max={20}
-          row={(addon, index) => <AddonRow addon={addon} index={index} />}
-        />
-      </FieldGroup>
-    </SectionForm>
+        <FieldGroup
+          title="Service add-ons"
+          description="Installation, branding, data migration — the things sold alongside."
+        >
+          <Repeater
+            initial={product.addons}
+            blank={blankAddon}
+            addLabel="Add a service"
+            emptyLabel="No add-ons offered."
+            max={20}
+            row={(addon, index) => <AddonRow addon={addon} index={index} />}
+          />
+        </FieldGroup>
+      </SectionForm>
+    </UnofferedCurrencies.Provider>
   );
 }
+
+/**
+ * Which currency columns are currently unpayable, for the warning under them.
+ *
+ * ## Context rather than a prop
+ *
+ * `PriceMatrix` is three levels down through `Repeater`'s `row` render prop, once
+ * per package and once per add-on, and the value is the same for every one of them
+ * — it is a property of the platform, not of the row. Threading it would mean a
+ * parameter on `LicencePackageRow`, on `AddonRow` and on both `row` closures, all
+ * to carry one unchanging list.
+ *
+ * Empty by default, deliberately: a caller that has not asked the question shows no
+ * warning rather than warning about everything.
+ */
+const UnofferedCurrencies = createContext<readonly string[]>([]);
 
 /**
  * What a blank means, per place this control appears.
@@ -162,12 +183,17 @@ export function PriceMatrix({
   name,
   prices,
   context,
+  unoffered: unofferedProp,
 }: {
   name: string;
   prices: readonly PriceView[];
   /** Required, undefaulted — see `BLANK_MEANS`. */
   context: PriceMatrixContext;
+  /** Overrides the context, for the one matrix that renders outside `PricingForm`. */
+  unoffered?: readonly string[];
 }) {
+  const fromContext = useContext(UnofferedCurrencies);
+  const unoffered = unofferedProp ?? fromContext;
   /*
    * The values live here, not in each `MoneyInput`, so "Mark as free" can write
    * every currency at once. Seeded from what is stored; a decimal string per
@@ -231,6 +257,26 @@ export function PriceMatrix({
           onValueChange={(next) => setAmounts((current) => ({ ...current, [currency]: next }))}
         />
       ))}
+      {/*
+        A warning, not a block. The field stays editable and the price stays saved:
+        an admin turning a provider off for an afternoon must not strand prices
+        somebody set, and turning it back on brings them back untouched. What the
+        vendor needs to know is only that the number is not currently chargeable.
+
+        Suppressed once every column is dead, where the sentence would be three
+        warnings saying the platform takes no money at all — which is the admin
+        payments screen's statement to make, not this form's.
+      */}
+      {unoffered.length > 0 && unoffered.length < STOREFRONT_CURRENCIES.length && (
+        <p className="text-subtle flex items-start gap-1.5 text-[12.5px]">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
+          <span>
+            Nobody can be charged in {unoffered.join(", ")} right now. Prices you set are kept
+            and come back when payment for {unoffered.length > 1 ? "those currencies" : "it"} is
+            configured.
+          </span>
+        </p>
+      )}
       <p className="text-subtle text-[12.5px]">{BLANK_MEANS[context]}</p>
     </div>
   );

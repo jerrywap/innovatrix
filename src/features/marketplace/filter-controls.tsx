@@ -14,6 +14,7 @@ import type { TaxonomyIndex } from "@/services/marketplace";
 import { vendorNames } from "@/services/marketplace/storefront";
 import type { CatalogueScope } from "@/config/catalogue";
 import { resolveStorefrontCurrency } from "@/services/marketplace/currency";
+import { offeredCurrencies } from "@/services/payments/offered-currencies";
 import { FilterPanel, FilterTaxonomy } from "./components/filter-rail";
 import { termCounts, type TermCounts } from "@/services/marketplace/term-counts";
 import { FilterPopover } from "./components/filter-popover";
@@ -71,7 +72,7 @@ export async function FilterControls({
     ...(forced ? { forced } : {}),
   });
 
-  const [taxonomy, vendorLabels, counts] = await Promise.all([
+  const [taxonomy, vendorLabels, counts, currencies] = await Promise.all([
     // Scoped, which is what stops one catalogue's panel advertising the other's
     // categories.
     getTaxonomyIndex(catalogue),
@@ -82,6 +83,8 @@ export async function FilterControls({
     // query. See `termCounts` for why a relative or capped count cannot decide
     // visibility.
     termCounts(catalogue),
+    // What the admin configured. The panel offers these and no others.
+    offeredCurrencies(),
   ]);
 
   return (
@@ -90,6 +93,7 @@ export async function FilterControls({
         basePath={basePath}
         raw={raw}
         currency={currency}
+        currencies={currencies}
         currencyInUrl={currencyMustBeInUrl(query)}
         // The *effective* sort, not `raw.sort`. The parser has already applied
         // the "searching ranks by relevance, browsing shows newest first" rule,
